@@ -1,55 +1,16 @@
-# distress-signals
+# Distress Signals
 
-distress-signals finds companies whose revenue depends on something about to happen that they don't
-control: a large contract coming up for renewal, a regulator's decision, a rule or law taking effect, a
-court ruling, a funding deadline. For each one it works out how much revenue is at stake and why, and
-names the person at the company to talk to, with a short opening message.
+Distress Signals searches public records for companies with material revenue exposure to an upcoming event. In an open search, the agent discovers both the event and the companies. It estimates the revenue exposed and identifies whom an adviser, broker, insurer or lender could contact about it.
 
-It's built for people whose business is helping companies with exposure like that, such as advisers,
-brokers, insurers and lenders, who need to know whom to call, about what, and why now.
-
-**[See an example run →](https://owassmer.github.io/distress-signals/)** One full research session: what it
-found, each case in full with the figures behind it, and the research itself, which you can replay step by
-step.
-
-## What you get for each company
-
-- **The event:** what has to happen, and when.
-- **The dependency:** why the company earns less if it happens. This is the contract, customer, product,
-  program or channel the revenue runs through.
-- **The exposure:** how much revenue is at stake over a stated period, and what share of the business that
-  is. Every figure is traced to its source or shown as an assumption, with the reasoning.
-- **The person:** who is responsible for the affected business or its financial exposure, and the public
-  source that names them.
-- **Why now:** the decision, deadline or development that makes the conversation timely.
-- **An opening:** a short message the person could answer from their own knowledge of the business.
+In the published search, the agent investigated federal hemp restrictions and found two exposures in RYTHM’s filings. The restrictions could interrupt product sales and satisfy one condition for a Green Thumb affiliate to repurchase licensed brands. The licensing fees depend on whether the affiliate exercises that right, which brands it buys and when. [View the company cases](https://owassmer.github.io/distress-signals/#found)
 
 ## How it works
 
-**A research agent does the investigating.** It's a Claude model working with a set of research tools.
-It searches current public records, reads what it finds, follows leads, and decides which companies are
-worth contacting. The records are:
-- the full text of SEC filings, where companies describe the events they expect to affect them;
-- the Federal Register, the government's dated calendar of rules and notices;
-- federal contract awards;
-- payment records from 19 state and local governments;
-- the open web.
+**Research.** A Claude agent searches public records, follows leads and selects cases that fit the brief. Sources include SEC filings, Federal Register notices and rules, federal contract awards, participating state and local payment ledgers, and the open web. Government payment records can identify private suppliers as well as public companies.
 
-It covers private companies as well as public ones, because government payment records reach any company
-a government pays.
+**Evidence and calculation.** Each model input has a source passage, a calculation from stored records or an explicit assumption. The system checks quoted passages against stored document text when available. When it has only a web excerpt, it records the quotation as unchecked. The agent specifies the scenarios and formulas, and the software calculates the revenue under each scenario.
 
-**Code keeps the numbers honest.** The agent can't just assert a figure. Every number in a case is one of
-three things:
-- quoted from a source, and checked word for word against the stored document;
-- calculated from records it read;
-- labeled as an assumption, with its reasoning.
-
-The arithmetic is done by code, not by the model.
-
-**HubSpot is where you work.** Each case arrives in HubSpot as a deal, linked to the company and the
-person, with a full memo. You start research from HubSpot too, by setting a field on a company record.
-While a run goes, you can watch it live. As conversations happen, you record outcomes on the deal, and
-they flow back into the research.
+**HubSpot.** With the integration configured, the operator can request research from a company record and review cases as proposed deals. Each deal includes a memo and links to the company and contact when available. The integration records deal outcomes for subsequent research.
 
 ## Setting it up
 
@@ -76,36 +37,32 @@ line tool signed in to a Claude account, and a HubSpot account with a private ap
    .venv/bin/python -m distress_signals install-worker    # runs requested research and serves the live view
    ```
 
-   The services start whenever you log in to the Mac, and restart if they stop.
+   The installed services start at macOS login and restart if they stop.
 
-## Using it
+## Request research in HubSpot
 
-Open a company record in HubSpot and set **Distress run** to one of these:
+The **Distress run** field on a company record accepts the following requests. **Run the open search** uses the standing mandate across companies.
 
 | Option | What it does |
 |---|---|
 | Research this company | Looks for an upcoming event that this company's revenue depends on |
 | Research the event in the note | Starts from an event you describe in **Distress run note**, and finds the companies exposed to it |
-| Run the open search | Looks anywhere for companies with this kind of exposure, following the standing instructions in `config/mandate.md` |
+| Run the open search | Discovers events and exposed companies under the standing mandate in `config/mandate.md` |
 | Run the note as a brief | Answers a question you write in **Distress run note** |
 
 On a case's deal, **Refresh this case** checks the case again against current sources.
 
-Within a minute, **Distress run status** changes to Running. Then:
+The worker marks the request **Running** when research starts.
+
 - Each case appears as a deal in the **Proposed** stage, with the company, the person and the memo.
-- The record's activity timeline gets a running commentary, with a link to a live view of the research.
-- When the run ends, the record shows a summary and what the run cost.
+- The activity timeline links to the live research log.
+- The completed run adds a summary to the requesting record.
 - Follow-on leads appear as companies marked **Proposed lead**. Set **Research this company** on one to
-  look into it.
+  investigate the lead.
 
-Moving a deal out of Proposed, or closing it with an outcome, is your review. Outcomes, recorded in the
-**Distress outcome** field on the deal, come back into the research.
-
-A run usually takes half an hour or so, and costs roughly $10 to $20 in model usage.
+Record the result in the deal’s **Distress outcome** field. Subsequent company lookups include the recorded outcome.
 
 ## From a terminal
-
-Everything above can also be run directly:
 
 ```bash
 .venv/bin/python -m distress_signals research                    # the open search
@@ -132,12 +89,6 @@ The live view of runs is at http://localhost:8790 while the services are running
 
 ## Design
 
-The researcher makes the judgment calls: which events matter, which companies are exposed, how to model
-the revenue at stake, and who to contact. The code supplies records, checks quotations and figures, does
-the arithmetic, and keeps everything traceable.
+The research log stores reasoning summaries, messages and tool calls. A case refresh starts from the saved case and checks its sources again.
 
-The researcher starts each run from current records rather than from what it remembers, and nothing from
-earlier runs is handed to it as a starting list. Every run keeps a complete transcript of the model's
-reasoning and every tool call, so any case can be traced back to how it was found.
-
-`SPEC.md` describes the design in full.
+The [design specification](SPEC.md) describes the research tools, evidence checks and data model.

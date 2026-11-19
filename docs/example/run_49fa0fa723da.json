@@ -1,0 +1,350 @@
+{
+  "cases": {
+    "opp_177f637a9d6a": {
+      "source_digest": "a8ab31fbc578a934076f246db25d415f87903ca13bc5140206a36133788106a1",
+      "edits": {
+        "stream": "Green Thumb brand licensing fees",
+        "event": "Federal THC limits for hemp-derived products",
+        "dependency": "RYTHM bought the brands from Green Thumb in 2025 and licensed them back for fixed fees through August 2030. A repurchase ends the fees on the rights Green Thumb’s affiliate buys back.",
+        "why_now": "A Green Thumb subsidiary holds a RYTHM note due February 25, 2027. A repurchase following the December hemp deadline could reduce RYTHM’s licensing income as the note comes due.",
+        "of": "RYTHM’s total 2027 revenue at its Q3 2026 run rate",
+        "who": "Sanjay Tolia, Independent Director and Audit Committee Chair",
+        "opening": "Mr. Tolia, RYTHM’s Q3 filing says the December hemp restrictions would satisfy one condition for Green Thumb’s affiliate to repurchase the licensed brands. How is the audit committee assessing a potential repurchase alongside the February note maturity?",
+        "why_matters": "Green Thumb pays RYTHM $64 million a year for its consumer packaged goods brands and $6 million for the incredibles brand. Together the fees equal about 73% of RYTHM’s Q3 2026 revenue on an annualized basis.",
+        "condition": "RYTHM says the federal hemp limits would satisfy one eligibility condition for repurchase. Fee revenue would fall only if the applicable conditions were met and Green Thumb’s affiliate chose to exercise its option.",
+        "timing": "The two five-year option windows end in May and August 2030. The April and July repurchase dates are scenario assumptions.",
+        "event_description": "Section 781 of Public Law 119-37 counts THCA toward the 0.3% total-THC limit for hemp and caps total THC in finished cannabinoid products at 0.4 mg per container. Products above the applicable limit lose federal hemp status.",
+        "event_timing": "The limits affecting RYTHM’s products were scheduled for December 11, 2026, the same day federal funding was due to expire. Congress could change that date or amend the limits in the funding bill or separate legislation.",
+        "baseline": {
+          "description": "Both agreements continue throughout 2027 at their fixed annual fees. The $70 million baseline excludes inflation adjustments."
+        },
+        "scenarios": [
+          {
+            "label": "Both licenses end April 1",
+            "description": "After the federal hemp limits take effect, Green Thumb’s affiliate repurchases both sets of brand rights on April 1, 2027. RYTHM earns only the first quarter’s fees."
+          },
+          {
+            "label": "CPG license ends July 1",
+            "description": "Green Thumb’s affiliate repurchases only the consumer packaged goods brands on July 1, 2027. RYTHM earns six months of the $64 million fee and all of the $6 million incredibles fee."
+          }
+        ],
+        "inputs": [
+          {
+            "name": "Annual CPG brands license fee"
+          },
+          {
+            "name": "Annual incredibles license fee"
+          },
+          {
+            "name": "CPG fees retained after July repurchase",
+            "how": "A July 1 repurchase ends the $64 million license halfway through 2027. The incredibles license continues."
+          },
+          {
+            "name": "Combined fees retained after April repurchase",
+            "how": "An April 1 repurchase ends both fee streams after the first quarter."
+          },
+          {
+            "name": "Q3 2026 total revenue",
+            "note": "The filing reports thousands of dollars."
+          },
+          {
+            "name": "Quarters modeled",
+            "how": "Four quarters of Q3 2026 total revenue provide the comparison for calendar 2027."
+          }
+        ],
+        "evidence": [
+          {
+            "supports": "The hemp limits would satisfy one repurchase condition. Green Thumb retains discretion over exercise."
+          },
+          {
+            "supports": "One related-party customer accounted for 74% of Q3 2026 revenue from continuing operations"
+          },
+          {
+            "supports": "The fixed-fee term runs through August 27, 2030, subject to the agreements’ termination provisions"
+          },
+          {
+            "supports": "RYTHM paid $50 million for VCP23, which held the CPG brand rights"
+          },
+          {
+            "supports": "Sanjay Tolia chairs RYTHM’s audit committee"
+          },
+          {
+            "supports": "The audit committee reviews and approves related-party transactions"
+          }
+        ],
+        "role": "The audit committee reviews and approves related-party transactions, including arrangements with Green Thumb.",
+        "next_action": "Route an inquiry through RYTHM’s corporate secretary. Check subsequent filings for an option exercise notice and the brands and dates it covers.",
+        "date_label": "Scheduled effective date"
+      }
+    },
+    "opp_94c82b113226": {
+      "source_digest": "2875f6922b2ac498e68e97927f9004dafc8b3ad818a96bb0ad840e0c999c64d9",
+      "edits": {
+        "stream": "U.S. WAKIX net product revenue",
+        "event": "WAKIX patent litigation and potential generic entry",
+        "dependency": "Generic pitolisant would compete with WAKIX. Harmony had settled with six of seven generic applicants. At least one settlement permits early entry under conditions the public excerpt does not specify. Competition from other applicants depends on those terms.",
+        "why_now": "Peter Anastasiou was due to become CEO on January 1, less than four weeks before the injunction hearing and ahead of Harmony’s 2027 guidance.",
+        "of": "Harmony’s total 2027 revenue at its Q3 2026 run rate",
+        "who": "Peter Anastasiou, Senior Executive Vice President and COO, appointed CEO effective January 1, 2027",
+        "opening": "Peter, congratulations on your appointment. With the AET injunction hearing in January and the 30-month stay expiring in February, how are you accounting for the timing of a possible generic WAKIX launch in the 2027 plan?",
+        "why_matters": "Harmony earned its entire $268.9 million of Q3 2026 revenue from WAKIX. A March 2027 generic launch would cut modeled annual revenue by $582.6 million. An October launch would cut it by $174.8 million. Both estimates assume WAKIX retains 35% of its prior sales rate after entry.",
+        "condition": "Generic entry requires FDA approval and a decision by AET and Sandoz to launch. The larger shortfall assumes the court rules for AET on the ’197 and ’947 patents, denies an injunction under the ’920 patent and grants no further stay.",
+        "timing": "The March and October launch dates allow ten and three months of competition, respectively, in calendar 2027.",
+        "event_description": "AET applied for approval to sell generic pitolisant with marketing partner Sandoz. The District of Delaware heard the case on Harmony’s ’197 and ’947 patents in February 2026. A separate motion seeks a preliminary injunction under the ’920 patent.",
+        "event_timing": "The injunction hearing was scheduled for January 26, 2027. The 30-month stay expires February 14. Court decisions were expected around the expiry, but their dates remained open.",
+        "baseline": {
+          "description": "With no generic entry in 2027, Harmony earns $268.9 million in WAKIX sales per quarter, its Q3 2026 rate."
+        },
+        "scenarios": [
+          {
+            "label": "Generic launch in March",
+            "description": "After adverse patent rulings and FDA approval, a generic version of WAKIX launches March 1, 2027. Harmony retains 35% of baseline WAKIX sales over the next ten months."
+          },
+          {
+            "label": "Generic launch in October",
+            "description": "Appeal proceedings or interim relief delay a generic WAKIX launch until October 1, 2027. Harmony retains 35% of baseline sales over the final three months."
+          }
+        ],
+        "inputs": [
+          {
+            "name": "Q3 2026 cost of product sold",
+            "note": "The filing reports 30% for Q3 and 25.3% for the first nine months. The model uses the quarterly ratio."
+          },
+          {
+            "name": "Months before March launch",
+            "how": "The model assumes March 1 entry after the stay expires, conditional on the court decisions and FDA approval."
+          },
+          {
+            "name": "Months before October launch",
+            "how": "The model assumes October 1 entry after a period of appeal or interim relief."
+          },
+          {
+            "name": "Q3 2026 WAKIX net revenue"
+          },
+          {
+            "name": "Quarters modeled",
+            "how": "Four quarters at the Q3 2026 rate give baseline annual revenue of $1.076 billion."
+          },
+          {
+            "name": "Revenue retained after generic entry",
+            "how": "The model assumes that WAKIX retains an average of 35% of baseline sales in the months after launch. Actual erosion depends on the timing, number and pricing of competing products."
+          }
+        ],
+        "evidence": [
+          {
+            "supports": "Harmony identifies adverse generic litigation as a material risk"
+          },
+          {
+            "supports": "AET sought FDA approval to market generic WAKIX before the listed patents expire"
+          },
+          {
+            "supports": "The ’947 and ’197 patents expire in September 2029 and March 2030, respectively"
+          },
+          {
+            "supports": "Hikma’s settlement permits earlier entry under specified circumstances"
+          },
+          {
+            "supports": "Harmony reported about $269 million in Q3 WAKIX net revenue"
+          },
+          {
+            "supports": "Harmony appointed Peter Anastasiou president and CEO effective January 1, 2027"
+          },
+          {
+            "supports": "Harmony appointed Stephen Mollichella interim principal financial officer in July 2026"
+          }
+        ],
+        "role": null,
+        "next_action": "Check the court rulings, FDA approval status and any launch announcement. Once a generic enters the market, compare reported WAKIX sales with the assumed retention rate.",
+        "date_label": "Patent litigation stay expires"
+      }
+    },
+    "opp_af4df5bacc6c": {
+      "source_digest": "654180727db4274f1ed88291a494dad20a331be0fbeb9289481d60aeaf44b560",
+      "edits": {
+        "stream": "Hemp-derived THC product sales",
+        "event": "Federal THC limits for hemp-derived products",
+        "dependency": "RYTHM uses distributors, retailers and its website to sell hemp-derived THC products. Its filing says revenue from the current lineup could fall significantly or cease under the new limit. Distributors can also require RYTHM to repurchase inventory after a regulatory recall or ban.",
+        "why_now": "Product shipped before the December deadline could be subject to distributor returns. Year-end sales and refund reserves depend in part on how much affected inventory distributors hold.",
+        "of": "RYTHM’s total 2027 revenue at its Q3 2026 run rate",
+        "opening": "Brad, RYTHM’s Q3 filing says distributors can require inventory repurchases if the December hemp restrictions take effect. How much product would be eligible for return, and how much of the current lineup could you continue selling in 2027?",
+        "why_matters": "RYTHM reported $6.36 million in Q3 2026 non-licensing revenue, about 27% of total revenue. A full year without those sales would put 2027 revenue $25.4 million below the Q3 run rate. At Q3’s product gross margin of about 13%, the corresponding gross-profit shortfall would be about $3.4 million.",
+        "condition": "RYTHM’s current hemp-derived THC products exceed the new per-container limit. The full-year shortfall assumes RYTHM cannot replace those sales with compliant products during 2027.",
+        "timing": "A December 11 effective date could interrupt sales in the final three weeks of 2026. The two 2027 estimates exclude distributor returns because the filing does not quantify eligible inventory.",
+        "event_description": "Section 781 of Public Law 119-37 counts THCA toward the 0.3% total-THC limit for hemp and caps total THC in finished cannabinoid products at 0.4 mg per container. Products above the applicable limit lose federal hemp status.",
+        "event_timing": "The limits affecting RYTHM’s products were scheduled for December 11, 2026, the same day federal funding was due to expire. Congress could change that date or amend the limits in the funding bill or separate legislation.",
+        "baseline": {
+          "description": "RYTHM can continue selling its existing products and earns $6.36 million per quarter, its Q3 2026 non-licensing revenue."
+        },
+        "scenarios": [
+          {
+            "label": "Sales cease throughout 2027",
+            "description": "The federal THC limits take effect in December 2026 and RYTHM makes no sales of its current hemp-derived THC products in 2027."
+          },
+          {
+            "label": "Sales resume in July 2027",
+            "description": "Congress permits compliant products in mid-2027. Sales restart in July at half the Q3 2026 rate, yielding one-quarter of baseline annual sales."
+          }
+        ],
+        "inputs": [
+          {
+            "name": "Q3 2026 cost of goods sold",
+            "note": "RYTHM attributed all cost of goods sold to non-licensing revenue."
+          },
+          {
+            "name": "Q3 2026 non-licensing revenue",
+            "note": "The filing reports thousands of dollars. The model uses this line as the quarterly revenue base for the affected products."
+          },
+          {
+            "name": "Q3 2026 total revenue",
+            "note": "The filing reports thousands of dollars."
+          },
+          {
+            "name": "Quarters modeled",
+            "how": "Four quarters at the Q3 2026 rate. The estimate excludes growth and seasonality."
+          },
+          {
+            "name": "Annual sales retained after a July restart",
+            "how": "Six months of sales at half the baseline rate yields one-quarter of a full year’s baseline sales."
+          }
+        ],
+        "evidence": [
+          {
+            "supports": "RYTHM expects affected product revenue to decline and says sales could cease"
+          },
+          {
+            "supports": "The filing identifies December 11 as the effective date for the 0.4 mg limit affecting RYTHM’s products"
+          },
+          {
+            "supports": "Distributors can require RYTHM to repurchase inventory after a regulatory recall or ban"
+          },
+          {
+            "supports": "Brad Asher serves as RYTHM’s CFO under a shared services agreement with Green Thumb"
+          },
+          {
+            "supports": "RYTHM reported $18.4 million in total gross profit for Q3 2026"
+          }
+        ],
+        "role": "Asher serves as RYTHM’s CFO under a shared-services agreement with Green Thumb.",
+        "next_action": "Check the final legislation and RYTHM’s year-end disclosures for any change in product sales, refund reserves or amounts repurchased.",
+        "date_label": "Scheduled effective date"
+      }
+    },
+    "opp_4bc56f939393": {
+      "source_digest": "6490fcbbd11fa79b665efd707b69c17bf3eb013a3570a2bc93af28b4e2137002",
+      "edits": {
+        "stream": "Event-contract revenue",
+        "event": "Possible Supreme Court ruling on state regulation of sports event contracts",
+        "dependency": "Robinhood earns fees on sports and non-sports contracts. Its CFO said non-sports contracts accounted for about 30% of Q3 event-contract trading. The calculation assigns 70% of aggregate fees to sports based on the remaining trading volume and assumes similar fee rates across categories. The cited records do not break down fees by contract category or state.",
+        "why_now": "By November 2026, Robinhood had agreed to restrict sports contracts in Nevada, Ohio and Michigan. Kalshi’s December filing was the next scheduled step in New Jersey’s petition.",
+        "of": "Robinhood’s total net revenue for July–December 2027 at its Q3 2026 run rate",
+        "opening": "Shiv, you put non-sports contracts at about 30% of event-contract trading in Q3. How closely does that trading mix track the fee mix? If additional states restrict sports contracts, which markets would have the greatest effect on fee revenue?",
+        "why_matters": "Event contracts accounted for $173 million of Robinhood’s $1.42 billion in Q3 2026 net revenue. If state enforcement removes 90% of estimated sports-contract fees, the modeled shortfall for July through December 2027 is $218 million, or 7.7% of company net revenue at the Q3 rate.",
+        "condition": "A Supreme Court ruling permitting state enforcement would leave each state to decide how to regulate the contracts. Further state restrictions could also reduce sports trading while the appeals courts remain divided.",
+        "timing": "Both scenarios cover July through December 2027. Washington’s non-enforcement agreement depends on the Nevada appeals, so restrictions there could start earlier.",
+        "event_description": "Federal appeals courts split on whether federal commodities law preempts state gaming laws for sports event contracts. The Third Circuit sided with Kalshi in New Jersey. The Sixth and Ninth Circuits sided with states in other cases. New Jersey petitioned the Supreme Court in Flaherty v. KalshiEX, No. 26-299. The petition was pending on November 19, 2026.",
+        "event_timing": "Kalshi’s response was due December 7, 2026. An early 2027 grant of review could allow a hearing that term. June 30 is the assumed date for a ruling in the larger-shortfall scenario.",
+        "baseline": {
+          "description": "Robinhood continues offering sports contracts in the same markets. Total event-contract fees remain at $173 million per quarter for the second half of 2027."
+        },
+        "scenarios": [
+          {
+            "label": "States can enforce sports restrictions",
+            "description": "The Supreme Court permits state enforcement by June 2027. From July, state restrictions remove 90% of Robinhood’s estimated sports-contract fees. Non-sports fees continue at the Q3 2026 rate."
+          },
+          {
+            "label": "Further restrictions in individual states",
+            "description": "The Supreme Court declines review or defers a decision. Additional state restrictions remove 30% of estimated sports fees in the second half of 2027."
+          }
+        ],
+        "inputs": [
+          {
+            "name": "Sports fees lost under further state restrictions",
+            "how": "The case assumes that restrictions in additional states reduce sports fees by 30%. The record gives no state-level fee breakdown."
+          },
+          {
+            "name": "Sports fees lost after a ruling for the states",
+            "how": "The case assumes that withdrawals reduce sports fees by 90%, with 10% retained in markets where trading continues."
+          },
+          {
+            "name": "Q3 2026 event-contract revenue",
+            "note": "The second column gives Q3 2026 revenue in millions of dollars across all event contracts."
+          },
+          {
+            "name": "Q3 2026 total net revenue",
+            "note": "The second column gives Q3 2026 total net revenue in millions of dollars."
+          },
+          {
+            "name": "Quarters modeled",
+            "how": "The model uses two quarters at the Q3 2026 run rate for July through December 2027."
+          },
+          {
+            "name": "Estimated sports share of trading",
+            "note": "The revenue calculation assumes the same 70% split for fees. Actual revenue mix depends on fee rates and trading activity in each category.",
+            "kind": "derived",
+            "how": "100% of trading minus approximately 30% non-sports trading gives about 70% sports trading."
+          }
+        ],
+        "evidence": [
+          {
+            "supports": "Robinhood attributes event-contract revenue growth to greater trading activity, predominantly in sports"
+          },
+          {
+            "supports": "Robinhood agreed to stop offering new sports contracts in Nevada"
+          },
+          {
+            "supports": "Robinhood agreed to halt new sports contracts in Ohio pending the appeals"
+          },
+          {
+            "supports": "Michigan’s agreement covered new and existing sports contracts"
+          },
+          {
+            "supports": "Washington’s enforcement agreement depends on the Nevada appeals"
+          },
+          {
+            "supports": "An earnings-call report puts event-contract revenue at $173 million, more than six times the prior year’s figure"
+          }
+        ],
+        "role": "Verma discussed the mix of sports and non-sports trading on the Q3 earnings call.",
+        "next_action": "Check Supreme Court docket 26-299 and the terms of state trading restrictions. Robinhood’s next disclosure of fees by category or state could narrow the revenue estimate.",
+        "date_label": "Assumed ruling date"
+      }
+    }
+  },
+  "aside": {
+    "4353688e99bd648f9d955cdf4cc9f590e91574ee843dc609762558a37968189f": "CV Sciences sells hemp-derived CBD products and reported about $3 million of quarterly revenue. Management said it could not reasonably estimate the financial effect of the new hemp definition. The research found no revenue breakdown for the affected products. A later disclosure of full-spectrum product sales could support an estimate.",
+    "114e20d08e6f9eba9640603ad4b4e92a9bd3a9d0cdee7d022a41edf164cda5b8": "Glass House Brands suspended its hemp biomass export operations in Q3 2026 and said the suspension had no material impact. Its principal business sells cannabis licensed by California. The research found no material revenue stream exposed to the change in the federal hemp definition.",
+    "3e6ed50f8526c9aaf4a7e6ebf78af43d90f2352598030b02a67572ade89c7f56": "Ironwood’s negotiated Medicare price for LINZESS had already been published at $136 per 30-day supply, effective January 1, 2027. Ironwood said the price met its expectations and had already reduced the list price. The research found no unresolved pricing decision for that effective date.",
+    "0d43808bbce2844831852aca778f1c06e00ba82be3e6a9556c228abfd0658321": "Gemini reported $0.8 million of Q3 2026 revenue from Gemini Predictions out of $40.9 million total. All prediction contracts together represented about 2% of revenue, which limits the possible exposure from its sports contracts alone. Separate state enforcement matters would require their own analysis.",
+    "d865050224cf81f2cbfe175f93e5325f4a4d6f1e1bf1bc1ad7675fb45f8646a6": "Tilray expected its Manitoba Harvest hemp-seed foods to remain within the revised federal definition. The research found no separate revenue figure for affected hemp-THC products, so it could not size a shortfall for Tilray."
+  },
+  "leads": {
+    "df1d21c273d5a6f2f762b8c74755111eef643fcafa5c73ea59c5b82f72625829": {
+      "company_or_event": "Collegium Pharmaceutical · BELBUCA patent litigation",
+      "reason": "BELBUCA generated $57.7 million of Collegium’s $216.3 million in Q3 2026 product revenue (27%). Trial on Alvogen’s revised generic application was scheduled for April 12, 2027. The potential entry date depends on a ruling and the remaining patent protections."
+    },
+    "13c3c1194fe0b5f6c84d95aec1e93b92f215a21e36c83d8135ca32db8ccc51c5": {
+      "company_or_event": "DraftKings and Flutter · competition from sports event contracts",
+      "reason": "A ruling for Kalshi could expand competition from federally listed sports contracts. Estimate which sportsbook fees or wagers could shift and account for DraftKings’ own prediction-market business."
+    },
+    "e613b179a5b979b34d5c0600755e5d2b71f6e557b4a2f624839babcea5bf2c2f": {
+      "company_or_event": "Live Oak Bancshares · SBA loan-sale income",
+      "reason": "Live Oak’s quarterly gain on loan sales fell from $17.1 million to $12.3 million during the 2025 shutdown. A new funding lapse could delay SBA guarantees and sales. The earlier decline alone does not isolate the effect of a shutdown on future revenue."
+    },
+    "f4ce4a47e0e5ef58c5ceda0ba40b620d788dd1a78f9582975a3073e82d1a5ac4": {
+      "company_or_event": "Frontier and other low-cost airlines · federal funding lapse",
+      "reason": "Frontier attributed about $30 million of Q4 2025 revenue loss to the shutdown and FAA flight reductions. To estimate a December 2026 lapse, identify which flights would face restrictions and for how much of the holiday travel period."
+    },
+    "bd428242e1077c767efa44844dadbb45a83536c8fec3275b962a17d493558c05": {
+      "company_or_event": "Telepsychiatry providers · federal prescribing rules",
+      "reason": "Federal flexibilities for remote prescribing of controlled substances were scheduled to expire December 31, 2026. Check for an extension or replacement rule, then determine which visits and prescriptions providers such as LifeStance Health would need to move in person."
+    },
+    "c2679fe34d3ad728901df53cca4f1f5d442cf886cb31fb8ae688f3bdb6f1e713": {
+      "company_or_event": "Clinical laboratories · Medicare payment rates",
+      "reason": "Preliminary 2027 rates indicated 15% cuts for about 775 lab tests unless Congress acted. A company-level estimate requires the lab’s Medicare volume and revenue for the affected test codes."
+    },
+    "cad52dadbd5be44640fee8484687516cfdb495585bce7caf553c209736e5faa7": {
+      "company_or_event": "Centene and Molina · Medicaid work requirements",
+      "reason": "New requirements were scheduled to begin January 1, 2027. Exposure would depend on state implementation, the challenge to the federal rule, and membership among affected adults. The research found no company estimate of the resulting revenue effect."
+    }
+  }
+}

@@ -20,7 +20,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import db, hubspot
+from . import db, example_review, hubspot
 from .feed import _result_text
 from .runpage import CHART_JS, FAVICON, FOUND_JS, ICONS, PACE, PAGE, PAGE_STEPS, STYLE
 from .util import OUT, load_env
@@ -30,8 +30,8 @@ REPO = "https://github.com/owassmer/distress-signals"
 ICON = {"WebSearch": "search", "WebFetch": "web", "search_records": "search", "read_record": "read", "compute": "calc",
         "lookup": "lookup", "calculate_exposure": "calc", "record_finding": "finding", "save_opportunity": "save",
         "StructuredOutput": "answer"}
-FINDING = {"dropped": "Set aside", "fact": "Noted a fact", "inference": "Drew an inference", "conclusion": "Concluded",
-           "question": "Noted an open question"}
+FINDING = {"dropped": "Proposed lead exclusion", "fact": "Source finding", "inference": "Research inference",
+           "conclusion": "Research conclusion", "question": "Open research question"}
 ACRONYMS = {"us", "usa", "uk", "eu", "va", "dod", "hhs", "cms", "fda", "sba", "nasa", "faa", "fcc", "ftc", "doe", "epa",
             "irs", "dhs", "usda", "snap", "nfip", "aca", "ira", "pjm", "ercot", "mde", "thc", "cbd", "ai", "ev", "fy",
             "mlb", "nfl", "nba", "nhl", "lng", "ip", "saas", "b2b", "rd", "sec", "cr", "bpa", "idiq"}
@@ -75,7 +75,7 @@ def _quoted(terms):
 def _where(ref):
     return (_domain(ref) if ref.startswith("http") else "the company's SEC record" if ref.startswith("sec:")
             else "a federal award" if ref.startswith("usaspending:") else "a payment ledger" if ref.startswith("ledger")
-            else "a record it had read")
+            else "the source record")
 
 
 def describe(name, i):
@@ -104,25 +104,25 @@ def describe(name, i):
         ref = str(i.get("id_or_url") or "")
         terms = [t.strip() for t in (i.get("find") or "").split("|") if t.strip()]
         where = _where(ref)
-        return {"label": f"Looked in {where} for {_quoted(terms)}" if terms else f"Read {where}",
+        return {"label": f"Searched {where} for {_quoted(terms)}" if terms else f"Read {where}",
                 "link": ref if ref.startswith("http") else None}
     if name == "compute":
         saved = i.get("save_as")
-        return {"label": f"Calculated “{title_label(saved)}” from the records it had read" if saved
-                else "Ran the numbers on what it had read", "text": i.get("note"), "details": [i.get("sql")] if i.get("sql") else []}
+        return {"label": f"SQL query for “{title_label(saved)}”" if saved else "SQL query on research records",
+                "text": i.get("note"), "details": [i["sql"]] if i.get("sql") else []}
     if name == "lookup":
-        return {"label": f"Checked its earlier findings for “{i.get('id_or_query')}”"}
+        return {"label": f"Searched saved records for “{i.get('id_or_query')}”"}
     if name == "calculate_exposure":
-        return {"label": "Worked out what's at stake"}
+        return {"label": "Draft revenue scenario calculation"}
     if name == "record_finding":
         f = i.get("finding") or {}
-        return {"label": "Withdrew a case" if f.get("withdraw_case") else FINDING.get(f.get("kind"), "Recorded a finding"),
+        return {"label": "Case withdrawal request" if f.get("withdraw_case") else FINDING.get(f.get("kind"), "Recorded a finding"),
                 "text": f.get("statement"), "finding": f.get("kind")}
     if name == "save_opportunity":
         o = i.get("opportunity") or {}
-        return {"label": f"Writing up {_company_name(o.get('company'))}", "text": title_label(o.get("stream_key"))}
+        return {"label": f"Case submission for {_company_name(o.get('company'))}", "text": title_label(o.get("stream_key"))}
     if name == "StructuredOutput":
-        return {"label": "Wrote up its findings"}
+        return {"label": "Run summary and follow-up leads"}
     return {"label": name}
 
 
@@ -132,11 +132,13 @@ def outcome(name, i, text, is_error):
         t = text.replace("Error executing tool ", "")
         t = re.sub(r"^[a-z_]+: ", "", t)
         if name == "lookup" and "Nothing saved is named" in t:
-            return {"status": "ok", "meta": "nothing saved under that name"}
-        if re.search(r"answered (401|403|429)", t):
-            return {"status": "blocked", "meta": "the site blocked automated reading"}
+            return {"status": "ok", "meta": "No matching saved record"}
+        access = re.search(r"answered (401|403|429)", t)
+        if access:
+            return {"status": "blocked", "label": f"Source request to {_where(i.get('id_or_url') or i.get('url') or '')}",
+                    "meta": f"Source returned HTTP {access[1]}"}
         if "couldn't fetch" in t or "Timeout" in t or "timed out" in t:
-            return {"status": "blocked", "meta": "the site didn't respond"}
+            return {"status": "blocked", "meta": "Source request failed"}
         return {"status": "refused", "meta": t.split(". ")[0][:260]}
     try:
         out = json.loads(text)
@@ -150,7 +152,7 @@ def outcome(name, i, text, is_error):
                 links = [{"title": x.get("title") or x.get("url"), "url": x.get("url")} for x in json.loads(m.group(1))][:6]
             except ValueError:
                 pass
-        return {"status": "ok", "meta": f"{len(links)} results" if links else None, "details": links}
+        return {"status": "ok", "meta": f"{len(links)} linked result{'s' if len(links) != 1 else ''} shown" if links else None, "details": links}
     if not isinstance(out, dict):
         return {"status": "ok"}
     if name == "read_record":
@@ -163,11 +165,18 @@ def outcome(name, i, text, is_error):
         short = title if len(title) <= 90 else title[:88] + "…"
         found = len(out.get("passages") or out.get("matches") or [])
         return {"status": "ok", "link": out.get("url") or (ref if ref.startswith("http") else None),
-                "label": f"Looked in “{short}” for {_quoted(terms)}" if terms else f"Read “{short}”",
+                "label": f"Searched “{short}” for {_quoted(terms)}" if terms else f"Read “{short}”",
                 "meta": ", ".join(x for x in (site, f"{found} passage{'s' if found != 1 else ''}" if terms else None) if x)}
     if name == "search_records":
         n = out.get("count", len(out.get("results") or []))
-        return {"status": "ok", "meta": f"{n} found" + (f" of {out['total_matches']}" if out.get("total_matches") and out["total_matches"] > n else "")}
+        return {"status": "ok", "meta": f"{n} result{'s' if n != 1 else ''} returned"
+                + (f" of {out['total_matches']} matches" if out.get("total_matches") and out["total_matches"] > n else "")}
+    if name == "record_finding":
+        finding = i.get("finding") or {}
+        if finding.get("withdraw_case"):
+            return {"status": "ok", "label": "Case withdrawn"}
+        if finding.get("kind") == "dropped":
+            return {"status": "ok", "label": "Lead set aside"}
     if name == "compute":
         n = out.get("row_count", len(out.get("rows") or []))
         return {"status": "ok", "meta": f"{n} row{'s' if n != 1 else ''}"}
@@ -175,35 +184,27 @@ def outcome(name, i, text, is_error):
         if out.get("companies") is not None:
             cs = out["companies"]
             k = sum(len(c.get("cases") or []) for c in cs)
-            return {"status": "ok", "meta": f"found {len(cs)} compan{'y' if len(cs) == 1 else 'ies'}, {k} case{'s' if k != 1 else ''}"}
+            return {"status": "ok", "meta": f"{len(cs)} matching compan{'y' if len(cs) == 1 else 'ies'}, {k} case{'s' if k != 1 else ''}"}
+        if out.get("opportunity"):
+            return {"status": "ok", "meta": "Saved case returned"}
         if out.get("event_id"):
             k = len(out.get("cases") or [])
-            return {"status": "ok", "meta": f"found the event, {k} case{'s' if k != 1 else ''}"}
-        if out.get("opportunity"):
-            return {"status": "ok", "meta": "found the case"}
-        return {"status": "ok", "meta": "found it"}
+            return {"status": "ok", "meta": f"Event record · {k} associated case{'s' if k != 1 else ''}"}
+        return {"status": "ok", "meta": "Saved record returned"}
     if name == "calculate_exposure":
-        res = out.get("results") or {}
-        return {"status": "ok", "meta": f"up to {_money(res.get('max_shortfall'))} at stake" if res.get("max_shortfall") else None}
+        scenarios = (out.get("results") or {}).get("affected") or []
+        n = len(scenarios)
+        return {"status": "ok", "meta": f"{n} scenario{'s' if n != 1 else ''} compared with baseline" if n else None}
     if name == "save_opportunity":
         o, res = i.get("opportunity") or {}, out.get("results") or {}
         company = _company_name(out.get("company_id") or o.get("company"))
-        return {"status": "ok", "label": f"Wrote up {company}", "case": {
+        return {"status": "ok", "label": f"Saved case for {company}", "case": {
             "oid": out.get("opportunity_id"), "company": company, "company_id": out.get("company_id"),
             "stream": title_label(o.get("stream_key")),
             "detail": o.get("stream"), "revision": out.get("revision"), "stake": res.get("max_shortfall"),
             "share": res.get("max_share"), "of": (res.get("denominator") or {}).get("label"),
             "currency": o.get("currency"), "deal": _deal_url(out.get("opportunity_id"))}}
     return {"status": "ok"}
-
-
-def _money(x):
-    if x is None:
-        return ""
-    for div, unit in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
-        if abs(x) >= div:
-            return f"${x / div:,.1f}{unit}"
-    return f"${x:,.0f}"
 
 
 def _deal_url(opportunity_id):
@@ -338,22 +339,14 @@ def _status(run_id, run, v):
 
 
 def _title(run):
-    """A plain title for the run, and a sentence saying what the page shows."""
+    """A heading for the request that started the run."""
     if not run:
-        return "A research run", ""
+        return "Research run"
     kind, seed = run["seed_kind"], run.get("seed") or ""
-    title = {"mandate": "An open search", "company": f"Researching {seed}", "event": "Who is exposed to an event",
-             "brief": "Answering a question", "refresh": "Re-checking a case", "source": "Starting from a source",
-             "lead": f"Following a lead: {seed}"}.get(kind, "A research run")
-    lede = {"mandate": "An AI researcher was asked to find companies whose revenue depends on an upcoming event they don't "
-                       "control. This is one session, start to finish: what it found, and how it got there.",
-            "company": f"An AI researcher was asked whether {seed}'s revenue depends on an upcoming event it doesn't control. "
-                       "This is one session, start to finish: what it found, and how it got there.",
-            "event": "An AI researcher was given an upcoming event and asked whose revenue depends on it. This is one "
-                     "session, start to finish: what it found, and how it got there.",
-            "refresh": "An AI researcher checked a saved case again against current sources."}.get(
-        kind, "An AI researcher was given a question. This is one session, start to finish: what it found, and how it got there.")
-    return title, lede
+    return {"mandate": "Open prospect search", "company": f"Company research · {seed}",
+             "event": "Companies exposed to the event", "brief": "Research brief",
+             "refresh": "Case reassessment", "source": "Source research",
+             "lead": f"Follow-up research · {seed}"}.get(kind, "Research run")
 
 
 def _assignment(run):
@@ -366,7 +359,7 @@ def _assignment(run):
         first = " ".join(body.strip().split("\n\n")[0].split())
         return re.split(r"(?<=\.)\s", first, 1)[0]
     text = run.get("seed") or ""
-    return text + (f" (Note: {run['question']})" if run.get("question") else "")
+    return " · ".join(part for part in (text, run.get("question")) if part)
 
 
 def _input(name, x, url_of):
@@ -374,7 +367,7 @@ def _input(name, x, url_of):
     src = x.get("source") or {}
     kind = "reported" if x.get("source") else "derived" if x.get("derived") else "assumed"
     return {"name": title_label(name), "value": x.get("value"), "unit": x.get("unit"), "note": x.get("note"), "kind": kind,
-            "passage": src.get("passage"), "url": url_of(src.get("observation_id")),
+            "passage": src.get("passage"), "checked": src.get("checked"), "url": url_of(src.get("observation_id")),
             "how": (x.get("derived") or {}).get("note") if kind == "derived" else x.get("assumption")}
 
 
@@ -397,7 +390,8 @@ def _case_details(oids, public=False):
                 "company_id": c["row"]["company_id"], "stream": title_label(case.get("stream_key")),
                 "event": ev.get("title"), "event_date": ev.get("date"), "dependency": case.get("dependency"),
                 "why_now": case["case"].get("why_now"), "stake": res.get("max_shortfall"), "share": res.get("max_share"),
-                "of": (res.get("denominator") or {}).get("label"), "currency": case.get("currency"),
+                "of": (res.get("denominator") or {}).get("label"), "denominator_value": (res.get("denominator") or {}).get("value"),
+                "currency": case.get("currency"),
                 "period": f"{case['period']['start']} to {case['period']['end']}",
                 "who": ", ".join(x for x in (buyer.get("name"), buyer.get("title")) if x) or buyer.get("role"),
                 "opening": (case.get("outreach") or {}).get("draft"),
@@ -410,7 +404,7 @@ def _case_details(oids, public=False):
                                "revenue": r.get("revenue"), "shortfall": r.get("shortfall"), "share": r.get("share")}
                               for r in res.get("affected") or []],
                 "inputs": [_input(k, x, url_of) for k, x in (case.get("inputs") or {}).items()],
-                "evidence": [{"passage": e.get("passage"), "supports": e.get("supports"), "url": url_of(e.get("observation_id"))}
+                "evidence": [{"passage": e.get("passage"), "supports": e.get("supports"), "checked": e.get("checked"), "url": url_of(e.get("observation_id"))}
                              for e in case.get("evidence") or []],
                 "role": buyer.get("role"), "next_action": case.get("next_action")}
     finally:
@@ -418,15 +412,37 @@ def _case_details(oids, public=False):
     return out
 
 
+def _items(ops):
+    """Materialize the run’s log entries, including the results of completed tool calls."""
+    items = []
+    for op in ops:
+        if op["op"] == "add":
+            items.append(dict(op["item"]))
+        elif 0 <= op["i"] < len(items):
+            items[op["i"]].update(op["fields"])
+    return items
+
+
+def public_cases(run_id, ids):
+    return example_review.reviewed_cases(run_id, _case_details(ids, public=True))
+
+
+def public_leads(run_id, items):
+    aside = [item["text"] for item in items if item.get("tool") == "record_finding" and item.get("finding") == "dropped"
+             and item.get("status") == "ok" and item.get("text")]
+    leads = [lead for item in items if item["k"] == "final" for lead in item.get("leads") or []]
+    return example_review.reviewed_leads(run_id, aside, leads)
+
+
 def _page(run_id, data=None, home="/"):
     run = _run_row(run_id)
-    title, lede = _title(run)
+    title = _title(run)
     assignment = _assignment(run)
     page = (PAGE.replace("__STYLE__", STYLE).replace("__FOUNDJS__", FOUND_JS).replace("__CHARTJS__", CHART_JS)
             .replace("__ICONS__", json.dumps(ICONS)).replace("__PAGESTEPS__", str(PAGE_STEPS)).replace("__PACE__", json.dumps(PACE))
             .replace("__RUN__", run_id).replace("__FAVICON__", FAVICON).replace("__REPO__", REPO).replace("__HOME__", home)
             .replace("__ASSIGNHIDDEN__", "" if assignment else "hidden").replace("__ASSIGNMENT__", html.escape(assignment))
-            .replace("__TITLE__", html.escape(title)).replace("__LEDE__", html.escape(lede)))
+            .replace("__TITLE__", html.escape(title)))
     # the run's own text goes in last, so nothing in it is taken for a placeholder
     return page.replace("__DATA__", json.dumps(data, default=str).replace("</", "<\\/") if data is not None else "null")
 
@@ -440,11 +456,20 @@ def export_html(run_id, public=False, home=REPO):
     ops = json.loads(json.dumps(v.ops, default=str))
     if public:
         status["requester"] = None
+        status.pop("cost", None)
         for op in ops:
+            if op.get("item", {}).get("k") == "end":
+                op["item"].pop("cost", None)
             case = (op.get("fields") or {}).get("case")
             if case:
                 case.pop("deal", None)
-    return _page(run_id, {"ops": ops, "status": status, "cases": _case_details(v.cases, public)}, home=home)
+    data = {"ops": ops, "status": status}
+    if public:
+        data["cases"] = public_cases(run_id, v.cases)
+        data["lead_review"] = public_leads(run_id, _items(ops))
+    else:
+        data["cases"] = _case_details(v.cases)
+    return _page(run_id, data, home=home)
 
 
 def _index():
@@ -456,7 +481,7 @@ def _index():
     cards = []
     for r in rows:
         state = "failed" if r["error"] else ("finished" if r["finished"] else "running")
-        title, _ = _title(r)
+        title = _title(r)
         sub = _assignment(r)
         start = dt.datetime.fromisoformat(r["started"])
         end = dt.datetime.fromisoformat(r["finished"]) if r["finished"] else dt.datetime.now()

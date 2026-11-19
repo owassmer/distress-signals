@@ -373,8 +373,14 @@ stage and outcome.
 - one note a minute on the record's activity timeline, with the model's reasoning summaries in its own
   words, what it said, and what it did since the last note: searches, records read, figures computed,
   findings, refusals, and each case saved with a link to its deal;
-- "Distress run progress", updated each minute with the time, minutes elapsed, tool calls, cases saved,
-  and what it is doing now.
+- "Distress run progress", updated each minute with the time, minutes elapsed, tool calls, what it has
+  found so far, and what it is doing now.
+
+**Counting results.** Results are counted the same way everywhere they are reported: the progress line,
+the run summary, the watch page, the guide and the command line (`util.found_line`, and its twin in the
+pages). Each active case is one revenue exposure, and so one deal. Exposures are reported across the
+distinct companies they belong to, by company record. A company with two exposed revenue streams is two
+exposures at one company: "4 revenue exposures across 3 companies".
 
 The feed reads the run's event stream as it is written. The researcher isn't touched, and nothing enters
 its context. The worker starts a feed with each run, and `feed RUN_ID companies|deals RECORD_ID

@@ -13,7 +13,7 @@ import threading
 import time
 
 from . import db, hubspot
-from .util import OUT
+from .util import OUT, found_line
 
 EVERY = 60            # seconds between notes
 NOTE_CHARS = 20000    # a note's length before the rest goes into the next one
@@ -66,7 +66,7 @@ class Feed:
         self.run_id, self.obj, self.hs_id = run_id, obj, hs_id
         self.path = OUT / "runs" / f"{run_id}.jsonl"
         self.offset, self.items, self.uses = 0, [], {}
-        self.calls, self.cases, self.done, self.now = 0, set(), False, ""
+        self.calls, self.cases, self.done, self.now = 0, {}, False, ""  # cases: opportunity ID -> company ID
         self.since = time.strftime("%H:%M")
 
     def read(self):
@@ -111,6 +111,7 @@ class Feed:
                     self._saved(use, text)
                 elif name == "record_finding" and ((use.get("input") or {}).get("finding") or {}).get("withdraw_case"):
                     oid = use["input"]["finding"].get("opportunity_id")
+                    self.cases.pop(oid, None)
                     self.items.append(("Case", _esc(f"Withdrew case {oid}: {use['input']['finding'].get('statement', '')[:400]}")))
         elif t == "system" and e.get("subtype") == "compact_boundary":
             self.items.append(("Did", "Its context was compacted to make room"))
@@ -126,7 +127,7 @@ class Feed:
         from .watch import _company_name
         oid = out.get("opportunity_id")
         name = _company_name(out.get("company_id") or ((use.get("input") or {}).get("opportunity") or {}).get("company"))
-        self.cases.add(oid)
+        self.cases[oid] = out.get("company_id") or name
         con = db.connect()
         try:
             d = db.get_delivery(con, hubspot.DEST, "deal", oid)
@@ -148,7 +149,7 @@ class Feed:
     def post(self):
         """Post what has come in since the last note, and the progress line."""
         now = time.strftime("%H:%M")
-        stats = f"{self._elapsed()} in, {self.calls} tool calls, {len(self.cases)} case(s)"
+        stats = f"{self._elapsed()} in, {self.calls} tool calls, {found_line(list(self.cases.values()))}"
         if self.items:
             from .watch import url
             head = (f"<p><b>Distress run {self.run_id}, {self.since} to {now}</b> ({stats}) "

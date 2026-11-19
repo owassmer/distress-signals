@@ -52,7 +52,7 @@ def cmd_ledgers(a):
 
 def report(r):
     s = r["stats"]
-    print(f"\n{r['run_id']}: {len(r['saved'])} cases saved or revised, {s.get('num_turns')} turns, "
+    print(f"\n{r['run_id']}: {worker.found(r)}; {len(r['saved'])} cases saved or revised, {s.get('num_turns')} turns, "
           f"{(s.get('duration_ms') or 0) / 60000:.0f} min")
     print(r["summary"])
     print(f"  transcript: {r['transcript']} (assignment: {r['assignment']})")

@@ -88,6 +88,16 @@ def http_json(url, *, params=None, method="GET", json_body=None, headers=None, t
     raise last
 
 
+def found_line(company_ids):
+    """How a run's results are counted, everywhere they are reported: one revenue exposure per case (each is
+    a deal), across the distinct companies they belong to. A company with two exposed revenue streams is two
+    exposures at one company. company_ids has one entry per active case."""
+    n, k = len(company_ids), len(set(company_ids))
+    if not n:
+        return "no revenue exposures"
+    return f"{n} revenue exposure{'s' if n != 1 else ''} {'at' if k == 1 else 'across'} {k} compan{'y' if k == 1 else 'ies'}"
+
+
 def today():
     return dt.date.today()
 

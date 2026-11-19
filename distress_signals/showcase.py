@@ -28,7 +28,7 @@ def _initials(name):
 
 
 def build(run_id):
-    """The guide's data for a run: the numbers, the minute-by-minute activity, the companies found and when,
+    """The guide's data for a run: the numbers, the minute-by-minute activity, the revenue exposures found and when,
     and what was set aside or suggested."""
     v = watch.RunView(run_id)
     v.update()
@@ -58,7 +58,7 @@ def build(run_id):
         if d.get("event_date") and t0:
             days = (dt.date.fromisoformat(d["event_date"]) - t0.date()).days
         who = d.get("who") or ""
-        cases.append({"company": d["company"], "stream": d["stream"], "stake": d["stake"], "share": d["share"],
+        cases.append({"company": d["company"], "company_id": d["company_id"], "stream": d["stream"], "stake": d["stake"], "share": d["share"],
                       "currency": d["currency"], "event": _short_event(d.get("event")), "event_date": d.get("event_date"),
                       "days": days, "who": who, "initials": _initials(who.split(",")[0]), "opening": d.get("opening"),
                       "found_at": t})
@@ -74,7 +74,8 @@ def build(run_id):
     return {
         "title": watch._title(run)[0], "assignment": watch._assignment(run),
         "date": t0.strftime("%B %-d, %Y") if t0 else "", "minutes": round(seconds / 60), "cost": status.get("cost"),
-        "stats": {"searches": count("search"), "documents": count("read"), "calculations": count("calc"), "companies": len(cases)},
+        "stats": {"searches": count("search"), "documents": count("read"), "calculations": count("calc"),
+                  "exposures": len(cases), "companies": len({c["company_id"] for c in cases})},
         "bins": bins, "cases": cases,
         "ticker": [{"t": it.get("el") or 0, "label": it["label"]} for it in acts if it.get("label")],
         "aside": [it.get("text") for it in acts if it.get("tool") == "record_finding" and it.get("finding") == "dropped" and it.get("text")],
@@ -106,7 +107,7 @@ section{padding:46px 0}h2{font-size:28px;letter-spacing:-.025em;margin:0 0 6px;f
 .node:not(:last-child):after{content:"";position:absolute;right:-16px;top:44px;width:14px;height:14px;border-top:2px solid #cbd5e1;border-right:2px solid #cbd5e1;transform:rotate(45deg);z-index:1}
 .loop{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:16px;color:var(--mute);font-size:14px}
 .loop svg{width:120px;height:26px}
-.tiles{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:18px}
+.tiles{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:18px}
 .tile{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px 16px 14px}
 .tile b{display:block;font-size:30px;letter-spacing:-.03em;line-height:1.1;font-variant-numeric:tabular-nums}.tile span{color:var(--mute);font-size:13px}
 .chart{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px 20px 14px}
@@ -130,7 +131,8 @@ section{padding:46px 0}h2{font-size:28px;letter-spacing:-.025em;margin:0 0 6px;f
 .c blockquote{margin:10px 0 0;padding:12px 14px;background:#f8fafc;border-left:3px solid var(--blue);border-radius:0 10px 10px 0;font-size:14px;color:var(--ink)}
 .c .num{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--green);color:#fff;font-size:12px;font-weight:750;
 margin-right:9px;vertical-align:2px}.c .cf{margin-top:12px;display:flex;flex-direction:column;gap:2px}.c .cf>span{font-size:12.5px;color:var(--faint);font-weight:600}
-.c .cf details{margin-top:4px}
+.c .cf details{margin-top:4px}.c .multi{display:table;margin:5px 0 0;font-size:11.5px;font-weight:650;color:var(--green);
+background:var(--greenbg);border-radius:99px;padding:0 8px;line-height:19px;vertical-align:1px}
 .hs{display:grid;grid-template-columns:1.25fr 1fr;gap:18px;align-items:start}
 .mock{background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden;position:relative}
 .mock .bar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);background:#fbfbfc;font-size:12.5px;color:var(--mute);font-weight:600}
@@ -186,7 +188,7 @@ PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name
     <div class="node"><span class="n">1</span><div class="ic" style="background:var(--hsbg);color:var(--hs)">__ASK__</div><h3>Ask</h3><p>Request a run from any company in HubSpot</p></div>
     <div class="node"><span class="n">2</span><div class="ic" style="background:var(--bluebg);color:var(--blue)">__RESEARCH__</div><h3>Research</h3><p>SEC filings, federal rules, government contracts and payments, the web</p></div>
     <div class="node"><span class="n">3</span><div class="ic" style="background:var(--violetbg);color:var(--violet)">__CHECK__</div><h3>Check</h3><p>Every figure is quoted, calculated, or marked as an assumption</p></div>
-    <div class="node"><span class="n">4</span><div class="ic" style="background:var(--greenbg);color:var(--green)">__DELIVER__</div><h3>Deliver</h3><p>Each company lands as a deal: what's at stake, who to call, an opening line</p></div>
+    <div class="node"><span class="n">4</span><div class="ic" style="background:var(--greenbg);color:var(--green)">__DELIVER__</div><h3>Deliver</h3><p>Each exposure lands as a deal: what's at stake, who to call, an opening line</p></div>
   </div>
   <div class="loop"><svg viewBox="0 0 120 26" fill="none" stroke="#cbd5e1" stroke-width="2"><path d="M114 4v6a8 8 0 0 1-8 8H14a8 8 0 0 1-8-8V4"/><path d="m2 8 4-5 4 5"/></svg>
     Outcomes from your conversations feed the next run</div>
@@ -196,14 +198,14 @@ PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name
   <div class="tiles">
     <div class="tile"><b id="k-min">0</b><span>minutes</span></div><div class="tile"><b id="k-search">0</b><span>searches</span></div>
     <div class="tile"><b id="k-doc">0</b><span>documents read</span></div><div class="tile"><b id="k-calc">0</b><span>calculations</span></div>
-    <div class="tile"><b id="k-co">0</b><span>companies found</span></div></div>
+    <div class="tile"><b id="k-exp">0</b><span>revenue exposures</span></div><div class="tile"><b id="k-co">0</b><span>companies</span></div></div>
   <div class="chart"><div class="top"><h3>What it did, minute by minute</h3><span class="sp"></span>
-    <div class="legend"><span><i style="background:var(--blue)"></i>searches</span><span><i style="background:var(--slate)"></i>reading</span><span><i style="background:var(--violet)"></i>calculations</span><span><i style="background:var(--green)"></i>company found</span></div></div>
+    <div class="legend"><span><i style="background:var(--blue)"></i>searches</span><span><i style="background:var(--slate)"></i>reading</span><span><i style="background:var(--violet)"></i>calculations</span><span><i style="background:var(--green)"></i>exposure found</span></div></div>
     <svg id="chart" viewBox="0 0 1000 230" preserveAspectRatio="none" style="width:100%;height:230px;display:block"></svg>
     <div class="ticker" id="ticker"></div></div>
 </section>
 
-<section id="found"><h2>What it found</h2><p class="lead">Each company has revenue riding on a dated event, with the amount at stake and the person to talk to.</p>
+<section id="found"><h2>What it found</h2><p class="lead" id="foundlead"></p>
   <div class="cards" id="cards"></div></section>
 
 <section id="hubspot"><h2>Where it shows up</h2><p class="lead">You work in HubSpot. This is a sketch of what you'd see.</p>
@@ -219,13 +221,14 @@ PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name
       <div class="steps3">
         <div class="s3"><span class="pin">1</span><div><b>Ask</b><span>Set Distress run on any company: research it, an event, or run an open search</span></div></div>
         <div class="s3"><span class="pin">2</span><div><b>Follow</b><span>Notes stream in while it works, with a link to watch live</span></div></div>
-        <div class="s3"><span class="pin">3</span><div><b>Act</b><span>Each company arrives as a deal in Proposed, ready to work</span></div></div></div></div>
+        <div class="s3"><span class="pin">3</span><div><b>Act</b><span>Each exposure arrives as a deal in Proposed, ready to work</span></div></div></div></div>
   </div></section>
 
 <section id="extra" style="padding-top:10px"><div class="more" id="more"></div></section>
 <footer>Made with <a href="__REPO__">distress-signals</a> · <a href="run.html">the full research trail</a></footer>
 </div>
 <script>
+__FOUNDJS__
 const D = __DATA__;
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -252,13 +255,18 @@ function drawChart(upto) {   // upto: seconds shown
 }
 function setTiles(f) { const st = D.stats; $("#k-min").textContent = Math.round(D.minutes * f); $("#k-search").textContent = Math.round(st.searches * f);
   $("#k-doc").textContent = Math.round(st.documents * f); $("#k-calc").textContent = Math.round(st.calculations * f); }
+function setFound(t) { const {n, k} = tally(D.cases.filter(c => c.found_at <= t)); $("#k-exp").textContent = n; $("#k-co").textContent = k; }
+const companyKey = c => c.company_id || c.company;
 function ring(share) { if (share == null) return ""; const r = 28, c = 2 * Math.PI * r, p = Math.max(0, Math.min(1, share));
   return `<div class="ring"><svg viewBox="0 0 66 66"><circle cx="33" cy="33" r="${r}" fill="none" stroke="#eef0f3" stroke-width="7"/>`
     + `<circle cx="33" cy="33" r="${r}" fill="none" stroke="#16a34a" stroke-width="7" stroke-linecap="round" stroke-dasharray="${c * p} ${c}"/></svg><b>${Math.round(p * 100)}%</b></div>`; }
 function cards() {
-  $("#cards").innerHTML = D.cases.map((c, i) => { const d = c.event_date ? new Date(c.event_date + "T12:00:00") : null;
+  const per = {}; D.cases.forEach(c => (per[companyKey(c)] ??= []).push(c));
+  $("#foundlead").innerHTML = D.cases.length ? `<b>${esc(foundLine(D.cases).replace(/^./, s => s.toUpperCase()))}.</b> Each card is one revenue stream `
+    + `riding on a dated event, with the amount at stake and the person to talk to.` : "Nothing met the bar in this run.";
+  $("#cards").innerHTML = D.cases.map((c, i) => { const d = c.event_date ? new Date(c.event_date + "T12:00:00") : null, mine = per[companyKey(c)];
     return `<article class="c" data-i="${i}">`
-      + `<div class="hd"><div class="who-co"><div class="co"><span class="num">${i + 1}</span>${esc(c.company)}</div><div class="st">${esc(c.stream)}</div></div>${ring(c.share)}</div>`
+      + `<div class="hd"><div class="who-co"><div class="co"><span class="num">${i + 1}</span>${esc(c.company)}</div><div class="st">${esc(c.stream)}${mine.length > 1 ? `<span class="multi">${mine.indexOf(c) + 1} of ${mine.length} at this company</span>` : ""}</div></div>${ring(c.share)}</div>`
       + `<div class="amt">${money(c.stake, c.currency)}<small>${c.share != null ? "of revenue at stake" : "at stake"}</small></div>`
       + (d ? `<div class="chip"><div class="cal"><i>${MON[d.getMonth()]}</i><b>${d.getDate()}</b></div><div class="ev">${esc(c.event)}`
         + `<small>${c.days != null ? (c.days > 0 ? c.days + " days out" : c.days === 0 ? "that day" : Math.abs(c.days) + " days before") : ""}</small></div></div>` : "")
@@ -266,13 +274,13 @@ function cards() {
       + `<div class="cf"><span>found ${Math.max(1, Math.round(c.found_at / 60))} min in</span>`
       + (c.opening ? `<details><summary>Read the opening message</summary><blockquote>${esc(c.opening)}</blockquote></details>` : "") + `</div>`
       + `</article>`; }).join("");
-  $("#k-co").textContent = D.cases.length;
+  setFound(Infinity);
 }
 function board() {
   const deals = D.cases.map(c => `<div class="deal"><b>${esc(c.company)}</b><span>${money(c.stake, c.currency)} · ${esc(c.stream)}</span></div>`).join("");
   $("#board").innerHTML = `<div class="col"><h4><span><span class="pin sm">3</span>Proposed<span class="cnt">${D.cases.length}</span></span></h4>${deals}</div>`
     + `<div class="col empty"><h4>Contacted</h4><div class="ph"></div></div><div class="col empty"><h4>Meeting booked</h4><div class="ph"></div></div>`;
-  $("#m-progress").textContent = `Finished · ${D.minutes} min · ${D.cases.length} companies`;
+  $("#m-progress").textContent = `Finished · ${D.minutes} min · ${foundLine(D.cases)}`;
   const firstFind = D.cases[0]; $("#m-note").textContent = firstFind ? `${Math.max(1, Math.round(firstFind.found_at / 60))} min in: found ${firstFind.company}, ${money(firstFind.stake, firstFind.currency)} at stake` : "";
 }
 function extras() {
@@ -281,14 +289,15 @@ function extras() {
   if (D.leads.length) parts.push(`<details><summary>Worth a look next <span>· ${D.leads.length}</span></summary><ul>${D.leads.map(l => `<li><b>${esc(l.what)}</b>: ${esc(l.why)}</li>`).join("")}</ul></details>`);
   $("#more").innerHTML = parts.join("");
 }
-function finish() { drawChart(1e9); setTiles(1); $("#ticker").innerHTML = `<b>${D.minutes} min</b>Done: ${D.cases.length} companies found${D.cost != null ? ` for $${D.cost.toFixed(2)} in AI usage` : ""}.`;
+function finish() { drawChart(1e9); setTiles(1); setFound(Infinity);
+  $("#ticker").innerHTML = `<b>${D.minutes} min</b>Done: found ${foundLine(D.cases)}${D.cost != null ? `, for $${D.cost.toFixed(2)} in AI usage` : ""}.`;
   document.querySelectorAll(".c").forEach(c => c.classList.remove("dim")); }
 let playing = false;
 function play() {
   if (playing) return; playing = true; document.getElementById("run").scrollIntoView({behavior: "smooth"});
   const total = D.minutes * 60, dur = 24000, start = performance.now(); let ti = 0;
   document.querySelectorAll(".c").forEach(c => c.classList.add("dim"));
-  (function step() { const f = Math.min(1, Math.max(0, (performance.now() - start) / dur)), t = f * total; drawChart(t); setTiles(f);
+  (function step() { const f = Math.min(1, Math.max(0, (performance.now() - start) / dur)), t = f * total; drawChart(t); setTiles(f); setFound(t);
     while (ti < D.ticker.length - 1 && D.ticker[ti + 1].t <= t) ti++;
     const cur = D.ticker[ti]; if (cur && cur.t <= t) $("#ticker").innerHTML = `<b>${Math.floor(t / 60)} min</b>${esc(cur.label)}`;
     D.cases.forEach((c, i) => { if (c.found_at <= t) document.querySelector(`.c[data-i="${i}"]`)?.classList.remove("dim"); });
@@ -300,7 +309,7 @@ cards(); board(); extras(); finish(); $("#play").onclick = play;
 
 def export_html(run_id):
     data = build(run_id)
-    return (PAGE.replace("__STYLE__", STYLE).replace("__FAVICON__", watch.FAVICON).replace("__REPO__", watch.REPO)
+    return (PAGE.replace("__STYLE__", STYLE).replace("__FOUNDJS__", watch.FOUND_JS).replace("__FAVICON__", watch.FAVICON).replace("__REPO__", watch.REPO)
             .replace("__ASK__", ICONS["ask"]).replace("__RESEARCH__", ICONS["research"]).replace("__CHECK__", ICONS["check"])
             .replace("__DELIVER__", ICONS["deliver"]).replace("__PLAY__", ICONS["play"])
             .replace("__DATA__", json.dumps(data, default=str).replace("</", "<\\/")))

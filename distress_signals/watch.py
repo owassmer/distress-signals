@@ -188,7 +188,8 @@ def outcome(name, i, text, is_error):
         o, res = i.get("opportunity") or {}, out.get("results") or {}
         company = _company_name(out.get("company_id") or o.get("company"))
         return {"status": "ok", "label": f"Wrote up {company}", "case": {
-            "oid": out.get("opportunity_id"), "company": company, "stream": title_label(o.get("stream_key")),
+            "oid": out.get("opportunity_id"), "company": company, "company_id": out.get("company_id"),
+            "stream": title_label(o.get("stream_key")),
             "detail": o.get("stream"), "revision": out.get("revision"), "stake": res.get("max_shortfall"),
             "share": res.get("max_share"), "of": (res.get("denominator") or {}).get("label"),
             "currency": o.get("currency"), "deal": _deal_url(out.get("opportunity_id"))}}
@@ -378,7 +379,8 @@ def _case_details(oids, public=False):
         for c in briefs.cases(con, list(oids)):
             case, ev, res, buyer = c["case"], c["event"], c["results"], c["case"]["buyer"]
             out[c["id"]] = {
-                "oid": c["id"], "status": c["status"], "company": c["company"]["name"], "stream": title_label(case.get("stream_key")),
+                "oid": c["id"], "status": c["status"], "company": c["company"]["name"],
+                "company_id": c["row"]["company_id"], "stream": title_label(case.get("stream_key")),
                 "event": ev.get("title"), "event_date": ev.get("date"), "dependency": case.get("dependency"),
                 "why_now": case["case"].get("why_now"), "stake": res.get("max_shortfall"), "share": res.get("max_share"),
                 "of": (res.get("denominator") or {}).get("label"), "currency": case.get("currency"),
@@ -390,6 +392,11 @@ def _case_details(oids, public=False):
         con.close()
     return out
 
+
+# util.found_line for the pages: cases are [{company_id, company}], one per active case
+FOUND_JS = r"""function tally(cases) { return {n: cases.length, k: new Set(cases.map(c => c.company_id || c.company)).size}; }
+function foundLine(cases) { const {n, k} = tally(cases); if (!n) return "no revenue exposures";
+  return `${n} revenue exposure${n === 1 ? "" : "s"} ${k === 1 ? "at" : "across"} ${k} compan${k === 1 ? "y" : "ies"}`; }"""
 
 FAVICON = ("data:image/svg+xml," + "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' "
            "rx='8' fill='%23111827'/%3E%3Cpath d='M7 20l5-6 4 4 9-10' stroke='%2334d399' stroke-width='3' fill='none' "
@@ -497,7 +504,7 @@ PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name
   <h1>__TITLE__</h1><p class="lede">__LEDE__</p>
   <div class="assign" __ASSIGNHIDDEN__><span class="k">The assignment</span>__ASSIGNMENT__</div>
   <div class="facts" id="facts"></div>
-  <h2>What it found</h2><p class="hint" id="foundhint">Each company here has revenue riding on a specific upcoming event, with the amount at stake and the person to talk to.</p>
+  <h2>What it found</h2><p class="hint" id="foundhint">Each card is one revenue stream riding on a specific upcoming event, with the amount at stake and the person to talk to. A company can have more than one.</p>
   <div id="cards"><p class="empty" id="nocards">Nothing yet. Companies appear here as the researcher finds them.</p></div>
   <div class="also" id="also" hidden><div class="box" id="asidebox" hidden><h3>Looked at and set aside</h3><ul id="aside"></ul></div>
     <div class="box" id="leadsbox" hidden><h3>Worth a look next</h3><ul id="leads"></ul></div></div>
@@ -509,6 +516,7 @@ PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name
 don't control, works out what's at stake, and names the person to talk to.</footer>
 <button id="latest" hidden>Jump to the latest step ↓</button>
 <script>
+__FOUNDJS__
 const RUN = "__RUN__", ICONS = __ICONS__, DATA = __DATA__;
 const NOUN = {search:["search","searches"],read:["document","documents"],web:["web page","web pages"],calc:["calculation","calculations"],
   lookup:["check","checks"],finding:["note","notes"],save:["write-up","write-ups"],answer:["summary","summaries"]};
@@ -589,7 +597,7 @@ function apply(op) {
     const it = items[op.i]; if (!it) return; Object.assign(it, op.fields); if (it.step) draw(it.step);
     const c = op.fields.case;
     if (c && it.step) { stepOf[c.oid] = it.step; it.step.el.classList.add("has-case");
-      if (!details[c.oid]) details[c.oid] = {oid: c.oid, company: c.company, stream: c.stream, stake: c.stake, share: c.share, currency: c.currency};
+      if (!details[c.oid]) details[c.oid] = {oid: c.oid, company: c.company, company_id: c.company_id, stream: c.stream, stake: c.stake, share: c.share, currency: c.currency};
       if (!order.includes(c.oid)) order.push(c.oid);
       const f = document.createElement("div"); f.className = "found"; f.innerHTML = `${ICONS.save}Found: ${esc(c.company)}${c.stake != null ? " · " + money(c.stake, c.currency) + " at stake" : ""}`;
       f.onclick = () => { const i = order.indexOf(c.oid); const el = $("#cards").querySelectorAll(".opp")[i]; if (el) el.scrollIntoView({behavior: "smooth", block: "center"}); };
@@ -601,10 +609,10 @@ function apply(op) {
 function facts() {
   const acts = items.filter(x => x.k === "act"), n = k => acts.filter(a => k.includes(a.icon) && a.status !== "blocked").length;
   const ms = status.duration_ms ?? (status.t0 ? (live() ? Date.now() : Date.parse(status.last || status.t0)) - Date.parse(status.t0) : null);
-  const found = order.filter(oid => (details[oid] || {}).status !== "withdrawn").length;
+  const {n: found, k: cos} = tally(order.map(oid => details[oid] || {}).filter(d => d.status !== "withdrawn"));
   const parts = [ms != null ? `<span><b>${Math.max(1, Math.round(ms / 60000))}</b> minutes</span>` : "", `<span><b>${n(["search"])}</b> searches</span>`,
     `<span><b>${n(["read", "web"])}</b> documents read</span>`, `<span><b>${n(["calc"])}</b> calculations</span>`,
-    `<span><b>${found}</b> compan${found === 1 ? "y" : "ies"} found</span>`, status.cost != null ? `<span><b>$${status.cost.toFixed(2)}</b> in AI usage</span>` : ""];
+    `<span><b>${found}</b> revenue exposure${found === 1 ? "" : "s"} ${cos === 1 ? "at" : "across"} <b>${cos}</b> compan${cos === 1 ? "y" : "ies"}</span>`, status.cost != null ? `<span><b>$${status.cost.toFixed(2)}</b> in AI usage</span>` : ""];
   $("#facts").innerHTML = parts.filter(Boolean).join("");
 }
 function tick() {
@@ -648,7 +656,7 @@ def _page(run_id, data=None, home="/"):
     run = _run_row(run_id)
     title, lede = _title(run)
     assignment = _assignment(run)
-    return (PAGE.replace("__STYLE__", STYLE).replace("__ICONS__", json.dumps(ICONS)).replace("__RUN__", run_id)
+    return (PAGE.replace("__STYLE__", STYLE).replace("__FOUNDJS__", FOUND_JS).replace("__ICONS__", json.dumps(ICONS)).replace("__RUN__", run_id)
             .replace("__FAVICON__", FAVICON).replace("__REPO__", REPO).replace("__HOME__", home)
             .replace("__DATA__", json.dumps(data, default=str).replace("</", "<\\/") if data is not None else "null")
             .replace("__ASSIGNHIDDEN__", "" if assignment else "hidden").replace("__ASSIGNMENT__", html.escape(assignment))

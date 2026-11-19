@@ -18,7 +18,7 @@ import traceback
 from pathlib import Path
 
 from . import db, feed, hubspot, pipeline
-from .util import OUT, ROOT, load_env
+from .util import OUT, ROOT, found_line, load_env
 
 POLL = 60          # seconds between looks at HubSpot for requests
 OUTCOMES = 300     # seconds between reading outcomes and re-delivering changed cases
@@ -31,17 +31,34 @@ def _log(msg):
     print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}", flush=True)
 
 
-def summary(r):
-    """The run's report for the record that asked: the analyst's summary, the cases, the leads."""
+def _saved(r):
+    """The cases a run saved or revised: [(ID, company ID, company name, stream, status)]."""
     con = db.connect()
     try:
-        names = {oid: (con.execute("SELECT c.name FROM opportunities o JOIN companies c ON c.id=o.company_id WHERE o.id=?",
-                                   (oid,)).fetchone() or ["?"])[0] for oid in r["saved"]}
+        return [tuple(row) for oid in r["saved"] for row in con.execute(
+            "SELECT o.id, o.company_id, c.name, o.stream_key, o.status FROM opportunities o "
+            "JOIN companies c ON c.id=o.company_id WHERE o.id=?", (oid,))]
     finally:
         con.close()
+
+
+def found(r):
+    """The run's results, counted as everywhere else (util.found_line)."""
+    return found_line([cid for _, cid, _, _, status in _saved(r) if status == "active"])
+
+
+def summary(r):
+    """The run's report for the record that asked: the analyst's summary, the cases, the leads."""
+    from .watch import title_label
+    saved = _saved(r)
+    saved = sorted(saved, key=lambda x: (x[2].lower(), x[3] or ""))
+    active = [x for x in saved if x[4] == "active"]
     lines = [r["summary"].strip()]
-    if names:
-        lines += ["", "Cases saved or revised (each is a deal):"] + [f"- {n} ({oid})" for oid, n in names.items()]
+    if active:
+        lines += ["", f"Found {found_line([x[1] for x in active])} (each exposure is a deal):"]
+        lines += [f"- {name}: {title_label(stream)} ({oid})" for oid, _, name, stream, _ in active]
+    if len(active) < len(saved):
+        lines += ["", "Withdrawn:"] + [f"- {name}: {title_label(stream)} ({oid})" for oid, _, name, stream, st in saved if st != "active"]
     if r["leads"]:
         lines += ["", "Follow-on leads:"] + [f"- {x['company_or_event']}: {x['reason']}" for x in r["leads"]]
     s = r.get("stats") or {}
@@ -84,7 +101,7 @@ def run_request(obj, hs_id, props):
             raise ValueError(f"Unknown request {kind!r}.")
         hubspot.mark_finished(obj, hs_id, "done", summary(r), (r.get("stats") or {}).get("total_cost_usd"))
         n = hubspot.propose_leads(r["leads"], r["run_id"])
-        _log(f"{obj} {hs_id}: {kind} run {r['run_id']} done; {len(r['saved'])} case(s), {n} lead(s) proposed")
+        _log(f"{obj} {hs_id}: {kind} run {r['run_id']} done; {found(r)}, {n} lead(s) proposed")
     except Exception as e:
         _log(f"{obj} {hs_id}: {kind} failed: {type(e).__name__}: {str(e)[:500]}")
         traceback.print_exc()

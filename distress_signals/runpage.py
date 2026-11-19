@@ -2,12 +2,12 @@
 
 watch.py serves it live and export-run writes it as one self-contained file. It is organised as views with
 their own addresses rather than one long scroll:
-  #findings      company findings grouped by event and revenue stream
-  #activity      completed research actions by minute, with playback and links into the log
+  #overview      project overview with company findings, research activity and other leads
+  #activity      activity chart and playback controls on the overview
   #case/ID       one finding in full: the event, the outcomes, the figures behind them with their provenance,
                  the evidence, who to call and the opening message
   #research      a continuous, time-stamped transcript with replay and links to saved findings
-  #also          what was set aside, and the leads it suggests
+  #also          follow-up and set-aside leads on the overview
   #found/ID      the step where a finding was saved; #step/N a step by number; #play replays from the start
 """
 
@@ -219,40 +219,63 @@ padding:10px 18px;font-weight:600;font-size:13px;line-height:1;cursor:pointer;bo
 
 SHELL_STYLE = r"""
 .run-nav{background:var(--bg)}
-.run-nav .in{max-width:1116px;height:64px;gap:22px}
-.run-nav .tabs{align-self:stretch;align-items:stretch;gap:13px;overflow:visible}
-.run-nav .tabs a{display:inline-flex;align-items:center;position:relative;padding:0 3px;color:var(--mute);background:none;border-radius:0}
+.run-nav .in{max-width:1116px;height:54px;gap:19px}
+.run-nav .brand{margin-right:auto}.run-nav .tabs{align-self:stretch;align-items:stretch;gap:18px;overflow:visible}
+.run-nav .tabs a{display:inline-flex;align-items:center;position:relative;padding:0 1px;color:var(--mute);background:none;border-radius:0}
 .run-nav .tabs a:hover,.run-nav .tabs .on{color:var(--ink)}
-.run-nav .tabs .on:after{content:"";position:absolute;bottom:-1px;left:0;right:0;height:3px;background:var(--blue)}
+.run-nav .tabs .on:after{content:"";position:absolute;bottom:-1px;left:0;right:0;height:2px;background:var(--blue)}
 .run-nav .project-link{font-size:13px;font-weight:600;color:var(--mute);white-space:nowrap}
-.run-nav .project-link:hover{color:var(--ink)}.run-nav .brand{margin-right:14px}
-.run-nav + .wrap{max-width:1116px}.doc2>h3{scroll-margin-top:calc(var(--shell-height,64px) + 16px)}
-@media(max-width:820px){
-  .run-nav{position:sticky}.run-nav .in{height:auto;display:flex;flex-wrap:wrap;padding:10px 16px 0;gap:0 14px}
-  .run-nav .brand{margin-right:auto}.run-nav .brand span{display:inline}
-  .run-nav .spacer{display:none}.run-nav .tabs{order:1;flex:0 0 100%;flex-wrap:nowrap;gap:16px}
-  .run-nav .tabs a{padding:10px 0 9px}
+.run-nav .project-link:hover{color:var(--ink)}
+.run-nav .github-icon{display:none;width:20px;height:20px;fill:currentColor}
+.run-nav + .wrap{max-width:1116px;padding-top:28px}
+.run-nav + .wrap .view{animation:none}
+#overview,#section-findings,#activity,#also,#hubspot,.doc2>h3{scroll-margin-top:calc(var(--shell-height,54px) + 16px)}
+#also{margin-top:30px}
+#also>h2{margin:0 0 12px;font-size:21px}
+.lead-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:26px}
+.lead-group{min-width:0}.lead-group h3{margin:0 0 6px;color:var(--soft);font-size:14px;font-weight:650}
+.lead-group ul{margin:0;padding:0;list-style:none;border-top:1px solid var(--line)}
+.lead-group li{border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.lead-group summary{cursor:pointer;color:var(--soft);font-size:14px;line-height:1.45;padding:8px 0}
+.lead-group summary::marker{color:var(--faint);font-size:11px}
+.lead-group summary:hover,.lead-group details[open] summary{color:var(--ink)}
+.lead-group p{margin:0;padding:0 0 10px;color:var(--soft);font-size:14px}
+.lead-group .lead-note{padding:8px 0}.lead-group .lead-sources{display:block;margin-top:5px}
+@media(max-width:700px){
+  .run-nav{position:sticky}.run-nav .in{height:auto;min-height:47px;padding:0 16px;flex-wrap:wrap;gap:0 14px}
+  .run-nav .brand span{display:inline}.run-nav .tabs{order:0;flex:0 0 auto;flex-wrap:nowrap;gap:12px}
+  .run-nav .tabs a{padding:12px 0}.run-nav .pill{margin-left:0}
+  .run-nav + .wrap{padding-top:22px}
+  .lead-groups{grid-template-columns:1fr;gap:18px}
 }
-@media(max-width:400px){
-  .run-nav .tabs{justify-content:space-between;gap:4px}.run-nav .tabs a{font-size:12px}
+@media(max-width:560px){
+  .run-nav .github-icon{display:block}.run-nav .github-label{display:none}
+  .run-nav .source-link{display:grid;place-items:center;min-width:25px;min-height:40px}
+  .run-nav:not(:has(.operator-home,.pill:not([hidden]))) .in{display:grid;grid-template-columns:minmax(0,1fr) auto auto;column-gap:12px}
+  .run-nav:has(.operator-home) .tabs{order:1;flex-basis:100%}
 }
-@media(max-width:360px){
-  .run-nav .tabs{display:grid;grid-template-columns:1fr 1.2fr 1fr .85fr;gap:8px}
-  .run-nav .tabs a{white-space:normal;text-align:center;justify-content:center;line-height:1.25;padding:7px 0}
+@media(max-width:375px){
+  .run-nav .in{gap:0 10px;padding:0 12px}.run-nav .brand{gap:6px;font-size:12px}
+  .run-nav .brand img{width:17px;height:17px}.run-nav .tabs{gap:10px}
+  .run-nav .tabs a,.run-nav .project-link{font-size:12px}
 }
-
+@media(max-width:340px){.run-nav .brand img{display:none}}
 """
 
+LEADS_HTML = """<section id="also" aria-labelledby="leads-title" hidden>
+  <h2 id="leads-title">Other leads</h2><div class="lead-groups" id="a-body"></div>
+</section>"""
+
 PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>__TITLE__ · Distress Signals</title><link rel="icon" href="__FAVICON__"><style>__STYLE__</style></head><body>
-<header class="top run-nav"><div class="in"><a class="brand" href="#findings" aria-label="Distress Signals findings"><img src="__FAVICON__" alt=""><span>Distress Signals</span></a>
+<title>__TITLE__ · Distress Signals</title>__SHAREMETA__<link rel="icon" href="__FAVICON__"><style>__STYLE__</style></head><body>
+<header class="top run-nav"><div class="in"><a class="brand" href="#overview" aria-label="Distress Signals overview"><img src="__FAVICON__" alt=""><span>Distress Signals</span></a>
   <nav class="tabs" id="tabs" aria-label="Run navigation">
-    <a href="#findings">Findings</a><a href="#activity">Research activity</a><a href="#research">Research log</a><a href="#also">Other leads</a>
-  </nav><span class="spacer"></span><span class="pill" id="pill" hidden></span>
-  __RUNINDEX__<a class="project-link" href="__REPO__">GitHub</a></div></header>
+    <a href="#overview">Overview</a><a href="#research">Research log</a>
+  </nav><span class="pill" id="pill" hidden></span>
+  __RUNINDEX__<a class="project-link source-link" href="__REPO__" aria-label="Source on GitHub" title="Source on GitHub">
+    <svg class="github-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.45 7.45 0 018 3.86c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8Z"/></svg><span class="github-label">GitHub</span></a></div></header>
 <main class="wrap">
 __FINDINGSHTML__
-__ACTIVITYHTML__
 <section class="view" id="v-case" hidden></section>
 <section class="view" id="v-research" hidden>
   <div class="loghead"><h1>Research log</h1><select id="saved-jump" aria-label="Jump to a saved finding" hidden></select></div>
@@ -264,8 +287,6 @@ __ACTIVITYHTML__
   <div class="player livebar" id="livebar" hidden></div>
   <div id="transcript" class="steps" aria-label="Transcript"></div><div id="log-empty" class="empty" hidden></div>
 </section>
-<section class="view" id="v-also" hidden><h1>Other leads</h1>
-  <div id="a-body"></div></section>
 </main>
 <button id="latest" hidden>Follow replay ↓</button>
 <script>
@@ -360,16 +381,18 @@ function parse() {
   if (v === "step" && /^\d+$/.test(a || "")) return {v: "research", step: +a};
   if (v === "play") return {v: "research", play: true};
   if (v === "research") return {v, step: /^\d+$/.test(a || "") ? bookmarkedStep(+a - 1, /^\d+$/.test(b || "") ? +b - 1 : 0) : null};
-  if (v === "activity" || v === "run") return {v: "activity"};
-  if (v === "also") return {v};
-  return {v: "findings"};
+  const sections = new Map([
+    ["activity", "activity"], ["run", "activity"], ["also", "also"], ["hubspot", "hubspot"],
+    ["found", "section-findings"], ["section-findings", "section-findings"]
+  ]);
+  return {v:"findings", section:sections.get(v)};
 }
 function go(r, savedReplay) {
   if (P.playing) pause();
   route = r;
   $("#latest").hidden = true;
   $("#transcript .flash")?.classList.remove("flash");
-  if (r.v !== "research") { render(); window.scrollTo({top: 0}); return; }
+  if (r.v !== "research") { render(); return; }
 
   if (savedReplay && !live() && M.beats.length) {
     const {read, expanded, collapsed, ...transport} = savedReplay;
@@ -402,18 +425,25 @@ function go(r, savedReplay) {
   } else if (live()) scrollCurrent();
   else window.scrollTo({top: 0});
 }
+let overviewModel = null;
 function render() {
-  const current = route.v === "case" ? "findings" : route.v;
+  const current = route.v === "research" ? "research" : "overview";
   for (const a of $$("#tabs a")) {
     const active = a.hash === "#" + current;
     a.classList.toggle("on", active);
     if (active) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   }
-  if (route.v !== "activity") activityLeave();
+  if (route.v !== "findings") activityLeave();
   pill();
   for (const v of $$(".view")) v.hidden = v.id !== "v-" + route.v;
-  ({findings, activity: activityView, case: caseView, research, also})[route.v]();
+  if (route.v === "findings") {
+    if (M !== overviewModel) {
+      findings(); otherLeads(); overviewModel = M;
+    }
+    activityView();
+  } else if (route.v === "case") caseView();
+  else research();
   const title = $(".view:not([hidden]) h1");
   document.title = `${title?.textContent || "Findings"} · Distress Signals`;
 }
@@ -456,11 +486,11 @@ function sourceNote(cite) {
 }
 function caseView() {
   const box = $("#v-case"), i = M.found.findIndex(f => f.oid === route.oid);
-  if (i < 0) { box.innerHTML = `<div class="crumbs"><a class="back" href="#findings">‹ All findings</a></div><div class="empty">No case with this ID is available in this run.</div>`; return; }
+  if (i < 0) { box.innerHTML = `<div class="crumbs"><a class="back" href="#section-findings">‹ All findings</a></div><div class="empty">No case with this ID is available in this run.</div>`; return; }
   const f = M.found[i], c = f.c, prev = M.found[i - 1], next = M.found[i + 1];
   const secs = [], p = t => t ? `<p>${esc(t)}</p>` : "";
   const sec = (h, body) => { if (!body) return ""; secs.push(h); return `<h3 id="sec${secs.length}">${h}</h3><div>${body}</div>`; };
-  box.innerHTML = `<div class="crumbs"><a class="back" href="#findings">‹ Findings</a><span class="spacer"></span>`
+  box.innerHTML = `<div class="crumbs"><a class="back" href="#section-findings">‹ Findings</a><span class="spacer"></span>`
     + (prev ? `<a class="btn sm" href="#case/${esc(prev.oid)}">‹ Previous case</a>` : "")
     + (next ? `<a class="btn sm" href="#case/${esc(next.oid)}">Next case ›</a>` : "") + `</div>`
     + `<div class="casehead"><div><div class="eyebrow">${esc(c.company)}</div><h1>${esc(c.stream || "Revenue exposure")}</h1></div>`
@@ -482,10 +512,23 @@ function caseView() {
   $("#jump").hidden = !secs.length;
   $("#case-section").replaceChildren(...secs.map((label, i) => new Option(label, "sec" + (i + 1))));
 }
-function also() {
-  $("#a-body").innerHTML = (M.aside.length ? `<h2>Leads set aside</h2><div class="alist">${M.aside.map(t => `<div>${esc(t)}</div>`).join("")}</div>` : "")
-    + (M.leads.length ? `<h2 style="margin-top:34px">Follow-up leads</h2><div class="alist">${M.leads.map(l =>
-      `<div><b>${esc(l.company_or_event)}</b><br>${esc(l.reason)}${leadSources(l.source_urls)}</div>`).join("")}</div>` : "") || `<div class="empty">No other leads recorded.</div>`;
+function otherLeads() {
+  const section = $("#also"), list = $("#a-body");
+  section.hidden = !(M.leads.length || M.aside.length);
+  const expanded = new Set($$("details[open]", list).map(el => el.dataset.lead));
+  function group(title, records, kind) {
+    if (!records.length) return "";
+    const rows = records.map((record, index) => {
+      if (typeof record === "string") return `<li><p class="lead-note">${esc(record)}</p></li>`;
+      const key = kind + index;
+      const name = record.company_or_event || record.title;
+      const body = esc(record.reason) + leadSources(record.source_urls);
+      if (!name) return `<li><p class="lead-note">${body}</p></li>`;
+      return `<li><details data-lead="${key}"${expanded.has(key) ? " open" : ""}><summary>${esc(name)}</summary><p>${body}</p></details></li>`;
+    }).join("");
+    return `<section class="lead-group"><h3>${title}</h3><ul>${rows}</ul></section>`;
+  }
+  list.innerHTML = group("For follow-up", M.leads, "follow") + group("Set aside", M.aside, "aside");
 }
 
 // ---- the research, and its replay ----
@@ -713,10 +756,16 @@ function openRoute(moveFocus = false) {
   history.replaceState({...history.state, runVisit:visit, runScroll:saved, runReplay:savedReplay}, "");
   go(next, savedReplay);
   displayedURL = location.href;
+  const anchor = next.section && document.getElementById(next.section);
+  if (anchor && next.section === "hubspot") {
+    const detail = anchor.closest("details");
+    if (detail) detail.open = true;
+  }
   if (Number.isFinite(saved)) window.scrollTo({top:saved, behavior:"instant"});
-  else if (next.v === "findings" && location.hash === "#hubspot") $("#hubspot").scrollIntoView();
+  else if (anchor && anchor.getClientRects().length) anchor.scrollIntoView({block:"start", behavior:"instant"});
+  else if (next.v !== "research") window.scrollTo({top:0, behavior:"instant"});
   if (!moveFocus) return;
-  const target = (savedReplay && next.v === "research" && $("#pp")) || ((next.step != null || next.find) && $(".step.flash")) || (next.play && $("#pp")) || $(".view:not([hidden]) h1");
+  const target = (anchor && anchor.getClientRects().length && (anchor.querySelector("h2,summary") || anchor)) || (savedReplay && next.v === "research" && $("#pp")) || ((next.step != null || next.find) && $(".step.flash")) || (next.play && $("#pp")) || $(".view:not([hidden]) h1");
   if (target) { if (!target.matches("button")) target.tabIndex = -1; target.focus({preventScroll:true}); }
 }
 window.addEventListener("hashchange", () => { if (M) openRoute(true); });
@@ -725,7 +774,7 @@ function measureShell() {
 }
 measureShell();
 new ResizeObserver(measureShell).observe($(".run-nav"));
-window.addEventListener("resize", () => { if (route.v === "activity") activityResize(); });
+window.addEventListener("resize", () => { if (route.v === "findings") activityResize(); });
 const scrollBehavior = () => matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
 window.addEventListener("scroll", () => {
   if (route.v === "research" && (P.playing || live()) && window.scrollY < lastScroll - 2) followLatest(false);

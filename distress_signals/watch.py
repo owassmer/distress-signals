@@ -22,7 +22,7 @@ from urllib.parse import parse_qs, urlparse
 
 from . import activityview, db, example_review, findingsview, hubspot
 from .feed import _result_text
-from .runpage import CHART_JS, FAVICON, FOUND_JS, ICONS, PACE, PAGE, PAGE_STEPS, SHELL_STYLE, STYLE
+from .runpage import CHART_JS, FAVICON, FOUND_JS, ICONS, LEADS_HTML, PACE, PAGE, PAGE_STEPS, SHELL_STYLE, STYLE
 from .util import OUT, load_env
 
 PORT = int(os.environ.get("DISTRESS_WATCH_PORT", "8790"))
@@ -439,15 +439,25 @@ def _page(run_id, data=None, home="/"):
     title = _title(run)
     assignment = _assignment(run)
     purpose = assignment
-    if data and data.get("example_deal") and run and run.get("seed_kind") == "mandate":
-        purpose = ("The research agent searched public records for upcoming external events "
-                   "and the companies with material revenue at stake.")
+    findings_title = "Company findings"
+    share_meta = ""
+    if data and data.get("example_deal"):
+        if run and run.get("seed_kind") == "mandate":
+            title = "Sales prospecting from public records"
+            purpose = ("Distress Signals finds upcoming events and the companies whose revenue depends on them. "
+                       "It models the potential shortfall and prepares a proposed HubSpot deal with sources, a suggested contact and draft outreach.")
+            findings_title = "Prospects from an open search"
+        description = html.escape(purpose, quote=True)
+        share_meta = (f'<meta name="description" content="{description}">'
+                      f'<meta property="og:title" content="{html.escape(title, quote=True)} · Distress Signals">'
+                      f'<meta property="og:description" content="{description}"><meta property="og:type" content="website">')
     index_link = ""
     if data is None or home not in ("/", REPO, "#findings"):
-        index_link = f'<a class="project-link" href="{html.escape(home, quote=True)}">All runs</a>'
+        index_link = f'<a class="project-link operator-home" href="{html.escape(home, quote=True)}">All runs</a>'
     page = (PAGE.replace("__STYLE__", STYLE + SHELL_STYLE + findingsview.STYLE + activityview.STYLE)
             .replace("__FINDINGSHTML__", findingsview.HTML).replace("__FINDINGSJS__", findingsview.JS)
-            .replace("__ACTIVITYHTML__", activityview.HTML).replace("__ACTIVITYJS__", activityview.JS)
+            .replace("__LEADSHTML__", LEADS_HTML).replace("__ACTIVITYHTML__", activityview.HTML.strip()).replace("__ACTIVITYJS__", activityview.JS)
+            .replace("__FINDINGSTITLE__", findings_title).replace("__SHAREMETA__", share_meta)
             .replace("__RUNINDEX__", index_link).replace("__FOUNDJS__", FOUND_JS).replace("__CHARTJS__", CHART_JS)
             .replace("__ICONS__", json.dumps(ICONS)).replace("__PAGESTEPS__", str(PAGE_STEPS)).replace("__PACE__", json.dumps(PACE))
             .replace("__RUN__", run_id).replace("__FAVICON__", FAVICON).replace("__REPO__", REPO)

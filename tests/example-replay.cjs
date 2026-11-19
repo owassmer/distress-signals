@@ -29,10 +29,12 @@ async function testReplay(page, url) {
 
 async function testActivity(page, url) {
   const nav = page.getByRole("navigation", { name: "Run navigation" });
-  await nav.getByRole("link", { name: "Research activity" }).click();
-  const activity = page.locator("#v-activity");
-  await activity.waitFor();
-  assert.equal(page.url(), url + "#activity");
+  await nav.getByRole("link", { name: "Overview", exact: true }).click();
+  const overview = page.locator("#v-findings");
+  await overview.waitFor();
+  const activity = overview.locator("#activity");
+  assert.equal(await activity.isVisible(), true);
+  assert.equal(await overview.locator("#also").isVisible(), true);
   const seek = activity.getByRole("slider");
   const toggle = activity.locator("#activity-toggle");
   const distances = [];
@@ -51,6 +53,7 @@ async function testActivity(page, url) {
   assert.equal(distances[2], 4 * distances[0]);
 
   // The first case was saved at 13:11 during the entry that began at 12:44.
+  await seek.press("End");
   const firstSave = activity.locator('a[href^="#found/"]').first();
   const bookmark = await firstSave.getAttribute("href");
   await firstSave.click();

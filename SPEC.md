@@ -392,13 +392,14 @@ reading one afterwards. Each feed note and the progress field link to it, at
 port). Each run has one page with addressable sections for reading and replay. Browser history
 retains the reader’s position when moving between sections.
 
-- Findings, Research activity, Research log and Other leads share the same navigation. Each section
-  has a direct link. Selecting a case keeps Findings marked as its parent section.
-- **Findings** (`#findings`) opens the run. Each company groups its exposures by event. Each stream
-  links to the full case and the research entry where it was saved.
-- **Research activity** (`#activity`) charts searches, source reads, and queries and calculations by
-  minute. Playback, speed and seeking operate on the chart. Saved findings and individual actions
-  link to their entries in the log.
+- **Overview** (`#overview`) brings the company findings, research activity and other leads together.
+  The public open-search guide introduces the prospecting workflow. Operator views retain the run's brief.
+- **Company findings** (`#section-findings`) groups revenue streams under their company and event.
+  Each stream opens its case. The table shows the largest modeled shortfall, its period and scenario,
+  the suggested contact and a link to the source.
+- **Research activity** (`#activity`) charts completed searches, source reads, and queries and calculations
+  by minute. Playback, speed and seeking work in place. A case marker opens the log at the moment
+  that case was saved.
 - **Case details** (`#case/<id>`) groups the exposure, event timing, scenarios, model inputs,
   evidence and suggested outreach. The section selector jumps within a case. Previous and Next
   open adjacent cases, and the timestamp opens the research entry where the case was saved.
@@ -414,7 +415,7 @@ retains the reader’s position when moving between sections.
 - `#found/<id>` opens the saved finding in the log. `#step/<n>` opens an individual entry.
   Play resumes at the linked timestamp. Earlier `#research/<chapter>/<page>` bookmarks open
   the first entry that the bookmarked page displayed.
-- **Also considered** (`#also`): what was set aside, and the leads.
+- **Other leads** (`#also`) distinguishes prospects for follow-up from those set aside. Expand a named lead to inspect the reason and available sources.
 - During a live run the log polls for new entries and updates pending actions in place. Readers can
   follow new entries or scroll back and select **Latest entry** to return. The replay becomes available
   when the run ends.

@@ -1,13 +1,24 @@
 """Recorded research activity and its playback controls for the run page."""
 
 STYLE = r"""
-.activity-panel{margin:0;padding:22px 24px 15px;border:1px solid var(--line);border-radius:16px;background:var(--card)}
-.activity-caption{font-size:17px;font-weight:680}
+#activity{min-width:0;margin-top:24px;padding:17px 20px;border:1px solid var(--line);border-radius:14px;background:var(--card);scroll-margin-top:calc(var(--shell-height,58px) + 16px)}
+.activity-head{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:4px 12px}
+#activity-heading{margin:0;font-size:20px;line-height:1.3}
+.activity-head a{font-size:13px;font-weight:650}
+.activity-panel{margin:0}
+.activity-plot{position:relative}
+.activity-unit{margin:0 0 -6px;font-size:11px;color:var(--faint)}
+.activity-marker{position:absolute;top:20px;width:24px;height:26px;transform:translate(-50%,-50%);display:grid;place-items:center;z-index:1;border-radius:5px}
+.activity-marker svg{width:17px;height:17px;padding:2px;background:var(--greenink);color:#fff;border-radius:50%}
+.activity-marker:hover,.activity-marker:focus-visible{z-index:2}
+.activity-marker:hover::after,.activity-marker:focus-visible::after{content:attr(data-label);position:absolute;bottom:100%;left:var(--tip-offset);width:max-content;max-width:var(--tip-width);padding:5px 8px;border-radius:6px;font-size:12px;line-height:1.4;font-weight:550;color:white;background:var(--ink);box-shadow:0 2px 8px #0f172a1c;pointer-events:none}
+#activity-chart g :is(circle,text){visibility:hidden}
+#activity-cases-key i{border-radius:50%;background:var(--greenink)}
 .activity-legend{display:flex;align-items:center;flex-wrap:wrap;gap:5px 18px;margin:8px 0 6px;color:var(--soft);font-size:13px}
 .activity-legend span{display:inline-flex;align-items:center;gap:5px}
 .activity-legend i{display:inline-block;width:9px;height:9px;border-radius:2px}
-.activity-legend b,.activity-time,.activity-case-time{font-variant-numeric:tabular-nums}
-#activity-chart{display:block;width:100%;height:200px}
+.activity-legend b,.activity-time{font-variant-numeric:tabular-nums}
+#activity-chart{display:block;width:100%;height:158px}
 #activity-chart[data-seekable]{cursor:crosshair}
 .activity-controls{display:grid;grid-template-columns:auto auto minmax(50px,1fr) auto;align-items:center;gap:14px;margin-top:12px}
 .activity-toggle{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:8px 13px;border:0;border-radius:99px;background:var(--ink);color:#fff;font:inherit;font-size:13px;font-weight:600;line-height:1.4;cursor:pointer}
@@ -19,33 +30,27 @@ STYLE = r"""
 #activity-speeds button[aria-pressed="true"]{color:var(--ink);background:var(--card);box-shadow:0 1px 3px #0f172a24}
 .activity-entry{margin:13px 0 0;padding-top:12px;display:flex;align-items:baseline;gap:5px 20px;justify-content:space-between;flex-wrap:wrap;border-top:1px solid var(--line2);font-size:13px;color:var(--soft);overflow-wrap:anywhere}
 .activity-entry a{white-space:nowrap}
-#activity-cases{margin-top:28px}#activity-cases h2{font-size:18px;margin:0 0 8px}
-#activity-case-list{list-style:none;margin:0;padding:0;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
-#activity-case-list li+li{border-top:1px solid var(--line2)}
-#activity-case-list a{display:grid;align-items:baseline;grid-template-columns:20px 48px 1fr auto;gap:10px;padding:11px 16px;color:var(--ink);line-height:1.45}
-#activity-case-list a:hover{background:#f8fafc;text-decoration:none}#activity-case-list a:focus-visible{outline-offset:-3px}
-.activity-case-dot{width:18px;height:18px;text-align:center;border-radius:50%;align-self:start;font-size:11px;line-height:18px;background:var(--greenink);color:#fff;font-weight:700}
-.activity-case-time,.activity-case-company{color:var(--faint);font-size:13px}.activity-case-name{font-size:14px;font-weight:600}
-.activity-case-arrow{color:var(--blue);font-size:14px;align-self:center}
-@media(max-width:620px){.activity-panel{padding:16px 14px}.activity-controls{grid-template-columns:auto 1fr auto;gap:4px 10px}
-#activity-seek{grid-column:1/-1;grid-row:2}#activity-speeds{grid-column:3;grid-row:1}
-#activity-case-list a{grid-template-columns:18px 40px 1fr auto;gap:7px;padding:11px 12px}
-.activity-case-company{display:block}.activity-case-sep{display:none}}
+@media(max-width:620px){#activity{padding:15px 14px}.activity-controls{grid-template-columns:auto 1fr auto;gap:4px 10px}
+#activity-seek{grid-column:1/-1;grid-row:2}#activity-speeds{grid-column:3;grid-row:1}}
 @media(max-width:380px){.activity-toggle{width:34px;height:34px;padding:0}.activity-toggle span{display:none}}
 """
 
 HTML = r"""
-<section class="view" id="v-activity" aria-labelledby="activity-heading" hidden>
-  <h1 id="activity-heading">Research activity</h1>
+<section id="activity" aria-labelledby="activity-heading">
+  <div class="activity-head"><h2 id="activity-heading">Research activity</h2><a id="activity-open-log" href="#research">Open research log <span aria-hidden="true">→</span></a></div>
   <p class="empty" id="activity-empty" hidden></p>
   <figure class="activity-panel" id="activity-figure">
-    <figcaption class="activity-caption">Completed actions per minute</figcaption>
     <div class="activity-legend">
       <span><i style="background:#2563eb"></i>Searches <b id="activity-search">0</b></span>
       <span><i style="background:#94a3b8"></i>Source reads <b id="activity-read">0</b></span>
       <span><i style="background:#7c3aed"></i>Queries &amp; calculations <b id="activity-calc">0</b></span>
+      <span id="activity-cases-key" hidden><i></i>Case saved</span>
     </div>
-    <svg id="activity-chart" role="img" aria-label="Completed actions per minute. Numbered markers show when cases were saved."></svg>
+    <div class="activity-unit">Actions per minute</div>
+    <div class="activity-plot">
+      <svg id="activity-chart" role="img" aria-label="Completed research actions per minute"></svg>
+      <div id="activity-markers" role="group" aria-label="Saved cases in the research log"></div>
+    </div>
     <div class="activity-controls" id="activity-controls">
       <button type="button" class="activity-toggle" id="activity-toggle"></button>
       <span class="activity-time" aria-label="Elapsed run time"><b id="activity-time"></b> / <span id="activity-duration"></span></span>
@@ -60,10 +65,6 @@ HTML = r"""
       <span id="activity-entry-label"></span><a id="activity-entry-link"></a>
     </div>
   </figure>
-  <section id="activity-cases" hidden>
-    <h2>Cases saved</h2>
-    <ol id="activity-case-list"></ol>
-  </section>
 </section>
 """
 
@@ -94,15 +95,26 @@ function activityPrepare() {
   activity.time = atEnd || live() ? activity.end : Math.min(activity.time, activity.end);
   $("#activity-seek").max = Math.ceil(activity.end);
   $("#activity-duration").textContent = clock(activity.end);
-  $("#activity-case-list").innerHTML = M.found.map(({oid, c, el, n}) => {
-    const href = "#found/" + encodeURIComponent(oid);
-    return `<li><a href="${esc(href)}" aria-label="${esc(`Research log at ${clock(el)} · ${[c.company,c.stream].filter(Boolean).join(" · ")}`)}">
-      <span class="activity-case-dot" aria-hidden="true">${n}</span><span class="activity-case-time">${clock(el)}</span>
-      <span><span class="activity-case-name">${esc(c.stream || c.company || "Case saved")}</span>
-        ${c.stream && c.company ? `<span class="activity-case-company"><span class="activity-case-sep"> · </span>${esc(c.company)}</span>` : ""}</span>
-      <span class="activity-case-arrow" aria-hidden="true">→</span></a></li>`;
+  $("#activity-markers").innerHTML = M.found.map(({oid, c, el}) => {
+    const label = [clock(el), c.company, c.stream].filter(Boolean).join(" · ");
+    return `<a class="activity-marker" href="#found/${esc(encodeURIComponent(oid))}" aria-label="Open research log at ${esc(label)}" data-label="${esc(label)}" hidden>${ICONS.finding}</a>`;
   }).join("");
-  $("#activity-cases").hidden = !M.found.length;
+  $("#activity-cases-key").hidden = !M.found.length;
+}
+
+// Keep links outside the SVG so a chart redraw leaves keyboard focus intact.
+function activityMarkers(chart, t) {
+  const circles = $$("g circle", chart), width = chart.viewBox.baseVal.width;
+  const tipWidth = Math.min(235, width);
+  let visible = 0;
+  for (const [i, link] of $$("#activity-markers a").entries()) {
+    link.hidden = activity.flags[i].t > t;
+    if (link.hidden) continue;
+    const x = Number(circles[visible++].getAttribute("cx"));
+    link.style.left = x / width * 100 + "%";
+    link.style.setProperty("--tip-width", tipWidth + "px");
+    link.style.setProperty("--tip-offset", Math.min(12, width - tipWidth - x + 12) + "px");
+  }
 }
 
 function activityPaint(force = false) {
@@ -120,7 +132,9 @@ function activityPaint(force = false) {
       totals[kind]++;
     }
     for (const kind of Object.keys(totals)) $("#activity-" + kind).textContent = totals[kind];
-    drawChart($("#activity-chart"), M.bins, flags, t, 200, bins);
+    const chart = $("#activity-chart");
+    drawChart(chart, M.bins, flags, t, 158, bins);
+    activityMarkers(chart, t);
     activity.drawnEvents = count;
     activity.drawnFlags = seen;
     const latest = events[count - 1], link = $("#activity-entry-link");
@@ -183,7 +197,7 @@ function activityLeave() {
 }
 
 function activityResize() {
-  if (M && !$("#v-activity").hidden) activityPaint(true);
+  if (activity.model === M && M && $("#activity-chart").getBoundingClientRect().width) activityPaint(true);
 }
 
 $("#activity-toggle").onclick = () => {

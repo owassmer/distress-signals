@@ -21,6 +21,7 @@
         "scenarios": [
           {
             "label": "Both licenses end April 1",
+            "summary": "If Green Thumb’s affiliate buys back both sets of brand rights on April 1.",
             "description": "After the federal hemp limits take effect, Green Thumb’s affiliate repurchases both sets of brand rights on April 1, 2027. RYTHM earns only the first quarter’s fees."
           },
           {
@@ -98,6 +99,7 @@
         "scenarios": [
           {
             "label": "Generic launch in March",
+            "summary": "If a generic launches March 1 and WAKIX retains 35% of its prior sales rate.",
             "description": "After adverse patent rulings and FDA approval, a generic version of WAKIX launches March 1, 2027. Harmony retains 35% of baseline WAKIX sales over the next ten months."
           },
           {
@@ -178,6 +180,7 @@
         "scenarios": [
           {
             "label": "Sales cease throughout 2027",
+            "summary": "If the federal limits halt sales of the current product line for the year.",
             "description": "The federal THC limits take effect in December 2026 and RYTHM makes no sales of its current hemp-derived THC products in 2027."
           },
           {
@@ -249,6 +252,7 @@
         "scenarios": [
           {
             "label": "States can enforce sports restrictions",
+            "summary": "If a ruling allows state restrictions that cut estimated sports-contract fees by 90%.",
             "description": "The Supreme Court permits state enforcement by June 2027. From July, state restrictions remove 90% of Robinhood’s estimated sports-contract fees. Non-sports fees continue at the Q3 2026 rate."
           },
           {
@@ -311,11 +315,26 @@
     }
   },
   "aside": {
-    "4353688e99bd648f9d955cdf4cc9f590e91574ee843dc609762558a37968189f": "CV Sciences sells hemp-derived CBD products and reported about $3 million of quarterly revenue. Management said it could not reasonably estimate the financial effect of the new hemp definition. The research found no revenue breakdown for the affected products. A later disclosure of full-spectrum product sales could support an estimate.",
-    "114e20d08e6f9eba9640603ad4b4e92a9bd3a9d0cdee7d022a41edf164cda5b8": "Glass House Brands suspended its hemp biomass export operations in Q3 2026 and said the suspension had no material impact. Its principal business sells cannabis licensed by California. The research found no material revenue stream exposed to the change in the federal hemp definition.",
-    "3e6ed50f8526c9aaf4a7e6ebf78af43d90f2352598030b02a67572ade89c7f56": "Ironwood’s negotiated Medicare price for LINZESS had already been published at $136 per 30-day supply, effective January 1, 2027. Ironwood said the price met its expectations and had already reduced the list price. The research found no unresolved pricing decision for that effective date.",
-    "0d43808bbce2844831852aca778f1c06e00ba82be3e6a9556c228abfd0658321": "Gemini reported $0.8 million of Q3 2026 revenue from Gemini Predictions out of $40.9 million total. All prediction contracts together represented about 2% of revenue, which limits the possible exposure from its sports contracts alone. Separate state enforcement matters would require their own analysis.",
-    "d865050224cf81f2cbfe175f93e5325f4a4d6f1e1bf1bc1ad7675fb45f8646a6": "Tilray expected its Manitoba Harvest hemp-seed foods to remain within the revised federal definition. The research found no separate revenue figure for affected hemp-THC products, so it could not size a shortfall for Tilray."
+    "4353688e99bd648f9d955cdf4cc9f590e91574ee843dc609762558a37968189f": {
+      "title": "CV Sciences · Missing sales breakdown for affected products",
+      "reason": "CV Sciences sells hemp-derived CBD products and reported about $3 million of quarterly revenue. Management said it could not reasonably estimate the financial effect of the new hemp definition. The research found no revenue breakdown for the affected products. A later disclosure of full-spectrum product sales could support an estimate."
+    },
+    "114e20d08e6f9eba9640603ad4b4e92a9bd3a9d0cdee7d022a41edf164cda5b8": {
+      "title": "Glass House Brands · No material impact reported from export suspension",
+      "reason": "Glass House Brands suspended its hemp biomass export operations in Q3 2026 and said the suspension had no material impact. Its principal business sells cannabis licensed by California. The research found no material revenue stream exposed to the change in the federal hemp definition."
+    },
+    "3e6ed50f8526c9aaf4a7e6ebf78af43d90f2352598030b02a67572ade89c7f56": {
+      "title": "Ironwood · Medicare price already published",
+      "reason": "Ironwood’s negotiated Medicare price for LINZESS had already been published at $136 per 30-day supply, effective January 1, 2027. Ironwood said the price met its expectations and had already reduced the list price. The research found no unresolved pricing decision for that effective date."
+    },
+    "0d43808bbce2844831852aca778f1c06e00ba82be3e6a9556c228abfd0658321": {
+      "title": "Gemini · Prediction contracts accounted for about 2% of Q3 revenue",
+      "reason": "Gemini reported $0.8 million of Q3 2026 revenue from Gemini Predictions out of $40.9 million total. All prediction contracts together represented about 2% of revenue, which limits the possible exposure from its sports contracts alone. Separate state enforcement matters would require their own analysis."
+    },
+    "d865050224cf81f2cbfe175f93e5325f4a4d6f1e1bf1bc1ad7675fb45f8646a6": {
+      "title": "Tilray · Hemp-seed foods expected to retain federal hemp status",
+      "reason": "Tilray expected its Manitoba Harvest hemp-seed foods to remain within the revised federal definition. The research found no separate revenue figure for affected hemp-THC products, so it could not size a shortfall for Tilray."
+    }
   },
   "leads": {
     "df1d21c273d5a6f2f762b8c74755111eef643fcafa5c73ea59c5b82f72625829": {

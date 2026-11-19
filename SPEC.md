@@ -389,58 +389,41 @@ its context. The worker starts a feed with each run, and `feed RUN_ID companies|
 **The run page** (`runpage.py`, served by `watch.py`) is for watching a run without reloading, and for
 reading one afterwards. Each feed note and the progress field link to it, at
 `http://localhost:8790/runs/<run>` on the Mac that runs the worker (`DISTRESS_WATCH_PORT` changes the
-port). It is one page for every run, live or finished, served or exported, made of views with their own
-addresses rather than one long scroll. Links into a view work, and so does the back button.
-- **Overview** (`#overview`): what was asked, when, how long and the AI cost. Then tiles for the run's
-  numbers and a minute-by-minute activity chart with a flag at each finding; a click on the chart opens
-  the research at that minute. The findings follow as rows, then links to what was set aside and the leads.
-- **Findings** (`#findings`): a card for each revenue exposure, with what is at stake, the event date and
-  the person to call.
-- **A finding** (`#case/<id>`): the case in full, with a row to jump to any part. In order:
-  - why it matters;
-  - what's at stake, as bars for each outcome;
-  - why now, who to call, and the opening message;
-  - the event, the condition, and how the revenue depends on it;
-  - the figures behind it, each marked reported (with its passage and source), calculated, or assumed
-    (with the reasoning);
-  - the evidence, and the next step.
-  Previous and next move between findings.
-- **The research** (`#research/<chapter>/<page>`): the model's reasoning, step by step, timed from the
-  event stream so it reads right in any time zone.
-  - Each step shows its first sentence. The rest of the thought is a click away, and so is the list of
-    searches, reads, calculations and lookups behind it.
-  - There is one chapter per finding, ending where it was saved, then a closing chapter. Pages hold at
-    most `PAGE_STEPS` (12) steps.
-  - `#found/<id>` opens the step where a finding was saved, and `#step/<n>` any step.
-- **The replay** plays the research back at a pace set by its content, so any run can be followed (`PACE`):
-  - a step's first sentence is held 1.8 to 3.4 seconds, by its length;
-  - each search, read or calculation is held 0.35 seconds;
-  - a message from the researcher is held 2.2 to 4.5 seconds;
-  - each finding is held 3 seconds.
-  It turns pages and chapters as it goes. The player has play and pause (the space bar too), a timeline
-  with a marker for each finding that can be clicked to jump, and 1×, 2× and 4× speeds. A 30-minute run
-  takes about 6 minutes at 1×. A longer run takes longer at the same pace.
+port). Each run has one page with addressable sections for reading and replay. Browser history
+retains the reader’s position when moving between sections.
+
+- Findings, Research activity, Research log and Other leads share the same navigation. Each section
+  has a direct link. Selecting a case keeps Findings marked as its parent section.
+- **Findings** (`#findings`) opens the run. Each company groups its exposures by event. Each stream
+  links to the full case and the research entry where it was saved.
+- **Research activity** (`#activity`) charts searches, source reads, and queries and calculations by
+  minute. Playback, speed and seeking operate on the chart. Saved findings and individual actions
+  link to their entries in the log.
+- **Case details** (`#case/<id>`) groups the exposure, event timing, scenarios, model inputs,
+  evidence and suggested outreach. The section selector jumps within a case. Previous and Next
+  open adjacent cases, and the timestamp opens the research entry where the case was saved.
+- **Research log** (`#research`) displays the run's entries in chronological order. Readers can expand
+  an entry to read its full text or inspect its searches, documents and calculations. Each saved finding
+  appears at its timestamp with a link to the case.
+- **Replay** (`#play`) reveals entries and their actions in sequence. The time slider seeks through
+  the original run. The 1×, 2× and 4× controls set the playback speed. At 1× the player holds each
+  entry's opening text for 1.8–3.4 seconds, a researcher message for 2.2–4.5 seconds, an action for
+  0.35 seconds and a saved finding for 3 seconds (`PACE`). Playback keeps earlier entries available.
+  Scrolling back lets readers inspect them while playback continues. **Follow replay** returns to
+  the current entry.
+- `#found/<id>` opens the saved finding in the log. `#step/<n>` opens an individual entry.
+  Play resumes at the linked timestamp. Earlier `#research/<chapter>/<page>` bookmarks open
+  the first entry that the bookmarked page displayed.
 - **Also considered** (`#also`): what was set aside, and the leads.
-- While a run is live the page polls every few seconds. A "Still searching" chapter follows the newest
-  step, and the player gives way to a live clock. Once the run finishes, it replays like any other.
+- During a live run the log polls for new entries and updates pending actions in place. Readers can
+  follow new entries or scroll back and select **Latest entry** to return. The replay becomes available
+  when the run ends.
 - `/` lists the runs. The page reads only the run's event stream and the store.
 - `export-run RUN_ID [--public]` writes one run's page as a single self-contained file.
   `--public` leaves out links into HubSpot and keeps the public sources.
-- `export-guide RUN_ID` writes the shareable example (`showcase.py`) to a folder for GitHub Pages:
-  - `index.html` is a visual guide to the product, built from one run. It has the four steps (ask,
-    research, check, deliver), the run's numbers, and a minute-by-minute activity chart that flags each
-    company as it was found. Its cards show the amount at stake, a share-of-revenue ring, the event date
-    with a countdown, and the person to call. Each card links to its case in `run.html` and to the step
-    where it was found. A sketch of where it all shows up in HubSpot rounds it off.
-  - The replay (`showcase.PACE`) animates the chart, the counters and the cards:
-    - it plays the run's minutes at 2 seconds each, kept between 40 and 100 seconds in all;
-    - it holds 1.8 seconds at each finding, and keeps each ticker line up at least 1.5 seconds;
-    - the counters show what had happened by each moment;
-    - it can be paused and resumed.
-    A 30-minute run replays in about a minute.
-  - Words are kept to a minimum: it is a guide to the product, not a copy of the operating surface.
-  - `run.html` is the run page above, exported for the public. The repo's GitHub Pages site serves both
-    from the `gh-pages` branch.
+- `export-guide RUN_ID` writes the self-contained public run to `index.html`, including an example
+  HubSpot deal. `run.html` forwards existing links and their fragments to the same page. GitHub Pages
+  serves these files from the `gh-pages` branch.
 
 **Case notes.** Each case's deal gets a timeline note when the case is proposed (with the revenue at
 stake), when it reaches a new revision (with what changed), and when it is withdrawn (with why). Each is
@@ -532,8 +515,9 @@ python -m distress_signals ledgers [--verify]
 | `distress_signals/worker.py` | The worker and its launchd service |
 | `distress_signals/feed.py` | The live feed of a run into HubSpot |
 | `distress_signals/watch.py` | Serves the run page and gathers its data from the event stream and store |
-| `distress_signals/runpage.py` | The run page: its views, the research chapters and the replay |
-| `distress_signals/showcase.py` | The shareable visual guide to one run |
+| `distress_signals/runpage.py` | Navigation, case records and research replay |
+| `distress_signals/findingsview.py`, `activityview.py` | Grouped findings and the research activity chart |
+| `distress_signals/showcase.py` | Public guide export and legacy URL forwarding |
 | `distress_signals/names.py`, `util.py` | Name normalization, HTTP, dates, exclusions |
 | `distress_signals/__main__.py` | The commands |
 | `docs/data-sources.md` | The payment ledgers and federal awards in detail |

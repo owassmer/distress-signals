@@ -2,12 +2,11 @@
 
 watch.py serves it live and export-run writes it as one self-contained file. It is organised as views with
 their own addresses rather than one long scroll:
-  #overview      what was asked, the run's numbers, a minute-by-minute chart, and the findings in brief
-  #findings      a card for each revenue exposure found
+  #findings      company findings grouped by event and revenue stream
+  #activity      completed research actions by minute, with playback and links into the log
   #case/ID       one finding in full: the event, the outcomes, the figures behind them with their provenance,
                  the evidence, who to call and the opening message
-  #research/C/P  the reasoning as chapters, one per finding, each ending where that finding was saved, paged
-                 at most PAGE_STEPS steps to a page; a player replays it at a pace set by each step's content
+  #research      a continuous, time-stamped transcript with replay and links to saved findings
   #also          what was set aside, and the leads it suggests
   #found/ID      the step where a finding was saved; #step/N a step by number; #play replays from the start
 """
@@ -16,9 +15,7 @@ FAVICON = ("data:image/svg+xml," + "%3Csvg xmlns='http://www.w3.org/2000/svg' vi
            "rx='8' fill='%23111827'/%3E%3Cpath d='M7 20l5-6 4 4 9-10' stroke='%2334d399' stroke-width='3' fill='none' "
            "stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
 
-# util.found_line for the pages: cases are [{company_id, company}], one per active case
-FOUND_JS = r"""function tally(cases) { return {n: cases.length, k: new Set(cases.map(c => c.company_id || c.company)).size}; }
-function groupByCompany(cases, getCase = x => x) {
+FOUND_JS = r"""function groupByCompany(cases, getCase = x => x) {
   const groups = new Map();
   for (const item of cases) {
     const c = getCase(item), key = c.company_id || c.company || c.oid || item;
@@ -27,8 +24,6 @@ function groupByCompany(cases, getCase = x => x) {
   }
   return Array.from(groups.values());
 }
-function foundLine(cases) { const {n, k} = tally(cases); if (!n) return "no revenue exposures";
-  return `${n} revenue exposure${n === 1 ? "" : "s"} ${k === 1 ? "at" : "across"} ${k} compan${k === 1 ? "y" : "ies"}`; }
 function money(amount, currency) {
   if (amount == null) return "";
   const value = Math.abs(amount).toLocaleString("en-US", {notation:"compact", maximumFractionDigits:Math.abs(amount) >= 1e9 ? 2 : 1});
@@ -122,31 +117,9 @@ h1{font-size:36px;line-height:1.12;letter-spacing:-.03em;margin:0 0 12px;font-we
 h2{font-size:24px;letter-spacing:-.02em;line-height:1.25;margin:0 0 6px;font-weight:760}
 .lede{font-size:17.5px;color:var(--soft);max-width:760px;margin:0 0 20px}.sub{color:var(--mute);margin:0 0 20px;font-size:15px;max-width:800px}
 .sub b{color:var(--ink)}.mute{color:var(--mute)}
-.k{font-size:11.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint);font-weight:700}
-.meta{color:var(--mute);font-size:14px;margin:-8px 0 20px}.assign{padding:14px 18px;background:var(--card);border:1px solid var(--line);border-radius:14px;color:var(--soft);max-width:880px}
-.assign .k{display:block;margin-bottom:2px}.req{color:var(--mute);font-size:14px;margin:10px 0 0}
-.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:22px 0 14px}
-.tile{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px 12px}
-.tile{min-width:0}.tile b{display:block;font-size:28px;letter-spacing:-.03em;line-height:1.1;font-variant-numeric:tabular-nums}.tile span{color:var(--mute);font-size:13px}
-.panel{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 20px}
-.ph{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:6px}.ph h3{margin:0;font-size:15px;font-weight:700}
-.legend{display:flex;gap:14px;font-size:12.5px;color:var(--mute);flex-wrap:wrap}
-.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
-.minute-jump{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--soft);font-size:13px;margin-top:7px}
-.minute-jump select{font:inherit;color:var(--ink);background:var(--card);border:1px solid #cbd5e1;border-radius:6px;padding:4px}.chart{display:block;width:100%;height:190px;cursor:pointer}.hint{color:var(--faint);font-size:13px;margin:6px 0 0}
-.ctas{display:flex;gap:10px;flex-wrap:wrap;margin:22px 0 0}.sect{margin-top:48px}
 .num{display:inline-grid;place-items:center;flex:0 0 auto;width:24px;height:24px;border-radius:50%;background:var(--greenink);color:#fff;font-size:12px;font-weight:760;font-style:normal}
-.company-list{margin-top:16px}.company-table{width:100%;border-spacing:0;table-layout:fixed;background:var(--card);
-border:1px solid var(--line);border-radius:15px;text-align:left;overflow:hidden}
-.company-table col:nth-child(1){width:36%}.company-table col:nth-child(2){width:32%}
-.company-table thead th{font-size:12px;font-weight:600;color:var(--mute);background:#f8fafc;padding:10px 16px}
-.company-table td,.company-table tbody th{vertical-align:top;padding:11px 16px;border-top:1px solid var(--line2)}
-.company-table .company-name{font-size:19px;font-weight:720;color:var(--ink);padding:16px 16px 1px;border-top:1px solid var(--line)}
-.company-table .event-label{font-weight:400;padding:0 16px 9px;border-top:none}
+
 .event-label{color:var(--soft);font-size:14px}.event-label span{color:var(--mute)}
-.stream-name{font-size:15px;font-weight:650}.stream-amount b{display:block;font-size:18px;color:var(--ink);line-height:1.3}
-.stream-period,.stream-basis,.stream-contact{color:var(--soft);font-size:13px;line-height:1.45;font-weight:400}
-.stream-period,.stream-basis{display:block;margin-top:3px}.mobile-label{display:none}
 .case-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:18px}
 .case-actions a{font-size:14px}.case-actions form{display:flex;align-items:center;gap:6px;margin:0}
 .case-actions label,.case-actions select{font:inherit;font-size:13px;color:var(--soft)}
@@ -176,27 +149,22 @@ border-left:3px solid #cbd5e1;border-radius:0 8px 8px 0;font-size:13.5px;color:v
 .src{display:inline-block;font-size:12.5px;color:var(--mute);margin-top:5px}
 .ev{padding:12px 0;border-top:1px solid var(--line2)}.ev:first-child{border-top:0;padding-top:2px}.ev b{color:var(--ink);font-size:14px;font-weight:650}
 blockquote.opening{margin:0;padding:14px 18px;background:#f8fafc;border-left:3px solid var(--blue);border-radius:0 12px 12px 0;color:var(--ink);font-size:15px;white-space:pre-wrap}
-.player{position:sticky;top:68px;z-index:15;display:flex;align-items:center;gap:16px;background:var(--card);border:1px solid var(--line);
+.player{position:sticky;top:calc(var(--shell-height,56px) + 6px);z-index:15;display:flex;align-items:center;gap:16px;background:var(--card);border:1px solid var(--line);
 border-radius:16px;padding:10px 16px 10px 10px;box-shadow:0 6px 22px rgba(15,23,42,.07)}
 .pp{width:44px;height:44px;flex:0 0 44px;border-radius:50%;border:0;background:var(--ink);color:#fff;display:grid;place-items:center;cursor:pointer}
 .pp svg{width:17px;height:17px}.pp:hover{background:#1e293b}
-.pmeta{min-width:160px}.pmeta b{display:block;font-size:14px}.pmeta span{font-size:12.5px;color:var(--mute);font-variant-numeric:tabular-nums}
+.pmeta{min-width:160px}.pmeta b{font-size:14px}.pmeta span{display:block}.pmeta button{border:0;background:none;color:var(--blue);font-size:12px;font-weight:600;padding:0;margin-left:8px;cursor:pointer}.pmeta span{font-size:12.5px;color:var(--mute);font-variant-numeric:tabular-nums}
 .scrub{flex:1;position:relative;height:44px;cursor:pointer;min-width:120px}
-.track:focus-visible{outline-offset:5px}.track{position:absolute;left:0;right:0;top:27px;height:6px;border-radius:99px;background:#e8ebf0;overflow:hidden}.fill{height:100%;background:var(--ink);width:0}
-.flag{position:absolute;top:0;transform:translateX(-50%);width:20px;height:20px;border-radius:50%;background:var(--greenink);color:#fff;font-size:10.5px;
-font-weight:760;display:grid;place-items:center;border:2px solid #fff;padding:0;cursor:pointer;box-shadow:0 1px 3px rgba(15,23,42,.2)}
-.cut{position:absolute;top:26px;width:2px;height:8px;background:#fff;transform:translateX(-50%)}
-.knob{position:absolute;top:23px;width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid var(--ink);transform:translateX(-50%);pointer-events:none}
+.track{position:absolute;inset:0;display:flex;align-items:center;border-radius:5px;outline-offset:2px}
+.rail{width:100%;height:6px;border-radius:99px;background:#e8ebf0;overflow:hidden}.fill{height:100%;background:var(--ink);width:0}
+.knob{position:absolute;top:50%;width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid var(--ink);transform:translate(-50%,-50%);pointer-events:none}
 .speed{display:flex;background:#f1f3f6;border-radius:99px;padding:3px}
 .speed button{border:0;background:none;padding:5px 10px;border-radius:99px;font-weight:650;font-size:12.5px;color:var(--mute);cursor:pointer}
 .speed button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(15,23,42,.12)}
 .livebar{padding:12px 18px;color:var(--soft);font-size:14px}.livebar b{font-variant-numeric:tabular-nums}
-.chaps{position:relative;display:flex;gap:8px;overflow-x:auto;margin:18px 0 26px;padding:2px 2px 6px;scrollbar-width:thin}
-.chap{flex:0 0 auto;min-width:138px;max-width:230px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:9px 13px;color:var(--ink)}
-.chap:hover{border-color:#cbd5e1;text-decoration:none}.chap.on{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}
-.chap b{display:flex;align-items:center;gap:7px;font-size:13.5px;overflow-wrap:anywhere}.chap b .num{width:20px;height:20px;font-size:11px}
-.chap small{display:block;color:var(--faint);font-size:12px;margin-top:1px}
-.chead .k{display:block;margin-bottom:4px}.chead h2{margin:0 0 4px}.chead .sub{margin:0 0 16px}
+.loghead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.loghead h1{margin:0}.loghead select{width:9.5rem;max-width:100%;font:inherit;font-size:13px;color:var(--soft);border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--card)}
+#transcript,#log-empty{margin-top:16px;overflow-anchor:none}
 .steps{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden}
 .step{display:grid;grid-template-columns:58px minmax(0,1fr);gap:14px;padding:16px 22px 16px 20px;border-top:1px solid var(--line2);position:relative;scroll-margin:170px}
 .step:first-child{border-top:0}.step .t{font-size:12.5px;color:var(--faint);font-weight:650;font-variant-numeric:tabular-nums;padding-top:3px}
@@ -223,76 +191,83 @@ white-space:pre-wrap;color:var(--mute);max-height:150px;overflow:auto}
 color:var(--greenink);font-size:14px}.found:hover{text-decoration:none;border-color:#86efac}.found b{color:var(--ink)}
 .found .go{margin-left:auto;font-weight:650;font-size:13.5px;color:var(--greenink);white-space:nowrap}
 .found.new{animation:pop .7s ease}@keyframes pop{0%{transform:scale(.96);opacity:0}60%{transform:scale(1.015);opacity:1}100%{transform:none}}
-.pager{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:18px}.pager .btn,.case-actions .btn{white-space:normal}.pager .pg{color:var(--mute);font-size:13.5px}
-.endcard{margin-top:18px;padding:20px 22px;background:var(--greenbg);border:1px solid var(--greenline);border-radius:16px;color:var(--soft)}
-.endcard b{color:var(--ink)}.endcard .ctas{margin-top:14px}
+.case-actions .btn{white-space:normal}
 .empty{color:var(--mute);background:var(--card);border:1px dashed #d5d9e0;border-radius:14px;padding:22px;text-align:center}
 .alist{display:flex;flex-direction:column;gap:10px;margin:10px 0 0}
 .alist div{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:13px 17px;font-size:14.5px;color:var(--soft)}.alist b{color:var(--ink)}.lead-sources{display:block;margin-top:6px}
 .lead,.rest,.say,.act,.alist div,.doc2>div{overflow-wrap:anywhere}
 #latest{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;border:0;border-radius:99px;z-index:30;
 padding:10px 18px;font-weight:600;font-size:13px;line-height:1;cursor:pointer;box-shadow:0 8px 24px rgba(15,23,42,.22)}
-footer{max-width:1040px;margin:0 auto;padding:0 28px 56px;color:var(--faint);font-size:13px}footer a{color:var(--mute)}
 .runs{max-width:920px;margin:0 auto;padding:28px 28px 80px}.ttl{font-weight:700}.top .sub{margin:0;font-size:13px}
 .run{display:flex;align-items:center;gap:18px;background:var(--card);border:1px solid var(--line);border-radius:15px;padding:15px 20px;margin-bottom:10px;color:var(--ink)}
 .run:hover{border-color:#cbd5e1;text-decoration:none}.run .what{flex:1;min-width:0}.run .what b{font-weight:650}
 .run .what div{color:var(--mute);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .run .n{font-size:13px;color:var(--mute);text-align:right;min-width:150px;font-variant-numeric:tabular-nums}
-@media(max-width:820px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media(max-width:820px){
 .doc2{grid-template-columns:1fr}.doc2>h3{padding:18px 0 4px}.doc2>div{border-top:0;padding-top:4px}.casehead{flex-direction:column;gap:14px}
 .sc{grid-template-columns:1fr;gap:6px}.sc .sv{text-align:left}.inp{grid-template-columns:1fr;gap:4px}}
-@media(max-width:640px){.top .in,.wrap,footer{padding-left:16px;padding-right:16px}.brand span,.top .about{display:none}h1{font-size:28px}
+@media(max-width:640px){.top .in,.wrap{padding-left:16px;padding-right:16px}.brand span,.top .about{display:none}h1{font-size:28px}
 .top{position:static}.top .in{flex-wrap:wrap;height:auto;padding-top:8px;padding-bottom:8px;gap:6px 12px}
 .top .brand span{display:inline}.top .divider,.top .spacer{display:none}.top .pill{margin-left:auto}
 .top .tabs{order:1;flex:0 0 100%;flex-wrap:wrap;gap:3px}.tabs a{padding:5px 6px;font-size:13px}
-.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
-.company-table,.company-table tbody,.company-table tr,.company-table td,.company-table th{display:block}
-.company-table colgroup{display:none}.company-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
-.company-table .stream-name{display:inline-block}.company-table .stream-row th{padding:12px 14px 0}
-.company-table .stream-row td{border:0;padding:4px 14px 0}.company-table .stream-row td:last-child{padding-bottom:14px}
-.stream-amount b,.stream-period{display:inline}.stream-period:before{content:" · "}.mobile-label{display:inline}
 .case-actions{gap:10px}
-.crumbs{flex-wrap:wrap}.pager{flex-wrap:wrap}.pager .pg{order:-1;flex-basis:100%}.pager .pg:empty{display:none}
+.crumbs{flex-wrap:wrap}
 .found{flex-wrap:wrap}.found .go{margin-left:0}.found>span:nth-child(2){flex:1;min-width:0}
-.step{grid-template-columns:1fr;gap:2px;padding:14px 16px}.player{flex-wrap:wrap;top:5px;gap:10px}.scrub{order:3;flex-basis:100%}.pmeta{flex:1;min-width:0}.doc2>h3{scroll-margin-top:10px}}
+.step{grid-template-columns:1fr;gap:2px;padding:14px 16px}.player{flex-wrap:wrap;gap:10px}.scrub{order:3;flex-basis:100%}.pmeta{flex:1;min-width:0}.doc2>h3{scroll-margin-top:10px}}
 @media(prefers-reduced-motion:reduce){.view,.step,.act,.found,.pulse{animation:none!important}}
+"""
+
+SHELL_STYLE = r"""
+.run-nav{background:var(--bg)}
+.run-nav .in{max-width:1116px;height:64px;gap:22px}
+.run-nav .tabs{align-self:stretch;align-items:stretch;gap:13px;overflow:visible}
+.run-nav .tabs a{display:inline-flex;align-items:center;position:relative;padding:0 3px;color:var(--mute);background:none;border-radius:0}
+.run-nav .tabs a:hover,.run-nav .tabs .on{color:var(--ink)}
+.run-nav .tabs .on:after{content:"";position:absolute;bottom:-1px;left:0;right:0;height:3px;background:var(--blue)}
+.run-nav .project-link{font-size:13px;font-weight:600;color:var(--mute);white-space:nowrap}
+.run-nav .project-link:hover{color:var(--ink)}.run-nav .brand{margin-right:14px}
+.run-nav + .wrap{max-width:1116px}.doc2>h3{scroll-margin-top:calc(var(--shell-height,64px) + 16px)}
+@media(max-width:820px){
+  .run-nav{position:sticky}.run-nav .in{height:auto;display:flex;flex-wrap:wrap;padding:10px 16px 0;gap:0 14px}
+  .run-nav .brand{margin-right:auto}.run-nav .brand span{display:inline}
+  .run-nav .spacer{display:none}.run-nav .tabs{order:1;flex:0 0 100%;flex-wrap:nowrap;gap:16px}
+  .run-nav .tabs a{padding:10px 0 9px}
+}
+@media(max-width:400px){
+  .run-nav .tabs{justify-content:space-between;gap:4px}.run-nav .tabs a{font-size:12px}
+}
+@media(max-width:360px){
+  .run-nav .tabs{display:grid;grid-template-columns:1fr 1.2fr 1fr .85fr;gap:8px}
+  .run-nav .tabs a{white-space:normal;text-align:center;justify-content:center;line-height:1.25;padding:7px 0}
+}
+
 """
 
 PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>__TITLE__ · Distress Signals</title><link rel="icon" href="__FAVICON__"><style>__STYLE__</style></head><body>
-<header class="top"><div class="in"><a class="brand" href="__HOME__" aria-label="Distress Signals home"><img src="__FAVICON__" alt=""><span>Distress Signals</span></a><span class="divider"></span>
-  <nav class="tabs" id="tabs" aria-label="Run views"></nav><span class="spacer"></span><span class="pill" id="pill" hidden></span>
-  <a class="btn sm about" href="__REPO__" target="_blank" rel="noopener">GitHub</a></div></header>
+<header class="top run-nav"><div class="in"><a class="brand" href="#findings" aria-label="Distress Signals findings"><img src="__FAVICON__" alt=""><span>Distress Signals</span></a>
+  <nav class="tabs" id="tabs" aria-label="Run navigation">
+    <a href="#findings">Findings</a><a href="#activity">Research activity</a><a href="#research">Research log</a><a href="#also">Other leads</a>
+  </nav><span class="spacer"></span><span class="pill" id="pill" hidden></span>
+  __RUNINDEX__<a class="project-link" href="__REPO__">GitHub</a></div></header>
 <main class="wrap">
-<section class="view" id="v-overview" hidden>
-  <h1>__TITLE__</h1><p class="meta" id="o-meta"></p>
-  <div class="assign" __ASSIGNHIDDEN__><span class="k">Research brief</span>__ASSIGNMENT__</div><p class="req" id="o-req" hidden></p>
-  <div class="tiles" id="o-tiles"></div>
-  <div class="panel"><div class="ph"><h3>Research activity by minute</h3><span class="spacer"></span>
-    <div class="legend"><span><i style="background:#2563eb"></i>searches</span><span><i style="background:#94a3b8"></i>source reads</span>
-      <span><i style="background:#7c3aed"></i>queries and calculations</span><span><i style="background:#16a34a"></i>finding saved</span></div></div>
-    <svg class="chart" id="o-chart" role="img" aria-label="Activity by minute"></svg>
-    <form class="minute-jump" id="o-jump"><label for="o-minute">Research at minute</label>
-      <select id="o-minute"></select><button type="submit" class="btn sm">View steps</button></form></div>
-  <div class="ctas"><a class="btn dark" id="o-watch" href="#play"></a></div>
-  <div class="sect"><h2>Findings</h2><div class="company-list" id="o-rows"></div></div>
-</section>
-<section class="view" id="v-findings" hidden><h1>Findings</h1><div class="company-list" id="f-cards"></div></section>
+__FINDINGSHTML__
+__ACTIVITYHTML__
 <section class="view" id="v-case" hidden></section>
 <section class="view" id="v-research" hidden>
-  <h1>Research log</h1>
-  <div class="player" id="player"><button class="pp" id="pp" aria-label="Play or pause"></button>
-    <div class="pmeta"><b id="ptitle"></b><span id="ptime"></span></div>
-    <div class="scrub" id="scrub" title="Jump to a point in the run"><div class="track" role="slider" tabindex="0" aria-label="Research step" aria-valuemin="1"><div class="fill" id="fill"></div></div><div id="marks"></div><div class="knob" id="knob"></div></div>
-    <div class="speed" id="speed"><button data-x="1">1×</button><button data-x="2">2×</button><button data-x="4">4×</button></div></div>
+  <div class="loghead"><h1>Research log</h1><select id="saved-jump" aria-label="Jump to a saved finding" hidden></select></div>
+  <div class="player" id="player"><button class="pp" id="pp" aria-label="Play replay"></button>
+    <div class="pmeta"><b id="ptitle"></b><button id="full-log" hidden>Show full log</button><span id="ptime"></span></div>
+    <div class="scrub" id="scrub"><div class="track" role="slider" tabindex="0" aria-label="Research step" aria-valuemin="1">
+      <div class="rail"><div class="fill" id="fill"></div></div><div class="knob" id="knob"></div></div></div>
+    <div class="speed" id="speed" role="group" aria-label="Replay speed"><button data-x="1">1×</button><button data-x="2">2×</button><button data-x="4">4×</button></div></div>
   <div class="player livebar" id="livebar" hidden></div>
-  <nav class="chaps" id="chaps" aria-label="Research chapters"></nav><div id="chapter"></div>
+  <div id="transcript" class="steps" aria-label="Transcript"></div><div id="log-empty" class="empty" hidden></div>
 </section>
 <section class="view" id="v-also" hidden><h1>Other leads</h1>
   <div id="a-body"></div></section>
 </main>
-<footer><a href="__HOME__">Distress Signals</a> · <a href="__REPO__" target="_blank" rel="noopener">Source code</a></footer>
-<button id="latest" hidden>Jump to the latest step ↓</button>
+<button id="latest" hidden>Follow replay ↓</button>
 <script>
 __FOUNDJS__
 __CHARTJS__
@@ -308,11 +283,8 @@ const emptyFindings = () => live() ? "No findings recorded yet." : "No active fi
 const day = d => new Date(d + "T12:00:00");
 const longDate = d => d ? day(d).toLocaleDateString("en-US", {month: "long", day: "numeric", year: "numeric"}) : "";
 const clock = s => `${Math.floor((s || 0) / 60)}:${String(Math.floor((s || 0) % 60)).padStart(2, "0")}`;
-const dur = s => s < 90 ? `${Math.max(1, Math.round(s))} sec` : `${Math.round(s / 60)} min`;
 const words = s => (String(s || "").match(/\S+/g) || []).length;
 const clampN = (x, a, b) => Math.max(a, Math.min(b, x));
-const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-const cap = s => s.replace(/^./, c => c.toUpperCase());
 const host = u => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch (e) { return "source"; } };
 const NOUN = {search:["search","searches"],read:["document","documents"],web:["web page","web pages"],calc:["query or calculation","queries and calculations"],
   lookup:["check","checks"],finding:["note","notes"],save:["write-up","write-ups"],answer:["summary","summaries"]};
@@ -329,156 +301,133 @@ function split(t) {
 let items = [], status = {}, details = {}, after = 0, M = null;
 function ingest(ops) { for (const op of ops) { if (op.op === "add") items.push({...op.item}); else if (items[op.i]) Object.assign(items[op.i], op.fields); } }
 function build() {
-  const steps = [], base = {}, seen = new Set(), finds = [], aside = [], leads = []; let cur = null, end = null;
-  const step = (t, el) => { const [lead, rest] = split(t); cur = {i: steps.length, el: el ?? (cur ? cur.el : 0) ?? 0, lead, rest, says: [], acts: [], finds: []}; steps.push(cur); };
+  const steps = [], base = {}, seen = new Set(), finds = [], aside = [], leads = []; let cur = null;
+  const step = (t, el) => { const [lead, rest] = split(t); cur = {i: steps.length, el: el ?? (cur ? cur.el : 0) ?? 0, lead, rest, says: [], acts: [], finds: [], events: []}; steps.push(cur); };
   for (const it of items) {
     if (it.k === "think") step(it.t, it.el);
-    else if (it.k === "say" || it.k === "note") { if (!cur) step("", it.el); cur.says.push(it.t); }
-    else if (it.k === "act") { if (!cur) step("", it.el); cur.acts.push(it);
+    else if (it.k === "say" || it.k === "note") { if (!cur) step("", it.el); cur.events.push({k: "say", j: cur.says.length, el: it.el}); cur.says.push(it.t); }
+    else if (it.k === "act") { if (!cur) step("", it.el); cur.events.push({k: "act", j: cur.acts.length, el: it.el}); cur.acts.push(it);
       if (it.case) { base[it.case.oid] = {...(base[it.case.oid] || {}), ...it.case};
-        if (!seen.has(it.case.oid)) { seen.add(it.case.oid); const f = {oid: it.case.oid, step: cur.i, el: it.el ?? cur.el}; cur.finds.push(f); finds.push(f); } }
+        if (!seen.has(it.case.oid)) { seen.add(it.case.oid); const f = {oid: it.case.oid, step: cur.i, el: it.el ?? cur.el}; cur.finds.push(f); finds.push(f); cur.events.push({k: "find", f, el: f.el}); } }
       if (it.tool === "record_finding" && it.finding === "dropped" && it.status === "ok" && it.text) aside.push(it.text); }
     else if (it.k === "final") leads.push(...(it.leads || []));
-    else if (it.k === "end") end = it;
   }
   const caseOf = oid => ({...(base[oid] || {}), ...(details[oid] || {}), oid});
   finds.forEach(f => f.c = caseOf(f.oid));
   const found = finds.filter(f => f.c.status !== "withdrawn"); found.forEach((f, i) => f.n = i + 1);
 
-  // chapters end where each finding was saved; long ones are paged
-  const chapters = []; let from = 0;
-  steps.forEach(s => { const f = s.finds.find(x => x.n); if (f) { chapters.push({from, to: s.i, find: f}); from = s.i + 1; } });
-  if (from < steps.length || !chapters.length) chapters.push({from, to: steps.length - 1, find: null});
-  chapters.forEach((ch, ci) => { ch.i = ci; const n = Math.max(0, ch.to - ch.from + 1), np = Math.max(1, Math.ceil(n / PAGE_STEPS)), size = Math.max(1, Math.ceil(n / np));
-    ch.pages = Array.from({length: np}, (_, p) => [ch.from + p * size, Math.min(ch.to, ch.from + (p + 1) * size - 1)]);
-    ch.t0 = steps[ch.from] ? steps[ch.from].el : 0; ch.t1 = steps[ch.to] ? steps[ch.to].el : ch.t0; });
-  // the replay: one beat per thing to take in, each held long enough to read it
   const beats = [], first = []; let acc = 0;
-  const beat = (s, k, d, x) => { beats.push({s, k, d, at: acc, ...x}); acc += d; };
-  steps.forEach(s => { first[s.i] = beats.length;
-    beat(s.i, "think", clampN(PACE.think[0] + PACE.think[1] * words(s.lead), PACE.think[2], PACE.think[3]));
-    s.says.forEach((t, j) => beat(s.i, "say", clampN(PACE.say[0] + PACE.say[1] * words(t), PACE.say[2], PACE.say[3]), {j}));
-    s.acts.forEach((a, j) => beat(s.i, "act", PACE.act, {j}));
-    s.finds.filter(f => f.n).forEach(f => beat(s.i, "find", PACE.find, {f})); });
+  const beat = (s, k, d, x = {}) => { beats.push({s: s.i, ...x, el: x.el ?? s.el, k, d, at: acc}); acc += d; };
+  steps.forEach(s => {
+    first[s.i] = beats.length;
+    beat(s, "think", clampN(PACE.think[0] + PACE.think[1] * words(s.lead), PACE.think[2], PACE.think[3]));
+    for (const e of s.events) {
+      if (e.k === "say") beat(s, e.k, clampN(PACE.say[0] + PACE.say[1] * words(s.says[e.j]), PACE.say[2], PACE.say[3]), e);
+      else if (e.k === "act") beat(s, e.k, PACE.act, e);
+      else if (e.f.n) beat(s, e.k, PACE.find, e);
+    }
+  });
   const secs = status.duration_ms ? status.duration_ms / 1000 : Math.max(60, ...items.map(i => i.el || 0));
   const minutes = Math.max(1, Math.ceil(secs / 60)), bins = Array.from({length: minutes}, () => ({search: 0, read: 0, calc: 0}));
-  items.forEach(it => { if (it.k !== "act" || it.status !== "ok") return;
-    const k = it.icon === "search" ? "search" : (it.icon === "read" || it.icon === "web") ? "read" : it.icon === "calc" ? "calc" : null;
+  items.forEach(it => {
+    const k = activityKind(it);
     if (k) bins[Math.min(minutes - 1, Math.floor((it.el || 0) / 60))][k]++; });
-  const count = k => bins.reduce((a, b) => a + b[k], 0);
-  return {steps, finds, found, chapters, beats, first, total: acc, aside: DATA?.lead_review?.aside ?? aside,
-          leads: DATA?.lead_review?.leads ?? leads, end, bins, secs,
-          stats: {searches: count("search"), documents: count("read"), calculations: count("calc")}};
+  return {steps, finds, found, beats, first, total: acc, aside: DATA?.lead_review?.aside ?? aside,
+          leads: DATA?.lead_review?.leads ?? leads, bins, secs};
 }
 const live = () => status.state === "running" && !DATA;
 const elapsed = () => status.duration_ms ? status.duration_ms / 1000 : live() && status.t0 ? (Date.now() - Date.parse(status.t0)) / 1000 : M.secs;
-const locate = si => { for (const ch of M.chapters) for (let p = 0; p < ch.pages.length; p++) { const [a, b] = ch.pages[p]; if (si >= a && si <= b) return {ci: ch.i, pi: p}; }
-  const ch = M.chapters[M.chapters.length - 1]; return {ci: ch.i, pi: ch.pages.length - 1}; };
-const isLastPage = () => route.ci === M.chapters.length - 1 && route.pi === M.chapters[route.ci].pages.length - 1;
-const pageFirstBeat = () => M.first[M.chapters[route.ci].pages[route.pi][0]] ?? 0;
-
+// Translate bookmarks made by earlier exports that split the log at saves and every twelve entries.
+function bookmarkedStep(section, page) {
+  const ends = [...new Set(M.found.map(f => f.step))];
+  const last = M.steps.length - 1;
+  if (!ends.length || ends[ends.length - 1] !== last) ends.push(last);
+  const i = clampN(section, 0, ends.length - 1), start = i ? ends[i - 1] + 1 : 0;
+  const length = ends[i] - start + 1, pages = Math.max(1, Math.ceil(length / PAGE_STEPS));
+  return start + clampN(page, 0, pages - 1) * Math.ceil(length / pages);
+}
 
 // ---- views ----
-let route = {v: "overview"};
+let route = {v: "findings"};
 const opened = new Set(), actsOpen = new Set(), actsClosed = new Set();
 function parse() {
-  const [v, a, b] = decodeURIComponent(location.hash.slice(1)).split("/");
+  const [v, encoded, b] = location.hash.slice(1).split("/");
+  let a;
+  try { a = decodeURIComponent(encoded || ""); }
+  catch { return {v:"findings"}; }
   if (v === "case" && a) return {v: "case", oid: a};
   if (v === "found" && a) return {v: "research", find: a};
-  if (v === "step" && a) return {v: "research", step: +a};
+  if (v === "step" && /^\d+$/.test(a || "")) return {v: "research", step: +a};
   if (v === "play") return {v: "research", play: true};
-  if (v === "research") return {v: "research", ci: a ? +a - 1 : null, pi: b ? +b - 1 : 0};
-  if (v === "findings" || v === "also") return {v};
-  return {v: "overview"};
+  if (v === "research") return {v, step: /^\d+$/.test(a || "") ? bookmarkedStep(+a - 1, /^\d+$/.test(b || "") ? +b - 1 : 0) : null};
+  if (v === "activity" || v === "run") return {v: "activity"};
+  if (v === "also") return {v};
+  return {v: "findings"};
 }
-function go(r) {
-  if (r.v === "research") {
-    if (r.play && !live() && M.beats.length) { route = {v: "research", ci: 0, pi: 0}; render(); window.scrollTo({top: 0}); startAt(0); return; }
-    if (P.playing) pause();
-    let si = r.step != null ? r.step : null;
-    if (r.find) { const f = M.finds.find(x => x.oid === r.find); if (f) si = f.step; }
-    if (si != null && M.steps.length) { si = clampN(si, 0, M.steps.length - 1); P.reveal = false; route = {v: "research", ...locate(si), flash: si};
-      history.replaceState(null, "", `#research/${route.ci + 1}/${route.pi + 1}`); }
-    else if (r.ci == null) {
-      if (P.reveal && M.beats.length) route = {v: "research", ...locate(M.beats[P.pos].s)};
-      else { const last = M.chapters.length - 1; route = live() ? {v: "research", ci: last, pi: M.chapters[last].pages.length - 1} : {v: "research", ci: 0, pi: 0}; }
-    } else { P.reveal = false; const ci = clampN(r.ci || 0, 0, M.chapters.length - 1); route = {v: "research", ci, pi: clampN(r.pi || 0, 0, M.chapters[ci].pages.length - 1)}; }
-    if (!P.reveal) P.pos = pageFirstBeat();
-  } else { if (P.playing) pause(); route = r; }
-  render(); window.scrollTo({top: 0});
-  if (route.flash != null) { const si = route.flash; route.flash = null; actsOpen.add(si); research();
-    const el = $("#s" + si); if (el) { el.scrollIntoView({block: "center"}); el.classList.add("flash"); } }
-  if (live() && route.v === "research" && isLastPage()) window.scrollTo({top: document.body.scrollHeight});
+function go(r, savedReplay) {
+  if (P.playing) pause();
+  route = r;
+  $("#latest").hidden = true;
+  $("#transcript .flash")?.classList.remove("flash");
+  if (r.v !== "research") { render(); window.scrollTo({top: 0}); return; }
+
+  if (savedReplay && !live() && M.beats.length) {
+    const {read, expanded, collapsed, ...transport} = savedReplay;
+    for (const [set, values] of [[opened, read], [actsOpen, expanded], [actsClosed, collapsed]]) {
+      set.clear(); for (const value of values || []) set.add(value);
+    }
+    logModel = null;
+    Object.assign(P, transport, {pos: clampN(transport.pos, 0, M.beats.length - 1)});
+    render(); followLatest(P.follow); return;
+  }
+  P.pos = 0; P.finished = false; P.remaining = null; P.reveal = false; P.follow = true;
+  const finding = r.find && M.finds.find(f => f.oid === r.find);
+  const requested = finding ? finding.step : r.step;
+  const step = requested != null && M.steps.length ? clampN(requested, 0, M.steps.length - 1) : null;
+  if (step != null) {
+    const savedBeat = finding ? M.beats.findIndex(b => b.f === finding) : -1;
+    P.pos = savedBeat >= 0 ? savedBeat : M.first[step]; P.follow = false;
+    if (finding) { actsClosed.delete(step); actsOpen.add(step); }
+  }
+  if (r.play && !live() && M.beats.length) {
+    P.reveal = true;
+    render(); window.scrollTo({top: 0}); toggle(); return;
+  }
+  render();
+  if (step != null) {
+    paintRow(step, null);
+    const row = document.getElementById("s" + step); row.classList.add("flash");
+    const save = finding && Array.from(row.querySelectorAll(".found")).find(a => a.hash === "#case/" + finding.oid);
+    scrollEntry(save || row);
+  } else if (live()) scrollCurrent();
+  else window.scrollTo({top: 0});
 }
 function render() {
-  const nA = M.aside.length + M.leads.length;
-  $("#tabs").innerHTML = [["overview", "Overview"], ["findings", "Findings"], ["research", "Research log"],
-    ...(nA ? [["also", "Other leads"]] : [])].map(([k, l]) =>
-    `<a href="#${k}" class="${route.v === k || (k === "findings" && route.v === "case") ? "on" : ""}">${l}</a>`).join("");
-  const tab = $("#tabs .on"); if (tab) tab.setAttribute("aria-current", "page");
+  const current = route.v === "case" ? "findings" : route.v;
+  for (const a of $$("#tabs a")) {
+    const active = a.hash === "#" + current;
+    a.classList.toggle("on", active);
+    if (active) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  }
+  if (route.v !== "activity") activityLeave();
   pill();
   for (const v of $$(".view")) v.hidden = v.id !== "v-" + route.v;
-  ({overview, findings, case: caseView, research, also})[route.v]();
+  ({findings, activity: activityView, case: caseView, research, also})[route.v]();
+  const title = $(".view:not([hidden]) h1");
+  document.title = `${title?.textContent || "Findings"} · Distress Signals`;
 }
 function pill() { const p = $("#pill"); p.hidden = !(live() || status.state === "failed"); p.className = "pill " + status.state;
   p.innerHTML = live() ? `<span class="pulse"></span>Live · ${clock(elapsed())}` : "Failed"; }
 
-function overview() {
-  const st = M.stats;
-  const tiles = [[Math.max(1, Math.round(elapsed() / 60)), "minutes"], [st.searches, "searches"], [st.documents, "source reads"],
-    [st.calculations, "queries and calculations"]];
-  const when = status.t0 ? new Date(status.t0).toLocaleString("en-US", {month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short"}) : "";
-  $("#o-meta").textContent = when;
-  $("#o-tiles").innerHTML = tiles.map(([b, s]) => `<div class="tile"><b>${b}</b><span>${s}</span></div>`).join("");
-  const minute = $("#o-minute");
-  if (minute.options.length !== M.bins.length) {
-    const selected = minute.value;
-    minute.replaceChildren(...M.bins.map((_, i) => new Option(i, i)));
-    minute.value = selected || "0";
-  }
-  $("#o-jump").hidden = !M.steps.length;
-  drawChart($("#o-chart"), M.bins, M.found.map(f => ({t: f.el, label: [f.c.company, f.c.stream].filter(Boolean).join(" · ")})), Infinity, 190);
-  const w = $("#o-watch"); w.hidden = !M.steps.length;
-  if (live()) { w.innerHTML = `${ICONS.play} Follow live research`; w.href = "#research"; } else { w.innerHTML = `${ICONS.play} Replay research log · ${dur(M.total)}`; w.href = "#play"; }
-  const rq = status.requester; $("#o-req").hidden = !rq;
-  if (rq) $("#o-req").innerHTML = `Requested from <a href="${esc(rq.url)}" target="_blank" rel="noopener">${esc(rq.name)}</a> in HubSpot.`;
-  $("#o-rows").innerHTML = companyList(false);
-}
 function eventLabel(c) {
   const date = c.event_date ? [c.date_label || "Event reference date", longDate(c.event_date)].join(" · ") : "";
   return [esc(c.event || ""), date ? `<span>${esc(date)}</span>` : ""].filter(Boolean).join(" · ");
 }
-function companyList(detailed) {
-  if (!M.found.length) return `<p class="sub">${emptyFindings()}</p>`;
-  const groups = groupByCompany(M.found, f => f.c).map(company => {
-    const byEvent = new Map();
-    for (const f of company) {
-      const label = eventLabel(f.c);
-      if (!byEvent.has(label)) byEvent.set(label, []);
-      byEvent.get(label).push(f);
-    }
-    const events = Array.from(byEvent, ([label, cases]) => {
-      const first = cases[0].c;
-      const sharedBasis = detailed && cases.length > 1 && first.of && cases.every(({c}) =>
-        c.share != null && c.of === first.of && c.denominator_value === first.denominator_value && c.currency === first.currency);
-      const streams = cases.map(({oid, c}) => {
-        const href = "#case/" + encodeURIComponent(oid), period = periodLabel(c);
-        return `<tr class="stream-row"><th scope="row"><a class="stream-name" href="${esc(href)}">${esc(c.stream || "View case")} →</a></th>`
-          + `<td class="stream-amount">${c.stake != null ? `<b>${esc(money(c.stake, c.currency))}</b><span class="mobile-label"> largest modeled shortfall</span>` : ""}`
-          + (period ? `<span class="stream-period">${esc(period)}</span>` : "")
-          + (detailed && basis(c) ? `<span class="stream-basis">${esc(sharedBasis ? pct(c.share) + " of benchmark" : basis(c))}</span>` : "")
-          + `</td><td class="stream-contact">${c.who ? `<span class="mobile-label">Suggested contact · </span>${esc(c.who)}` : ""}</td></tr>`;
-      }).join("");
-      const benchmark = sharedBasis ? `Percentage benchmark · ${esc(first.of)}${first.denominator_value != null ? ` (${esc(money(first.denominator_value, first.currency))})` : ""}` : "";
-      const context = [label, benchmark].filter(Boolean).join("<br>");
-      return (context ? `<tr><td class="event-label" colspan="3">${context}</td></tr>` : "") + streams;
-    }).join("");
-    return `<tbody><tr><th scope="rowgroup" class="company-name" colspan="3">${esc(company[0].c.company || "Company unspecified")}</th></tr>${events}</tbody>`;
-  }).join("");
-  return `<table class="company-table" aria-label="Company revenue exposures"><colgroup><col><col><col></colgroup><thead><tr>`
-    + `<th scope="col">Revenue stream</th><th scope="col">Largest modeled shortfall</th><th scope="col">Suggested contact</th></tr></thead>${groups}</table>`;
-}
-function findings() { $("#f-cards").innerHTML = companyList(true); }
+__FINDINGSJS__
+
+__ACTIVITYJS__
+
 function fmtVal(x) {
   const unit = String(x.unit || ""), currency = unit.match(/^([A-Z]{3})\b[\s,]*(.*)$/);
   if (x.value == null) return ["", unit];
@@ -540,12 +489,13 @@ function also() {
 }
 
 // ---- the research, and its replay ----
-const P = {pos: 0, playing: false, reveal: false, speed: 1, timer: 0};
-const chapName = ch => ch.find ? ch.find.c.company : live() && ch.i === M.chapters.length - 1 ? "Research in progress" : M.chapters.length === 1 ? "Research log" : "Final research steps";
-const span = (a, b) => `${Math.floor(a / 60)}–${Math.max(Math.floor(a / 60) + 1, Math.ceil(b / 60))} min`;
+const P = {pos: 0, playing: false, reveal: false, finished: false, follow: true, speed: 1, remaining: null, tick: 0, timer: 0};
 function partOf(si) {
-  const part = {says: 0, acts: 0, find: false};
-  for (let k = M.first[si]; k <= P.pos; k++) { const b = M.beats[k]; if (b.k === "say") part.says++; else if (b.k === "act") part.acts++; else if (b.k === "find") part.find = true; }
+  const part = {says: 0, acts: 0, finds: 0};
+  for (let i = M.first[si]; i <= P.pos; i++) {
+    const k = M.beats[i].k;
+    if (k === "say") part.says++; else if (k === "act") part.acts++; else if (k === "find") part.finds++;
+  }
   return part;
 }
 function actHTML(a, fresh) {
@@ -560,102 +510,165 @@ function chipsHTML(acts) {
   return Object.entries(counts).map(([k, n]) => `<span>${ICONS[k] || ""}${n} ${(NOUN[k] || [k, k])[n > 1 ? 1 : 0]}</span>`).join('<span class="sep">·</span>')
     + (blocked ? `<span class="sep">·</span><span class="warn">${blocked} blocked</span>` : "");
 }
-function stepHTML(s, part, b) {
-  const says = part ? s.says.slice(0, part.says) : s.says, acts = part ? s.acts.slice(0, part.acts) : s.acts, finds = s.finds.filter(f => f.n && (!part || part.find));
-  const auto = (part && acts.length > 0) || (live() && s.i === M.steps.length - 1), showActs = actsClosed.has(s.i) ? false : actsOpen.has(s.i) || auto;
+function stepBody(s, part, beat) {
+  const says = part ? s.says.slice(0, part.says) : s.says, acts = part ? s.acts.slice(0, part.acts) : s.acts;
+  const saved = s.finds.filter(f => f.n), finds = part ? saved.slice(0, part.finds) : saved;
+  const showActs = !actsClosed.has(s.i) && (actsOpen.has(s.i) || (live() && s.i === M.steps.length - 1));
   const rest = !s.rest ? "" : `<button class="link" data-rest="${s.i}" aria-expanded="${opened.has(s.i)}">${opened.has(s.i) ? "Show less" : "Read full entry"}</button>`;
-  return `<article class="step${part ? " cur" : ""}${part && b.k === "think" ? " new" : ""}" id="s${s.i}"><div class="t">${clock(s.el)}</div><div>`
+  return `<div class="t">${clock(s.el)}</div><div>`
     + `<p class="lead">${s.lead ? inline(esc(s.lead)) : '<span class="mute">Research activity</span>'}</p>${opened.has(s.i) && s.rest ? `<div class="rest">${paras(s.rest)}</div>` : ""}`
     + says.map(t => `<div class="say">${paras(t)}</div>`).join("")
     + (rest || acts.length ? `<div class="srow">${acts.length ? `<button class="chips" data-acts="${s.i}" aria-expanded="${showActs}">${chipsHTML(acts)}<span class="chev">${showActs ? "Hide" : "Show"}</span></button>` : ""}${rest}</div>` : "")
-    + (acts.length && showActs ? `<ul class="al">${acts.map((a, j) => actHTML(a, part && b.k === "act" && j === acts.length - 1)).join("")}</ul>` : "")
-    + finds.map(f => `<a class="found${part && b.k === "find" ? " new" : ""}" href="#case/${esc(f.oid)}"><span class="num">${f.n}</span><span>Finding saved · <b>${esc(f.c.company)}</b> · `
+    + (acts.length && showActs ? `<ul class="al">${acts.map((a, j) => actHTML(a, part && beat.k === "act" && j === acts.length - 1)).join("")}</ul>` : "")
+    + finds.map(f => `<a class="found${part && beat.f === f ? " new" : ""}" href="#case/${esc(f.oid)}"><span class="num">${f.n}</span><span>${clock(f.el)} · Finding saved · <b>${esc(f.c.company)}</b> · `
       + `${esc(f.c.stream || "")}${f.c.stake != null ? ` · ${money(f.c.stake, f.c.currency)} modeled shortfall` : ""}</span><span class="go">View case →</span></a>`).join("")
-    + `</div></article>`;
+    + `</div>`;
+}
+// Rows keep their DOM identity as playback appends entries. Live updates can amend earlier actions.
+let logModel = null, previousActive = null, lastScroll = 0;
+const rowBodies = [];
+function paintRow(i, beat) {
+  const rows = $("#transcript");
+  let row = rows.children[i];
+  if (!row) { row = document.createElement("article"); row.id = "s" + i; row.className = "step"; rows.append(row); }
+  const active = beat?.s === i, part = active ? partOf(i) : null;
+  if (part?.acts && !actsClosed.has(i)) actsOpen.add(i);
+  row.classList.toggle("cur", active); row.classList.toggle("new", active && beat.k === "think");
+  const body = stepBody(M.steps[i], part, beat);
+  if (body !== rowBodies[i]) {
+    const focused = row.contains(document.activeElement) && document.activeElement;
+    const key = focused && ["rest", "acts"].find(k => focused.dataset[k] != null);
+    const href = focused && focused.getAttribute("href");
+    row.innerHTML = body; rowBodies[i] = body;
+    if (key) row.querySelector(`[data-${key}]`)?.focus({preventScroll:true});
+    else if (href) Array.from(row.querySelectorAll("a")).find(a => a.getAttribute("href") === href)?.focus({preventScroll:true});
+  }
 }
 function research() {
+  const rows = $("#transcript"), beat = P.reveal && M.beats[P.pos], count = beat ? beat.s + 1 : M.steps.length;
   $("#player").hidden = live() || !M.beats.length; $("#livebar").hidden = !live();
-  if (!M.steps.length) { $("#chaps").innerHTML = ""; $("#chapter").innerHTML = `<div class="empty">${live() ? "Waiting for the first log entry…" : "No research steps recorded."}</div>`; player(); return; }
-  const ch = M.chapters[route.ci], [a, z] = ch.pages[route.pi], n = M.chapters.length, b = P.reveal ? M.beats[P.pos] : null;
-  $("#chaps").innerHTML = M.chapters.map(c => `<a class="chap${c.i === route.ci ? " on" : ""}" href="#research/${c.i + 1}/1"><b>${c.find ? `<span class="num">${c.find.n}</span>` : ""}`
-    + `${live() && !c.find && c.i === n - 1 ? '<span class="pulse"></span>' : ""}${esc(chapName(c))}</b><small>${span(c.t0, c.t1)} · ${plural(c.to - c.from + 1, "step", "steps")}</small></a>`).join("");
-  const on = $("#chaps .on"), box = $("#chaps"); if (on) on.setAttribute("aria-current", "page"); if (on && (on.offsetLeft < box.scrollLeft || on.offsetLeft + on.offsetWidth > box.scrollLeft + box.clientWidth)) box.scrollLeft = on.offsetLeft - 16;
-  const f = ch.find, np = ch.pages.length;
-  const sub = f ? `${esc(f.c.stream || "")}${f.c.stake != null ? ` · ${money(f.c.stake, f.c.currency)} modeled shortfall` : ""} · <a href="#case/${esc(f.oid)}">View case</a>`
-    : "";
-  let html = ""; for (let s = a; s <= z; s++) { if (b && s > b.s) break; html += stepHTML(M.steps[s], b && s === b.s ? partOf(s) : null, b); }
-  const prev = route.pi > 0 ? [route.ci, route.pi - 1] : route.ci > 0 ? [route.ci - 1, M.chapters[route.ci - 1].pages.length - 1] : null;
-  const next = route.pi < np - 1 ? [route.ci, route.pi + 1] : route.ci < n - 1 ? [route.ci + 1, 0] : null, h = ([c, p]) => `#research/${c + 1}/${p + 1}`;
-  $("#chapter").innerHTML = `<div class="chead"><span class="k">Chapter ${ch.i + 1} of ${n} · ${span(ch.t0, ch.t1)}</span>`
-    + `<h2>${esc(chapName(ch))}</h2><p class="sub">${sub}</p></div><div class="steps">${html}</div>`
-    + (isLastPage() && !P.reveal && M.end && !live() ? `<div class="endcard"><b>Run complete.</b> ${cap(foundLine(M.found.map(x => x.c)))}.`
-      + `<div class="ctas"><a class="btn dark" href="#findings">View findings</a><a class="btn" href="#play">${ICONS.play} Replay log</a></div></div>` : "")
-    + `<nav class="pager">${prev ? `<a class="btn" href="${h(prev)}">‹ Previous</a>` : "<span></span>"}<span class="pg">${np > 1 ? `Page ${route.pi + 1} of ${np} in this chapter` : ""}</span>`
-    + (next ? `<a class="btn${P.reveal ? "" : " dark"}" href="${h(next)}">${next[0] !== route.ci ? `Next chapter · ${esc(chapName(M.chapters[next[0]]))} ›` : "Next page ›"}</a>` : "<span></span>") + `</nav>`;
+  rows.hidden = !count; $("#log-empty").hidden = !!count;
+  if (!count) $("#log-empty").textContent = live() ? "Waiting for the first entry…" : "No research entries recorded.";
+  while (rows.childElementCount > count) { rows.lastElementChild.remove(); rowBodies.pop(); }
+  if (logModel !== M) {
+    const jump = $("#saved-jump"); jump.hidden = !M.found.length;
+    const options = M.found.map(f => new Option([clock(f.el), f.c.company, f.c.stream].filter(Boolean).join(" · "), f.oid));
+    jump.replaceChildren(new Option("Jump to finding", ""), ...options);
+    for (let i = 0; i < count; i++) paintRow(i, beat);
+    logModel = M;
+  } else {
+    if (previousActive != null && previousActive < count && previousActive !== beat?.s) paintRow(previousActive, beat);
+    for (let i = rows.childElementCount; i < count; i++) paintRow(i, beat);
+    if (beat) paintRow(beat.s, beat);
+  }
+  previousActive = beat ? beat.s : null;
   player();
 }
 function player() {
-  if (live()) { $("#livebar").innerHTML = `<span class="pill running"><span class="pulse"></span>Live</span> Recording research activity <span class="spacer"></span><b>${clock(elapsed())}</b>`; return; }
+  if (live()) {
+    $("#livebar").innerHTML = `<span class="pill running"><span class="pulse"></span>Live</span><span class="spacer"></span><b>${clock(elapsed())}</b>`;
+    return;
+  }
   if (!M.beats.length) return;
-  const T = M.total || 1, at = P.reveal ? M.beats[P.pos].at : (M.beats[pageFirstBeat()] || {at: 0}).at, fr = 100 * at / T;
-  $("#pp").innerHTML = P.playing ? ICONS.pause : ICONS.play; $("#pp").title = P.playing ? "Pause replay" : "Play replay"; $("#pp").setAttribute("aria-label", $("#pp").title);
-  const step = P.reveal ? M.beats[P.pos].s : M.chapters[route.ci].pages[route.pi][0];
+  const beat = M.beats[P.pos], t = P.finished ? M.secs : beat.el, fr = clampN(100 * t / (M.secs || 1), 0, 100);
+  $("#full-log").hidden = !P.reveal || P.finished;
+  $("#pp").innerHTML = P.playing ? ICONS.pause : ICONS.play;
+  $("#pp").title = P.playing ? "Pause replay" : P.finished ? "Replay from start" : "Play replay";
+  $("#pp").setAttribute("aria-label", $("#pp").title);
   const track = $("#scrub .track");
-  track.setAttribute("aria-valuemax", M.steps.length); track.setAttribute("aria-valuenow", step + 1);
-  track.setAttribute("aria-valuetext", `Step ${step + 1} of ${M.steps.length}, ${clock(M.steps[step].el)} into the run`);
+  track.setAttribute("aria-valuemax", M.steps.length); track.setAttribute("aria-valuenow", beat.s + 1);
+  track.setAttribute("aria-valuetext", `Step ${beat.s + 1} of ${M.steps.length}, ${clock(t)} into the run`);
   $("#fill").style.width = fr + "%"; $("#knob").style.left = fr + "%";
-  $("#ptitle").textContent = P.playing ? "Playing" : P.reveal ? "Paused" : at > 0 ? "Resume from this chapter" : "Play research log";
-  const runT = P.reveal ? M.steps[M.beats[P.pos].s].el : (M.steps[M.chapters[route.ci].pages[route.pi][0]] || {el: 0}).el;
-  $("#ptime").textContent = P.reveal || at > 0 ? `${clock(runT)} into the run · ${dur((T - at) / P.speed)} left` : `about ${dur(T / P.speed)}`;
-  $$("#speed button").forEach(x => { const active = +x.dataset.x === P.speed;
-    x.classList.toggle("on", active); x.setAttribute("aria-pressed", active); });
-  $("#marks").innerHTML = M.chapters.slice(1).map(c => `<span class="cut" style="left:${100 * (M.beats[M.first[c.from]] || {at: T}).at / T}%"></span>`).join("")
-    + M.beats.map((x, k) => x.k === "find" ? `<button class="flag" data-b="${k}" style="left:${100 * x.at / T}%" title="Finding ${x.f.n} · ${esc(x.f.c.company)}" aria-label="Finding ${x.f.n}, ${esc(x.f.c.company)}">${x.f.n}</button>` : "").join("");
+  $("#ptitle").textContent = P.playing ? "Playing" : P.finished ? "Replay complete" : P.reveal || P.pos ? "Paused" : "Replay";
+  $("#ptime").textContent = `${clock(t)} / ${clock(M.secs)}`;
+  $$("#speed button").forEach(x => {
+    const active = +x.dataset.x === P.speed; x.classList.toggle("on", active); x.setAttribute("aria-pressed", active);
+  });
 }
-function showBeat() {
-  const b = M.beats[P.pos], loc = locate(b.s);
-  if (route.v !== "research" || loc.ci !== route.ci || loc.pi !== route.pi) {
-    route = {v: "research", ...loc}; history.replaceState(null, "", `#research/${loc.ci + 1}/${loc.pi + 1}`); render(); window.scrollTo({top: 0});
-  } else research();
-  const el = $("#s" + b.s); if (!el) return; const t = el.querySelector(".act.new,.found.new") || el, r = t.getBoundingClientRect();
-  if (r.top < 170 || r.bottom > innerHeight - 30) t.scrollIntoView({block: "center", behavior: scrollBehavior()});
+function scrollEntry(el) {
+  if (!el) return;
+  const bar = live() ? $("#livebar") : $("#player"), r = el.getBoundingClientRect();
+  const top = (parseFloat(getComputedStyle(bar).top) || 0) + bar.offsetHeight + 12, bottom = innerHeight - 20;
+  const delta = r.top < top || r.height > bottom - top ? r.top - top : Math.max(0, r.bottom - bottom);
+  if (Math.abs(delta) > 1) window.scrollBy({top: delta, behavior: "instant"});
+  lastScroll = window.scrollY;
 }
-function schedule(show) {
-  clearTimeout(P.timer); if (show) showBeat(); if (!P.playing) { player(); return; }
-  P.timer = setTimeout(() => { if (P.pos < M.beats.length - 1) { P.pos++; schedule(true); } else finish(); }, M.beats[P.pos].d * 1000 / P.speed);
+function scrollCurrent() {
+  const row = live() ? $("#transcript").lastElementChild : document.getElementById("s" + M.beats[P.pos]?.s);
+  scrollEntry(row?.querySelector(".act.new,.found.new") || row);
 }
-function startAt(k) { P.pos = clampN(k, 0, M.beats.length - 1); P.reveal = true; P.playing = true; schedule(true); }
-function pause() { P.playing = false; clearTimeout(P.timer); if (route.v === "research") player(); }
+function followLatest(follow) {
+  P.follow = follow;
+  $("#latest").hidden = follow || route.v !== "research" || !(live() || P.playing || P.reveal);
+  $("#latest").textContent = live() ? "Latest entry ↓" : "Follow replay ↓";
+}
+function schedule() {
+  clearTimeout(P.timer);
+  if (P.remaining == null) P.remaining = M.beats[P.pos].d * 1000;
+  P.tick = performance.now();
+  P.timer = setTimeout(() => {
+    P.remaining = null;
+    if (P.pos === M.beats.length - 1) { P.playing = false; P.finished = true; P.reveal = false; followLatest(true); research(); return; }
+    P.pos++; research(); if (P.follow) scrollCurrent(); schedule();
+  }, P.remaining / P.speed);
+}
+function remainingTime() { return P.playing ? Math.max(0, P.remaining - (performance.now() - P.tick) * P.speed) : P.remaining; }
+function pause() {
+  if (P.playing) P.remaining = remainingTime();
+  clearTimeout(P.timer); P.playing = false; if (route.v === "research") player();
+}
 function toggle() {
-  if (live() || !M.beats.length) return; if (P.playing) return pause();
-  if (P.reveal) { P.playing = true; schedule(false); return; }
-  startAt(route.v === "research" ? pageFirstBeat() : 0);
+  if (live() || !M.beats.length) return;
+  if (P.playing) {
+    pause(); history.replaceState({...history.state, runScroll:window.scrollY, runReplay:replayPosition()}, ""); return;
+  }
+  if (P.finished) { P.pos = 0; P.remaining = null; P.finished = false; }
+  P.reveal = true; P.playing = true; followLatest(true); research(); scrollCurrent(); schedule();
 }
-function finish() { P.playing = false; P.reveal = false; const last = M.chapters.length - 1; route = {v: "research", ci: last, pi: M.chapters[last].pages.length - 1};
-  history.replaceState(null, "", `#research/${last + 1}/${route.pi + 1}`); render(); const e = $(".endcard"); if (e) e.scrollIntoView({block: "center", behavior: scrollBehavior()}); }
+function seek(k) {
+  P.pos = k; P.finished = false; P.remaining = null; P.reveal = true;
+  followLatest(true); research(); scrollCurrent(); if (P.playing) schedule();
+}
 
 // ---- wiring ----
 $("#pp").onclick = toggle;
-$("#speed").onclick = e => { const x = +(e.target.dataset || {}).x; if (!x) return; P.speed = x; if (P.playing) schedule(false); else player(); };
+$("#full-log").onclick = () => {
+  pause(); P.reveal = false; followLatest(true); research();
+  $("#pp").focus({preventScroll:true});
+  history.replaceState({...history.state, runScroll:window.scrollY, runReplay:replayPosition()}, "");
+};
+$("#speed").onclick = e => {
+  const x = +e.target.dataset.x; if (!x || x === P.speed) return;
+  const playing = P.playing;
+  if (playing) pause(); P.speed = x; P.playing = playing; player(); if (playing) schedule();
+};
 $("#scrub .track").onkeydown = e => {
   if (live() || !M.beats.length) return;
-  const step = Number(e.currentTarget.getAttribute("aria-valuenow")) - 1;
+  const step = M.beats[P.pos].s;
   const next = {Home: 0, End: M.steps.length - 1, ArrowLeft: step - 1, ArrowDown: step - 1, ArrowRight: step + 1, ArrowUp: step + 1};
   if (!(e.key in next)) return;
-  e.preventDefault(); P.pos = M.first[clampN(next[e.key], 0, M.steps.length - 1)]; P.reveal = true; schedule(true);
+  e.preventDefault(); seek(M.first[clampN(next[e.key], 0, M.steps.length - 1)]);
 };
-$("#scrub").onclick = e => { if (live() || !M.beats.length) return; const fl = e.target.closest(".flag"); let k;
-  if (fl) k = +fl.dataset.b; else { const r = $("#scrub").getBoundingClientRect(), x = clampN((e.clientX - r.left) / r.width, 0, 1) * M.total;
-    k = M.beats.findIndex(b => b.at + b.d > x); if (k < 0) k = M.beats.length - 1; k = M.first[M.beats[k].s]; }
-  P.pos = k; P.reveal = true; schedule(true);
-  if (fl) $(`.flag[data-b="${k}"]`)?.focus({preventScroll:true}); };
-$("#v-research").addEventListener("click", e => { const t = e.target.closest("[data-rest],[data-acts]"); if (!t) return; if (P.playing) pause();
-  if (t.dataset.rest) { const i = +t.dataset.rest; opened.has(i) ? opened.delete(i) : opened.add(i); }
-  else { const i = +t.dataset.acts, shown = t.querySelector(".chev").textContent === "Hide";
-    if (shown) { actsOpen.delete(i); actsClosed.add(i); } else { actsClosed.delete(i); actsOpen.add(i); } }
-  const key = t.hasAttribute("data-rest") ? "rest" : "acts";
-  research();
-  $(`[data-${key}="${t.dataset[key]}"]`).focus({preventScroll:true}); });
+$("#scrub").onclick = e => {
+  if (live() || !M.beats.length) return;
+  const r = e.currentTarget.getBoundingClientRect(), t = clampN((e.clientX - r.left) / r.width, 0, 1) * M.secs;
+  const after = M.beats.findIndex(b => b.el > t);
+  seek(t === 0 ? 0 : after < 0 ? M.beats.length - 1 : Math.max(0, after - 1));
+};
+$("#saved-jump").onchange = e => { const oid = e.target.value; e.target.value = "";
+  if (!oid) return;
+  const hash = "#found/" + encodeURIComponent(oid);
+  if (hash === location.hash) go(parse()); else location.hash = hash;
+};
+$("#v-research").addEventListener("click", e => {
+  const t = e.target.closest("[data-rest],[data-acts]"); if (!t) return;
+  if (P.playing) pause();
+  const i = +(t.dataset.rest ?? t.dataset.acts);
+  if (t.hasAttribute("data-rest")) { if (opened.has(i)) opened.delete(i); else opened.add(i); }
+  else if (t.getAttribute("aria-expanded") === "true") { actsOpen.delete(i); actsClosed.add(i); }
+  else { actsClosed.delete(i); actsOpen.add(i); }
+  paintRow(i, P.reveal ? M.beats[P.pos] : null);
+});
 $("#v-case").addEventListener("submit", e => {
   if (e.target.id !== "jump") return;
   e.preventDefault();
@@ -665,53 +678,87 @@ $("#v-case").addEventListener("submit", e => {
     section.scrollIntoView({behavior:scrollBehavior(), block:"start"});
   }
 });
-function openMinute(minute) {
-  if (!M.steps.length) return;
-  const step = M.steps.findIndex(s => s.el >= minute * 60);
-  location.hash = "#step/" + (step < 0 ? M.steps.length - 1 : step);
-}
-$("#o-jump").onsubmit = e => { e.preventDefault(); openMinute(Number($("#o-minute").value)); };
-$("#o-chart").onclick = e => {
-  const chart = e.currentTarget, rect = chart.getBoundingClientRect(), left = Number(chart.dataset.plotLeft);
-  const fraction = (e.clientX - rect.left - left) / (rect.width - left);
-  openMinute(clampN(Math.floor(fraction * M.bins.length), 0, M.bins.length - 1));
-};
 document.addEventListener("keydown", e => { if (route.v !== "research" || e.metaKey || e.ctrlKey || e.altKey || e.target.closest("button,a,input,textarea,select,summary,[contenteditable=true],[role=slider]")) return;
-  if (e.code === "Space") { e.preventDefault(); toggle(); }
-  else if (e.key === "ArrowRight" || e.key === "ArrowLeft") { const a = $(".pager a.btn:" + (e.key === "ArrowRight" ? "last-child" : "first-child")); if (a) location.hash = a.getAttribute("href"); } });
-window.addEventListener("hashchange", () => {
-  const next = parse(); go(next);
-  const target = ((next.step != null || next.find) && $(".step.flash")) || (next.play && $("#pp")) || $(".view:not([hidden]) h1");
-  if (target) { if (!target.matches("button")) target.tabIndex = -1; target.focus({preventScroll:true}); }
+  if (e.code === "Space") { e.preventDefault(); toggle(); } });
+// Hash links are real history entries, including the reader's position in each view.
+let displayedURL, currentVisit;
+const positions = new Map(), replayVisits = new Map();
+function replayPosition() {
+  if (route.v !== "research" || live() || !M?.beats.length) return null;
+  const {pos, reveal, finished, follow, speed} = P;
+  return {pos, reveal, finished, follow, remaining:remainingTime(), speed,
+          read:[...opened], expanded:[...actsOpen], collapsed:[...actsClosed]};
+}
+let visitCount = 0;
+history.scrollRestoration = "manual";
+function rememberPosition() {
+  if (currentVisit && displayedURL === location.href) positions.set(currentVisit, window.scrollY);
+}
+window.addEventListener("scroll", rememberPosition, {passive:true});
+document.addEventListener("click", e => {
+  if (e.target.closest('a[href^="#"]')) rememberPosition();
+}, {capture:true});
+window.addEventListener("pagehide", () => {
+  rememberPosition();
+  if (currentVisit && displayedURL === location.href)
+    history.replaceState({...history.state, runScroll:positions.get(currentVisit), runReplay:replayPosition()}, "");
 });
-window.addEventListener("resize", () => { if (route.v === "overview") drawChart($("#o-chart"), M.bins, M.found.map(f => ({t: f.el, label: [f.c.company, f.c.stream].filter(Boolean).join(" · ")})), Infinity, 190); });
+function openRoute(moveFocus = false) {
+  const next = parse(), visit = history.state?.runVisit || `${performance.timeOrigin}:${++visitCount}`;
+  if (moveFocus && visit === currentVisit && displayedURL === location.href) return;
+  const saved = positions.get(visit) ?? history.state?.runScroll;
+  if (currentVisit && currentVisit !== visit && route.v === "research") replayVisits.set(currentVisit, replayPosition());
+  currentVisit = visit;
+  const savedReplay = replayVisits.get(visit) || history.state?.runReplay;
+  history.replaceState({...history.state, runVisit:visit, runScroll:saved, runReplay:savedReplay}, "");
+  go(next, savedReplay);
+  displayedURL = location.href;
+  if (Number.isFinite(saved)) window.scrollTo({top:saved, behavior:"instant"});
+  else if (next.v === "findings" && location.hash === "#hubspot") $("#hubspot").scrollIntoView();
+  if (!moveFocus) return;
+  const target = (savedReplay && next.v === "research" && $("#pp")) || ((next.step != null || next.find) && $(".step.flash")) || (next.play && $("#pp")) || $(".view:not([hidden]) h1");
+  if (target) { if (!target.matches("button")) target.tabIndex = -1; target.focus({preventScroll:true}); }
+}
+window.addEventListener("hashchange", () => { if (M) openRoute(true); });
+function measureShell() {
+  document.documentElement.style.setProperty("--shell-height", $(".run-nav").offsetHeight + "px");
+}
+measureShell();
+new ResizeObserver(measureShell).observe($(".run-nav"));
+window.addEventListener("resize", () => { if (route.v === "activity") activityResize(); });
 const scrollBehavior = () => matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
-const nearBottom = () => window.innerHeight + window.scrollY >= document.body.scrollHeight - 220;
-window.addEventListener("scroll", () => { if (nearBottom()) $("#latest").hidden = true; });
-$("#latest").onclick = () => { $("#latest").hidden = true; const last = M.chapters.length - 1; if (route.v !== "research" || !isLastPage()) location.hash = `#research/${last + 1}/${M.chapters[last].pages.length}`;
-  else window.scrollTo({top: document.body.scrollHeight, behavior: scrollBehavior()}); };
+window.addEventListener("scroll", () => {
+  if (route.v === "research" && (P.playing || live()) && window.scrollY < lastScroll - 2) followLatest(false);
+  lastScroll = window.scrollY;
+}, {passive: true});
+window.addEventListener("wheel", e => {
+  if (e.deltaY < 0 && route.v === "research" && (P.playing || live())) followLatest(false);
+}, {passive: true});
+$("#latest").onclick = () => { followLatest(true); scrollCurrent(); };
 setInterval(() => { if (!live()) return; pill(); if (route.v === "research") player(); }, 1000);
+let received = false;
 async function poll() {
   try {
-    const first = after === 0, j = await (await fetch(`/runs/${RUN}/ops?after=${after}`)).json();
-    ingest(j.ops); after = j.next; status = j.status || {}; Object.assign(details, j.cases || {});
-    if (j.ops.length || first) {
-      const wasLast = route.v === "research" && M.steps.length && isLastPage(), follow = wasLast && nearBottom(); M = build();
-      if (first) go(parse());
-      else if (wasLast) { const last = M.chapters.length - 1; route = {v: "research", ci: last, pi: M.chapters[last].pages.length - 1}; render();
-        if (follow) window.scrollTo({top: document.body.scrollHeight, behavior: scrollBehavior()}); else $("#latest").hidden = false; }
+    const initial = !received, j = await (await fetch(`/runs/${RUN}/ops?after=${after}`)).json();
+    const oldState = status.state, cases = j.cases || {};
+    const amended = Object.entries(cases).some(([oid, c]) => JSON.stringify(details[oid]) !== JSON.stringify(c));
+    ingest(j.ops); after = j.next; status = j.status || {}; Object.assign(details, cases); received = true;
+    if (initial || j.ops.length || status.state !== oldState || amended) {
+      M = build();
+      if (initial) openRoute();
+      else if (route.v === "research") { research(); pill(); followLatest(P.follow); if (P.follow && live()) scrollCurrent(); }
       else render();
     } else pill();
-    if (status.state === "running" || status.state === "unknown") setTimeout(poll, 2500); else { M = build(); render(); }
+    if (status.state === "running" || status.state === "unknown") setTimeout(poll, 2500);
   } catch (e) { setTimeout(poll, 5000); }
 }
 if (DATA) { ingest(DATA.ops);
   for (const [i, display] of Object.entries(DATA.action_display || {})) Object.assign(items[i], display);
-  status = DATA.status || {}; details = DATA.cases || {}; M = build(); go(parse()); }
-else { M = build(); go(parse()); poll(); }
+  status = DATA.status || {}; details = DATA.cases || {}; M = build(); openRoute(); }
+else { M = build(); openRoute(); poll(); }
 </script></body></html>"""
 
-PAGE_STEPS = 12  # at most this many reasoning steps to a page of the research view
+PAGE_STEPS = 12  # page size used to resolve bookmarks from older exports
 
 # How long the replay holds each thing at 1x, in seconds: a thought's headline gets base + per-word time
 # within [min, max]; a message from the researcher likewise; each search, read or calculation; each finding.

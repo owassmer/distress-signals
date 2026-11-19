@@ -20,9 +20,9 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import db, example_review, hubspot
+from . import activityview, db, example_review, findingsview, hubspot
 from .feed import _result_text
-from .runpage import CHART_JS, FAVICON, FOUND_JS, ICONS, PACE, PAGE, PAGE_STEPS, STYLE
+from .runpage import CHART_JS, FAVICON, FOUND_JS, ICONS, PACE, PAGE, PAGE_STEPS, SHELL_STYLE, STYLE
 from .util import OUT, load_env
 
 PORT = int(os.environ.get("DISTRESS_WATCH_PORT", "8790"))
@@ -438,16 +438,26 @@ def _page(run_id, data=None, home="/"):
     run = _run_row(run_id)
     title = _title(run)
     assignment = _assignment(run)
-    page = (PAGE.replace("__STYLE__", STYLE).replace("__FOUNDJS__", FOUND_JS).replace("__CHARTJS__", CHART_JS)
+    purpose = assignment
+    if data and data.get("example_deal") and run and run.get("seed_kind") == "mandate":
+        purpose = ("The research agent searched public records for upcoming external events "
+                   "and the companies with material revenue at stake.")
+    index_link = ""
+    if data is None or home not in ("/", REPO, "#findings"):
+        index_link = f'<a class="project-link" href="{html.escape(home, quote=True)}">All runs</a>'
+    page = (PAGE.replace("__STYLE__", STYLE + SHELL_STYLE + findingsview.STYLE + activityview.STYLE)
+            .replace("__FINDINGSHTML__", findingsview.HTML).replace("__FINDINGSJS__", findingsview.JS)
+            .replace("__ACTIVITYHTML__", activityview.HTML).replace("__ACTIVITYJS__", activityview.JS)
+            .replace("__RUNINDEX__", index_link).replace("__FOUNDJS__", FOUND_JS).replace("__CHARTJS__", CHART_JS)
             .replace("__ICONS__", json.dumps(ICONS)).replace("__PAGESTEPS__", str(PAGE_STEPS)).replace("__PACE__", json.dumps(PACE))
-            .replace("__RUN__", run_id).replace("__FAVICON__", FAVICON).replace("__REPO__", REPO).replace("__HOME__", home)
-            .replace("__ASSIGNHIDDEN__", "" if assignment else "hidden").replace("__ASSIGNMENT__", html.escape(assignment))
+            .replace("__RUN__", run_id).replace("__FAVICON__", FAVICON).replace("__REPO__", REPO)
+            .replace("__PURPOSEHIDDEN__", "" if purpose else "hidden").replace("__PURPOSE__", html.escape(purpose))
             .replace("__TITLE__", html.escape(title)))
     # the run's own text goes in last, so nothing in it is taken for a placeholder
     return page.replace("__DATA__", json.dumps(data, default=str).replace("</", "<\\/") if data is not None else "null")
 
 
-def export_html(run_id, public=False, home=REPO):
+def export_html(run_id, public=False, home=REPO, *, example_deal=False):
     """One run as a single self-contained page: everything embedded, no server, with a replay button.
     public=True leaves out links into the operator's HubSpot."""
     v = RunView(run_id)
@@ -464,6 +474,8 @@ def export_html(run_id, public=False, home=REPO):
             if case:
                 case.pop("deal", None)
     data = {"ops": ops, "status": status}
+    if example_deal:
+        data["example_deal"] = True
     if public:
         data["cases"] = public_cases(run_id, v.cases)
         data["lead_review"] = public_leads(run_id, _items(ops))

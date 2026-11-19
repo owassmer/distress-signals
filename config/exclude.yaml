@@ -1,0 +1,4 @@
+# Companies the researcher never develops, by reason. Names are matched as whole words against a
+# company's name and aliases. Add private preferences to config/exclude.local.yaml (same format,
+# not committed).
+exclude: {}

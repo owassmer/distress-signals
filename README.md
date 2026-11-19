@@ -8,8 +8,9 @@ names the person at the company to talk to, with a short opening message.
 It's built for people whose business is helping companies with exposure like that, such as advisers,
 brokers, insurers and lenders, who need to know whom to call, about what, and why now.
 
-**[Watch an example run →](https://owassmer.github.io/distress-signals/)** One full research session,
-replayed step by step: what the researcher was thinking, what it read, and the cases it found.
+**[See an example run →](https://owassmer.github.io/distress-signals/)** One full research session: what it
+found, each case in full with the figures behind it, and the research itself, which you can replay step by
+step.
 
 ## What you get for each company
 

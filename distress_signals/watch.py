@@ -22,6 +22,7 @@ from urllib.parse import parse_qs, urlparse
 
 from . import db, hubspot
 from .feed import _result_text
+from .runpage import CHART_JS, FAVICON, FOUND_JS, ICONS, PACE, PAGE, PAGE_STEPS, STYLE
 from .util import OUT, load_env
 
 PORT = int(os.environ.get("DISTRESS_WATCH_PORT", "8790"))
@@ -368,8 +369,18 @@ def _assignment(run):
     return text + (f" (Note: {run['question']})" if run.get("question") else "")
 
 
+def _input(name, x, url_of):
+    """One figure behind a case, with its provenance: reported (the passage), derived (the calculation) or assumed."""
+    src = x.get("source") or {}
+    kind = "reported" if x.get("source") else "derived" if x.get("derived") else "assumed"
+    return {"name": title_label(name), "value": x.get("value"), "unit": x.get("unit"), "note": x.get("note"), "kind": kind,
+            "passage": src.get("passage"), "url": url_of(src.get("observation_id")),
+            "how": (x.get("derived") or {}).get("note") if kind == "derived" else x.get("assumption")}
+
+
 def _case_details(oids, public=False):
-    """The final form of the cases a run saved, for the findings cards."""
+    """The final form of the cases a run saved: the findings cards, and each case's own page with the event,
+    the outcomes, the figures behind them, the evidence, and who to call."""
     if not oids:
         return {}
     from . import briefs
@@ -378,6 +389,9 @@ def _case_details(oids, public=False):
     try:
         for c in briefs.cases(con, list(oids)):
             case, ev, res, buyer = c["case"], c["event"], c["results"], c["case"]["buyer"]
+            cited = c.get("cited") or {}
+            url_of = lambda oid: (cited.get(oid) or {}).get("url") if oid else None  # noqa: E731
+            scen = {a["name"]: a for a in case.get("affected") or []}
             out[c["id"]] = {
                 "oid": c["id"], "status": c["status"], "company": c["company"]["name"],
                 "company_id": c["row"]["company_id"], "stream": title_label(case.get("stream_key")),
@@ -387,280 +401,34 @@ def _case_details(oids, public=False):
                 "period": f"{case['period']['start']} to {case['period']['end']}",
                 "who": ", ".join(x for x in (buyer.get("name"), buyer.get("title")) if x) or buyer.get("role"),
                 "opening": (case.get("outreach") or {}).get("draft"),
-                "deal": None if public else _deal_url(c["id"])}
+                "deal": None if public else _deal_url(c["id"]),
+                "why_matters": case["case"].get("why_matters"), "condition": case.get("condition"), "timing": case.get("timing"),
+                "event_description": ev.get("description"), "event_timing": ev.get("timing"),
+                "period_start": case["period"]["start"], "period_end": case["period"]["end"],
+                "baseline": {"revenue": res.get("baseline_revenue"), "description": (case.get("baseline") or {}).get("description")},
+                "scenarios": [{"label": title_label(r["name"]), "description": (scen.get(r["name"]) or {}).get("description"),
+                               "revenue": r.get("revenue"), "shortfall": r.get("shortfall"), "share": r.get("share")}
+                              for r in res.get("affected") or []],
+                "inputs": [_input(k, x, url_of) for k, x in (case.get("inputs") or {}).items()],
+                "evidence": [{"passage": e.get("passage"), "supports": e.get("supports"), "url": url_of(e.get("observation_id"))}
+                             for e in case.get("evidence") or []],
+                "role": buyer.get("role"), "next_action": case.get("next_action")}
     finally:
         con.close()
     return out
-
-
-# util.found_line for the pages: cases are [{company_id, company}], one per active case
-FOUND_JS = r"""function tally(cases) { return {n: cases.length, k: new Set(cases.map(c => c.company_id || c.company)).size}; }
-function foundLine(cases) { const {n, k} = tally(cases); if (!n) return "no revenue exposures";
-  return `${n} revenue exposure${n === 1 ? "" : "s"} ${k === 1 ? "at" : "across"} ${k} compan${k === 1 ? "y" : "ies"}`; }"""
-
-FAVICON = ("data:image/svg+xml," + "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' "
-           "rx='8' fill='%23111827'/%3E%3Cpath d='M7 20l5-6 4 4 9-10' stroke='%2334d399' stroke-width='3' fill='none' "
-           "stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
-
-STYLE = r"""
-:root{--bg:#f6f7f9;--card:#fff;--line:#e6e8ec;--line2:#eef0f3;--ink:#0f172a;--soft:#334155;--mute:#64748b;--faint:#94a3b8;
---blue:#2563eb;--green:#15803d;--greenbg:#f0fdf4;--greenline:#bbf7d0;--amber:#b45309}
-*{box-sizing:border-box}[hidden]{display:none!important}html{scroll-behavior:smooth}
-html,body{margin:0;background:var(--bg);color:var(--ink);font:15.5px/1.62 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;
--webkit-font-smoothing:antialiased}a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
-.top{position:sticky;top:0;z-index:5;background:rgba(246,247,249,.9);backdrop-filter:saturate(1.6) blur(12px);border-bottom:1px solid var(--line)}
-.top .in{max-width:920px;margin:0 auto;padding:12px 28px;display:flex;align-items:center;gap:14px}
-.brand{font-weight:700;font-size:13px;color:var(--mute);display:flex;align-items:center;gap:8px;white-space:nowrap}
-.brand img{width:20px;height:20px}.brand:hover{text-decoration:none;color:var(--ink)}
-.spacer{flex:1}.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:650;padding:3px 10px;border-radius:99px}
-.pill.running{background:#dbeafe;color:#1d4ed8}.pill.replay{background:#ede9fe;color:#6d28d9}.pill.failed{background:#fee2e2;color:#b91c1c}
-.pulse{width:7px;height:7px;border-radius:50%;background:#2563eb;animation:pulse 1.4s infinite}
-@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(37,99,235,.55)}100%{box-shadow:0 0 0 9px rgba(37,99,235,0)}}
-.clock{font-variant-numeric:tabular-nums;font-weight:650;color:var(--soft);font-size:13px}
-.btn{border:1px solid var(--line);background:var(--card);color:var(--soft);border-radius:99px;padding:6px 14px;font-weight:600;font-size:13px;line-height:1;font-family:inherit;
-cursor:pointer;white-space:nowrap}.btn:hover{border-color:#cbd5e1;text-decoration:none}.btn.dark{background:var(--ink);color:#fff;border-color:var(--ink)}
-.doc{max-width:920px;margin:0 auto;padding:34px 28px 30px}
-h1{font-size:30px;line-height:1.2;letter-spacing:-.025em;margin:0 0 10px;font-weight:760}
-.lede{font-size:17px;color:var(--soft);margin:0 0 22px;max-width:720px}
-.assign{margin:0 0 18px;padding:14px 18px;background:var(--card);border:1px solid var(--line);border-radius:12px;color:var(--soft)}
-.assign .k{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint);font-weight:700;display:block;margin-bottom:3px}
-.facts{display:flex;flex-wrap:wrap;gap:8px 22px;color:var(--mute);font-size:14px;margin:0 0 6px}.facts b{color:var(--ink);font-weight:700}
-h2{font-size:21px;letter-spacing:-.015em;margin:46px 0 6px;font-weight:720}.hint{color:var(--mute);font-size:14px;margin:0 0 18px}
-.opp{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px 22px;margin:0 0 14px;box-shadow:0 1px 2px rgba(15,23,42,.03)}
-.opp .head{display:flex;gap:18px;align-items:flex-start;justify-content:space-between}
-.opp .co{font-size:18px;font-weight:720;letter-spacing:-.01em}.opp .st{font-size:13.5px;color:var(--mute);font-weight:550}
-.opp .amt{text-align:right;white-space:nowrap}.opp .amt b{display:block;font-size:26px;font-weight:780;letter-spacing:-.02em;line-height:1.1}
-.opp .amt span{font-size:12.5px;color:var(--mute)}
-.opp .row{display:grid;grid-template-columns:110px minmax(0,1fr);gap:4px 14px;margin-top:14px;font-size:14.5px;color:var(--soft)}
-.opp .row dt{color:var(--faint);font-size:12px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;padding-top:3px}
-.opp .row dd{margin:0}.opp .row dd.long{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-.opp.open .row dd.long{display:block;-webkit-line-clamp:unset}.opp blockquote{margin:14px 0 0;padding:12px 16px;background:#f8fafc;border-left:3px solid var(--blue);
-border-radius:0 10px 10px 0;color:var(--ink);font-size:14.5px}
-.opp .foot{display:flex;gap:16px;margin-top:14px;font-size:13.5px;font-weight:600}
-@media(max-width:640px){.opp .head{flex-direction:column;gap:8px}.opp .amt{text-align:left}.opp .row{grid-template-columns:1fr}.opp .row dt{padding-top:6px}
-h1{font-size:25px}.top .in,.doc{padding-left:16px;padding-right:16px}.brand span{display:none}}
-.empty{color:var(--faint);font-size:14px}
-.also{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}@media(max-width:760px){.also{grid-template-columns:1fr}}
-.also .box{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
-.also h3{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute)}
-.also ul{margin:0;padding:0;list-style:none}.also li{font-size:13.5px;color:var(--soft);padding:8px 0;border-top:1px solid var(--line2)}
-.also li:first-child{border-top:0;padding-top:0}.clamp3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-.step{position:relative;padding:0 0 22px 28px}.step.new{animation:fade .35s ease}
-.step:before{content:"";position:absolute;left:6px;top:16px;bottom:-2px;width:2px;background:var(--line)}
-.step:last-of-type:before{display:none}
-.step .dot{position:absolute;left:0;top:8px;width:14px;height:14px;border-radius:50%;background:var(--card);border:2px solid #cbd5e1}
-.step.live .dot{border-color:var(--blue);background:#dbeafe}.step.has-case .dot{border-color:#22c55e;background:#dcfce7}
-.step.flash{animation:flash 1.6s ease}@keyframes flash{0%,40%{background:#fef9c3}100%{background:transparent}}
-@keyframes fade{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
-.when{font-size:11.5px;color:var(--faint);font-weight:650;letter-spacing:.03em;font-variant-numeric:tabular-nums}
-.thought{color:var(--soft);font-size:14.5px}.thought p{margin:0 0 6px}
-.clamp{max-height:6.6em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 55%,transparent)}
-.more{border:0;background:none;color:var(--blue);font-weight:600;font-size:12.5px;line-height:1;font-family:inherit;padding:0;margin:2px 0 8px;cursor:pointer}
-.say{margin:2px 0 8px;padding:9px 13px;background:var(--card);border:1px solid var(--line);border-left:3px solid var(--faint);
-border-radius:9px;font-size:14px;color:var(--soft)}.say p{margin:0 0 6px}.say p:last-child{margin:0}
-.found{display:inline-flex;align-items:center;gap:8px;margin:4px 0 6px;padding:6px 12px;background:var(--greenbg);border:1px solid var(--greenline);
-border-radius:99px;font-size:13px;color:var(--green);font-weight:650;cursor:pointer}
-.toggle{display:inline-flex;flex-wrap:wrap;align-items:center;gap:7px;border:1px solid var(--line);background:var(--card);border-radius:99px;
-padding:3px 12px;font-weight:500;font-size:12.5px;line-height:1.6;font-family:inherit;color:var(--mute);cursor:pointer;margin-top:2px}.toggle:hover{border-color:#cbd5e1}
-.toggle svg{width:13px;height:13px;vertical-align:-2px;margin-right:3px}.sep{color:#cbd5e1}.warn{color:var(--amber)}.chev{color:var(--faint);font-weight:600}
-.acts ul{list-style:none;margin:8px 0 0 6px;padding:0;border-left:2px solid var(--line2)}
-.act{display:flex;gap:10px;padding:4px 0 4px 13px;font-size:13.5px;color:var(--soft)}.act a{color:var(--soft)}.act a:hover{color:var(--blue)}
-.act svg{width:15px;height:15px;flex:0 0 15px;margin-top:3px;color:var(--faint)}.act .meta{color:var(--faint);margin-left:6px;font-size:12.5px}
-.act.blocked,.act.blocked a{color:var(--faint)}.act.blocked .meta{color:var(--amber)}.act.refused .meta{color:#b91c1c}
-.act .atext{color:var(--mute);font-size:13px;margin-top:1px}.det{margin-top:4px;display:flex;flex-direction:column;gap:2px}
-.det a{font-size:12.5px;color:var(--mute)}.det pre{margin:4px 0 0;padding:8px 10px;background:#f8fafc;border:1px solid var(--line);border-radius:7px;
-font:11.5px/1.5 ui-monospace,Menlo,monospace;white-space:pre-wrap;color:var(--mute);max-height:150px;overflow:auto}
-.spin{display:inline-block;width:10px;height:10px;margin-left:8px;border:2px solid #cbd5e1;border-top-color:var(--blue);border-radius:50%;
-animation:spin .8s linear infinite;vertical-align:-1px}@keyframes spin{to{transform:rotate(360deg)}}
-.end{margin:2px 0 0 28px;color:var(--mute);font-size:14px}
-.thought,.say,.act,.opp,.also li{overflow-wrap:anywhere}
-#latest{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;border:0;border-radius:99px;
-padding:9px 18px;font-weight:600;font-size:13px;line-height:1;font-family:inherit;cursor:pointer;box-shadow:0 8px 24px rgba(15,23,42,.22)}
-footer{max-width:920px;margin:0 auto;padding:10px 28px 56px;color:var(--faint);font-size:13px}footer a{color:var(--mute)}
-.runs{max-width:920px;margin:0 auto;padding:28px 28px 80px}
-.run{display:flex;align-items:center;gap:18px;background:var(--card);border:1px solid var(--line);border-radius:15px;padding:15px 20px;margin-bottom:10px;color:var(--ink)}
-.run:hover{border-color:#cbd5e1;text-decoration:none}.run .what{flex:1;min-width:0}.run .what b{font-weight:650}
-.run .what div{color:var(--mute);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.run .n{font-size:13px;color:var(--mute);text-align:right;min-width:150px;font-variant-numeric:tabular-nums}.pill.finished{background:#dcfce7;color:var(--green)}
-"""
-
-ICONS = {
-    "search": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
-    "read": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>',
-    "web": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>',
-    "calc": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 12h2M14 12h2M8 16h2M14 16h2"/></svg>',
-    "lookup": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4z"/></svg>',
-    "finding": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 21V4h11l-1.5 4L16 12H5"/></svg>',
-    "save": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg>',
-    "answer": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 5h16v11H8l-4 4z"/></svg>',
-}
-
-PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>__TITLE__ · distress-signals</title><link rel="icon" href="__FAVICON__"><style>__STYLE__</style></head><body>
-<div class="top"><div class="in"><a class="brand" href="__HOME__"><img src="__FAVICON__" alt=""><span>distress-signals</span></a>
-  <span id="pill" class="pill" hidden></span><span class="clock" id="clock" hidden></span><div class="spacer"></div>
-  <button class="btn" id="replay" hidden>▶ Watch it run</button><a class="btn" href="__REPO__" target="_blank" id="gh">About the project</a></div></div>
-<main class="doc">
-  <h1>__TITLE__</h1><p class="lede">__LEDE__</p>
-  <div class="assign" __ASSIGNHIDDEN__><span class="k">The assignment</span>__ASSIGNMENT__</div>
-  <div class="facts" id="facts"></div>
-  <h2>What it found</h2><p class="hint" id="foundhint">Each card is one revenue stream riding on a specific upcoming event, with the amount at stake and the person to talk to. A company can have more than one.</p>
-  <div id="cards"><p class="empty" id="nocards">Nothing yet. Companies appear here as the researcher finds them.</p></div>
-  <div class="also" id="also" hidden><div class="box" id="asidebox" hidden><h3>Looked at and set aside</h3><ul id="aside"></ul></div>
-    <div class="box" id="leadsbox" hidden><h3>Worth a look next</h3><ul id="leads"></ul></div></div>
-  <h2>How it got there</h2><p class="hint">Each step is what the researcher was thinking at that moment. Underneath are the searches, documents and
-  calculations behind it.</p>
-  <div id="timeline"></div>
-</main>
-<footer>Made with <a href="__REPO__" target="_blank">distress-signals</a>, which finds companies whose revenue depends on an upcoming event they
-don't control, works out what's at stake, and names the person to talk to.</footer>
-<button id="latest" hidden>Jump to the latest step ↓</button>
-<script>
-__FOUNDJS__
-const RUN = "__RUN__", ICONS = __ICONS__, DATA = __DATA__;
-const NOUN = {search:["search","searches"],read:["document","documents"],web:["web page","web pages"],calc:["calculation","calculations"],
-  lookup:["check","checks"],finding:["note","notes"],save:["write-up","write-ups"],answer:["summary","summaries"]};
-let after = 0, status = {}, cur = null, items = [], replaying = false, details = {}, order = [], stepOf = {};
-const $ = s => document.querySelector(s);
-const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const inline = s => s.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "$1");
-const paras = s => esc(s).split(/\n{2,}/).map(p => "<p>" + inline(p).replace(/^\s*[-•] /gm, "• ").replace(/\n/g, "<br>") + "</p>").join("");
-const money = (x, c) => x == null ? "" : ((c && c !== "USD") ? c + " " : "$") + (Math.abs(x) >= 1e9 ? (x/1e9).toFixed(2) + "B" :
-  Math.abs(x) >= 1e6 ? (x/1e6).toFixed(1) + "M" : Math.abs(x) >= 1e3 ? Math.round(x/1e3) + "K" : Math.round(x));
-const mins = s => s == null ? "" : s < 60 ? "Start" : `${Math.round(s / 60)} min in`;
-const date = d => d ? new Date(d + "T12:00:00").toLocaleDateString([], {month: "short", day: "numeric", year: "numeric"}) : "";
-const live = () => status.state === "running" && !DATA;
-const nearBottom = () => window.innerHeight + window.scrollY >= document.body.scrollHeight - 200;
-
-function clampable(el, h) { if (el.scrollHeight > h) { el.classList.add("clamp"); const b = document.createElement("button"); b.className = "more";
-  b.textContent = "Read more"; b.onclick = () => { el.classList.toggle("clamp"); b.textContent = el.classList.contains("clamp") ? "Read more" : "Show less"; }; el.after(b); } }
-function newStep(text, el) {
-  const s = document.createElement("section"); s.className = "step new live";
-  s.innerHTML = `<div class="dot"></div><div class="when">${mins(el)}</div><div class="thought">${text ? paras(text) : "<p>Getting started.</p>"}</div>
-    <div class="says"></div><div class="founds"></div><div class="acts" hidden><button class="toggle"></button><ul></ul></div>`;
-  $("#timeline").appendChild(s); clampable(s.querySelector(".thought"), 110);
-  const st = {el: s, acts: [], open: false, manual: false};
-  s.querySelector(".toggle").onclick = () => { st.open = !st.open; st.manual = true; draw(st); };
-  if (cur) { cur.el.classList.remove("live"); if (!cur.manual && cur.open) { cur.open = false; draw(cur); } }
-  st.open = live(); cur = st; return st;
-}
-function actHTML(a) {
-  const label = a.link ? `<a href="${esc(a.link)}" target="_blank" rel="noopener">${esc(a.label)}</a>` : esc(a.label);
-  const det = (a.details || []).filter(Boolean).map(d => typeof d === "string" ? `<pre>${esc(d)}</pre>` :
-    `<a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.title)}</a>`).join("");
-  return `<li class="act ${a.status || "pending"}">${ICONS[a.icon] || ""}<div><div>${label}${a.meta ? `<span class="meta">${esc(a.meta)}</span>` : ""}` +
-    `${a.status ? "" : '<span class="spin"></span>'}</div>${a.text ? `<div class="atext">${esc(a.text)}</div>` : ""}${det ? `<div class="det">${det}</div>` : ""}</div></li>`;
-}
-function draw(st) {
-  const box = st.el.querySelector(".acts"); box.hidden = !st.acts.length; if (!st.acts.length) return;
-  const counts = {}; st.acts.forEach(a => counts[a.icon] = (counts[a.icon] || 0) + 1);
-  const blocked = st.acts.filter(a => a.status === "blocked").length;
-  box.querySelector(".toggle").innerHTML = Object.entries(counts).map(([k, n]) => `<span>${ICONS[k] || ""}${n} ${(NOUN[k] || [k, k])[n > 1 ? 1 : 0]}</span>`)
-    .join('<span class="sep">·</span>') + (blocked ? `<span class="sep">·</span><span class="warn">${blocked} blocked</span>` : "") +
-    `<span class="sep">·</span><span class="chev">${st.open ? "hide" : "show"}</span>`;
-  const ul = box.querySelector("ul"); ul.hidden = !st.open; if (st.open) ul.innerHTML = st.acts.map(actHTML).join("");
-}
-function card(d) {
-  const share = d.share != null ? `${(100 * d.share).toFixed(0)}% of revenue` : "";
-  return `<div class="head"><div><div class="co">${esc(d.company)}</div><div class="st">${esc(d.stream || "")}</div></div>` +
-    (d.stake != null ? `<div class="amt"><b>${money(d.stake, d.currency)}</b><span title="${esc(d.of || "")}">at stake${share ? " · " + share : ""}</span></div>` : "") + `</div>` +
-    `<dl class="row">` + (d.event ? `<dt>The event</dt><dd>${esc(d.event)}${d.event_date && !String(d.event).includes(d.event_date.slice(0, 4)) ? " · " + date(d.event_date) : ""}</dd>` : "") +
-    (d.dependency ? `<dt>Why it matters</dt><dd class="long">${esc(d.dependency)}</dd>` : "") + (d.why_now ? `<dt>Why now</dt><dd class="long">${esc(d.why_now)}</dd>` : "") +
-    (d.who ? `<dt>Who to call</dt><dd>${esc(d.who)}</dd>` : "") + `</dl>` +
-    (d.opening ? `<blockquote>${esc(d.opening)}</blockquote>` : "") +
-    `<div class="foot"><a href="#" data-full>Read the full case</a><a href="#" data-trace="${esc(d.oid)}">How it found this ↓</a>` +
-    `${d.deal ? `<a href="${esc(d.deal)}" target="_blank">Open in HubSpot →</a>` : ""}</div>`;
-}
-function renderCards() {
-  const shown = order.filter(oid => (details[oid] || {}).status !== "withdrawn");
-  $("#nocards").hidden = shown.length > 0;
-  $("#cards").querySelectorAll(".opp").forEach(e => e.remove());
-  shown.forEach(oid => { const d = details[oid] || {}; const a = document.createElement("article"); a.className = "opp"; a.innerHTML = card(d); $("#cards").appendChild(a); });
-  $("#cards").querySelectorAll("[data-trace]").forEach(x => x.onclick = e => { e.preventDefault(); trace(x.dataset.trace); });
-  $("#cards").querySelectorAll(".opp").forEach(a => { const longs = [...a.querySelectorAll("dd.long")], full = a.querySelector("[data-full]");
-    if (!longs.some(x => x.scrollHeight > x.clientHeight + 2)) { full.remove(); return; }
-    full.onclick = e => { e.preventDefault(); const open = a.classList.toggle("open"); full.textContent = open ? "Show less" : "Read the full case"; }; });
-}
-function trace(oid) { const st = stepOf[oid]; if (!st) return; st.open = true; st.manual = true; draw(st);
-  st.el.scrollIntoView({behavior: "smooth", block: "center"}); st.el.classList.remove("flash"); void st.el.offsetWidth; st.el.classList.add("flash"); }
-function apply(op) {
-  if (op.op === "add") {
-    const it = op.item; items.push(it);
-    if (it.k === "think") newStep(it.t, it.el);
-    else if (it.k === "say" || it.k === "note") { if (!cur) newStep("", it.el); const d = document.createElement("div"); d.className = "say"; d.innerHTML = paras(it.t);
-      cur.el.querySelector(".says").appendChild(d); clampable(d, 120); }
-    else if (it.k === "act") { if (!cur) newStep("", it.el); it.step = cur; cur.acts.push(it); draw(cur); }
-    else if (it.k === "final") { const leads = it.leads || []; if (leads.length) { $("#also").hidden = false; $("#leadsbox").hidden = false;
-      $("#leads").innerHTML = leads.map(l => `<li><div class="clamp3"><b>${esc(l.company_or_event)}</b>: ${esc(l.reason)}</div></li>`).join(""); } }
-    else if (it.k === "end") { $("#timeline").insertAdjacentHTML("beforeend", `<p class="end">End of the run.</p>`); if (cur) cur.el.classList.remove("live"); }
-  } else if (op.op === "update") {
-    const it = items[op.i]; if (!it) return; Object.assign(it, op.fields); if (it.step) draw(it.step);
-    const c = op.fields.case;
-    if (c && it.step) { stepOf[c.oid] = it.step; it.step.el.classList.add("has-case");
-      if (!details[c.oid]) details[c.oid] = {oid: c.oid, company: c.company, company_id: c.company_id, stream: c.stream, stake: c.stake, share: c.share, currency: c.currency};
-      if (!order.includes(c.oid)) order.push(c.oid);
-      const f = document.createElement("div"); f.className = "found"; f.innerHTML = `${ICONS.save}Found: ${esc(c.company)}${c.stake != null ? " · " + money(c.stake, c.currency) + " at stake" : ""}`;
-      f.onclick = () => { const i = order.indexOf(c.oid); const el = $("#cards").querySelectorAll(".opp")[i]; if (el) el.scrollIntoView({behavior: "smooth", block: "center"}); };
-      it.step.el.querySelector(".founds").appendChild(f); renderCards(); }
-    if (it.tool === "record_finding" && it.finding === "dropped" && it.status === "ok") { $("#also").hidden = false; $("#asidebox").hidden = false;
-      $("#aside").insertAdjacentHTML("beforeend", `<li><div class="clamp3">${esc(it.text)}</div></li>`); }
-  }
-}
-function facts() {
-  const acts = items.filter(x => x.k === "act"), n = k => acts.filter(a => k.includes(a.icon) && a.status !== "blocked").length;
-  const ms = status.duration_ms ?? (status.t0 ? (live() ? Date.now() : Date.parse(status.last || status.t0)) - Date.parse(status.t0) : null);
-  const {n: found, k: cos} = tally(order.map(oid => details[oid] || {}).filter(d => d.status !== "withdrawn"));
-  const parts = [ms != null ? `<span><b>${Math.max(1, Math.round(ms / 60000))}</b> minutes</span>` : "", `<span><b>${n(["search"])}</b> searches</span>`,
-    `<span><b>${n(["read", "web"])}</b> documents read</span>`, `<span><b>${n(["calc"])}</b> calculations</span>`,
-    `<span><b>${found}</b> revenue exposure${found === 1 ? "" : "s"} ${cos === 1 ? "at" : "across"} <b>${cos}</b> compan${cos === 1 ? "y" : "ies"}</span>`, status.cost != null ? `<span><b>$${status.cost.toFixed(2)}</b> in AI usage</span>` : ""];
-  $("#facts").innerHTML = parts.filter(Boolean).join("");
-}
-function tick() {
-  if (!live() || !status.t0) return; const sec = Math.floor((Date.now() - Date.parse(status.t0)) / 1000);
-  $("#clock").textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`; facts();
-}
-function showStatus(s, cases) {
-  status = s; if (cases) { Object.assign(details, cases); renderCards(); }
-  const p = $("#pill"); p.hidden = !(live() || replaying || s.state === "failed");
-  p.className = "pill " + (replaying ? "replay" : s.state); p.innerHTML = replaying ? "Replaying" : s.state === "running" ? '<span class="pulse"></span>Live' : "Failed";
-  $("#clock").hidden = !live(); facts(); tick();
-}
-function reset() { $("#timeline").innerHTML = ""; items = []; cur = null; order = []; stepOf = {}; renderCards();
-  $("#aside").innerHTML = ""; $("#leads").innerHTML = ""; $("#also").hidden = true; $("#asidebox").hidden = true; $("#leadsbox").hidden = true; }
-function replay() {
-  replaying = true; const all = DATA.ops, total = all.length, keep = {...details}; reset(); details = keep; let i = 0; showStatus({...DATA.status});
-  document.getElementById("timeline").scrollIntoView({behavior: "smooth"});
-  (function step() { const n = Math.max(1, Math.round(total / 450)); for (let k = 0; k < n && i < total; k++) apply(all[i++]); facts();
-    window.scrollTo({top: document.body.scrollHeight});
-    if (i < total) setTimeout(step, 40); else { replaying = false; showStatus(DATA.status); window.scrollTo({top: 0, behavior: "smooth"}); } })();
-}
-async function poll() {
-  try {
-    const follow = nearBottom(); const first = after === 0;
-    const j = await (await fetch(`/runs/${RUN}/ops?after=${after}`)).json();
-    j.ops.forEach(apply); after = j.next; showStatus(j.status, j.cases);
-    if (j.ops.length && live() && !first) { if (follow) window.scrollTo({top: document.body.scrollHeight, behavior: "smooth"}); else $("#latest").hidden = false; }
-    if (first && live()) window.scrollTo({top: document.body.scrollHeight});
-    if (j.status.state === "running" || j.status.state === "unknown") setTimeout(poll, 2500);
-  } catch (e) { setTimeout(poll, 5000); }
-}
-$("#latest").onclick = () => { window.scrollTo({top: document.body.scrollHeight, behavior: "smooth"}); $("#latest").hidden = true; };
-window.addEventListener("scroll", () => { if (nearBottom()) $("#latest").hidden = true; });
-setInterval(tick, 1000);
-if (DATA) { details = DATA.cases || {}; DATA.ops.forEach(apply); showStatus(DATA.status, DATA.cases); $("#replay").hidden = false; $("#replay").onclick = replay; }
-else poll();
-</script></body></html>"""
 
 
 def _page(run_id, data=None, home="/"):
     run = _run_row(run_id)
     title, lede = _title(run)
     assignment = _assignment(run)
-    return (PAGE.replace("__STYLE__", STYLE).replace("__FOUNDJS__", FOUND_JS).replace("__ICONS__", json.dumps(ICONS)).replace("__RUN__", run_id)
-            .replace("__FAVICON__", FAVICON).replace("__REPO__", REPO).replace("__HOME__", home)
-            .replace("__DATA__", json.dumps(data, default=str).replace("</", "<\\/") if data is not None else "null")
+    page = (PAGE.replace("__STYLE__", STYLE).replace("__FOUNDJS__", FOUND_JS).replace("__CHARTJS__", CHART_JS)
+            .replace("__ICONS__", json.dumps(ICONS)).replace("__PAGESTEPS__", str(PAGE_STEPS)).replace("__PACE__", json.dumps(PACE))
+            .replace("__RUN__", run_id).replace("__FAVICON__", FAVICON).replace("__REPO__", REPO).replace("__HOME__", home)
             .replace("__ASSIGNHIDDEN__", "" if assignment else "hidden").replace("__ASSIGNMENT__", html.escape(assignment))
             .replace("__TITLE__", html.escape(title)).replace("__LEDE__", html.escape(lede)))
+    # the run's own text goes in last, so nothing in it is taken for a placeholder
+    return page.replace("__DATA__", json.dumps(data, default=str).replace("</", "<\\/") if data is not None else "null")
 
 
 def export_html(run_id, public=False, home=REPO):

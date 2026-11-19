@@ -1,8 +1,9 @@
 """A visual guide to one run, for sharing: what the tool does, what this run found, and where it shows up in
 HubSpot, as graphics with few words. It is a guide to the product, not a copy of the operating surface.
 
-export_guide(run_id, folder) writes index.html (the guide) and run.html (the full research trail, the watch
-page's public export), both self-contained, ready for GitHub Pages.
+export_guide(run_id, folder) writes index.html (the guide) and run.html (the run page's public export: the
+findings, each case in full, and the research as chapters with a replay), both self-contained, ready for
+GitHub Pages. The guide's cards link into run.html.
 
   python -m distress_signals export-guide RUN_ID [--out FOLDER]
 """
@@ -14,7 +15,11 @@ import math
 import re
 from pathlib import Path
 
-from . import watch
+from . import runpage, watch
+
+# The chart replay's length follows the run's: per_minute seconds for each minute of the run, kept within
+# [min, max] seconds, plus a hold at each finding; each line of the ticker stays up at least `label` seconds.
+PACE = {"per_minute": 2.0, "min": 40, "max": 100, "hold": 1.8, "label": 1.5}
 
 
 def _short_event(title):
@@ -58,7 +63,7 @@ def build(run_id):
         if d.get("event_date") and t0:
             days = (dt.date.fromisoformat(d["event_date"]) - t0.date()).days
         who = d.get("who") or ""
-        cases.append({"company": d["company"], "company_id": d["company_id"], "stream": d["stream"], "stake": d["stake"], "share": d["share"],
+        cases.append({"oid": oid, "company": d["company"], "company_id": d["company_id"], "stream": d["stream"], "stake": d["stake"], "share": d["share"],
                       "currency": d["currency"], "event": _short_event(d.get("event")), "event_date": d.get("event_date"),
                       "days": days, "who": who, "initials": _initials(who.split(",")[0]), "opening": d.get("opening"),
                       "found_at": t})
@@ -78,7 +83,8 @@ def build(run_id):
                   "exposures": len(cases), "companies": len({c["company_id"] for c in cases})},
         "bins": bins, "cases": cases,
         "ticker": [{"t": it.get("el") or 0, "label": it["label"]} for it in acts if it.get("label")],
-        "aside": [it.get("text") for it in acts if it.get("tool") == "record_finding" and it.get("finding") == "dropped" and it.get("text")],
+        "aside": [it.get("text") for it in acts if it.get("tool") == "record_finding" and it.get("finding") == "dropped"
+                  and it.get("status") == "ok" and it.get("text")],
         "leads": [{"what": x.get("company_or_event"), "why": x.get("reason")} for x in final.get("leads") or []],
         "steps": sum(1 for it in items if it["k"] == "think"),
     }
@@ -113,6 +119,10 @@ section{padding:46px 0}h2{font-size:28px;letter-spacing:-.025em;margin:0 0 6px;f
 .chart{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px 20px 14px}
 .chart .top{display:flex;align-items:center;gap:14px;margin-bottom:6px}.chart .top h3{margin:0;font-size:15px}.chart .sp{flex:1}
 .legend{display:flex;gap:14px;font-size:12.5px;color:var(--mute)}.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.prog{height:3px;background:#eef0f3;border-radius:9px;margin-top:6px;overflow:hidden}.prog i{display:block;height:100%;width:0;background:var(--ink)}
+.ticker .hit{color:var(--green);font-weight:700}.btn.sm{padding:6px 12px;font-size:13px}.btn.sm svg{width:12px;height:12px}
+.c.pop{box-shadow:0 0 0 3px rgba(22,163,74,.35),0 12px 30px rgba(22,163,74,.18);transform:translateY(-2px)}
+.c .links{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13.5px;font-weight:600;margin-top:6px}
 .ticker{height:24px;margin-top:6px;color:var(--soft);font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ticker b{color:var(--faint);font-weight:650;margin-right:8px;font-variant-numeric:tabular-nums}
 .cards{display:grid;grid-template-columns:1fr 1fr;gap:16px}
@@ -169,6 +179,7 @@ ICONS = {
     "check": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>',
     "deliver": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 13h18"/></svg>',
     "play": '<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M7 5v14l12-7z"/></svg>',
+    "pause": '<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>',
 }
 
 PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -180,7 +191,7 @@ PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name
   <p class="eyebrow">One real run · <span id="date"></span></p>
   <h1>Find the companies with revenue riding on an event they don't control</h1>
   <p>An AI researcher digs through public records, works out what's at stake, and puts the person to call in your CRM.</p>
-  <div class="ctas"><button class="btn primary" id="play">__PLAY__ Replay the run</button><a class="btn" href="run.html">See the full research trail</a></div>
+  <div class="ctas"><button class="btn primary" id="play">__PLAY__ Replay the run</button><a class="btn" href="run.html">Explore the full run</a></div>
 </header>
 
 <section id="how"><h2>How it works</h2><p class="lead">Four steps, from a question to a name and a number.</p>
@@ -199,10 +210,10 @@ PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name
     <div class="tile"><b id="k-min">0</b><span>minutes</span></div><div class="tile"><b id="k-search">0</b><span>searches</span></div>
     <div class="tile"><b id="k-doc">0</b><span>documents read</span></div><div class="tile"><b id="k-calc">0</b><span>calculations</span></div>
     <div class="tile"><b id="k-exp">0</b><span>revenue exposures</span></div><div class="tile"><b id="k-co">0</b><span>companies</span></div></div>
-  <div class="chart"><div class="top"><h3>What it did, minute by minute</h3><span class="sp"></span>
+  <div class="chart"><div class="top"><h3>What it did, minute by minute</h3><button class="btn sm" id="cplay"></button><span class="sp"></span>
     <div class="legend"><span><i style="background:var(--blue)"></i>searches</span><span><i style="background:var(--slate)"></i>reading</span><span><i style="background:var(--violet)"></i>calculations</span><span><i style="background:var(--green)"></i>exposure found</span></div></div>
-    <svg id="chart" viewBox="0 0 1000 230" preserveAspectRatio="none" style="width:100%;height:230px;display:block"></svg>
-    <div class="ticker" id="ticker"></div></div>
+    <svg id="chart" style="width:100%;height:230px;display:block"></svg>
+    <div class="prog"><i id="prog"></i></div><div class="ticker" id="ticker"><b id="tmin"></b><span id="tlabel"></span></div></div>
 </section>
 
 <section id="found"><h2>What it found</h2><p class="lead" id="foundlead"></p>
@@ -225,36 +236,23 @@ PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name
   </div></section>
 
 <section id="extra" style="padding-top:10px"><div class="more" id="more"></div></section>
-<footer>Made with <a href="__REPO__">distress-signals</a> · <a href="run.html">the full research trail</a></footer>
+<footer>Made with <a href="__REPO__">distress-signals</a> · <a href="run.html">the full run</a></footer>
 </div>
 <script>
 __FOUNDJS__
-const D = __DATA__;
+__CHARTJS__
+const PACE = __PACE__, PLAY = `__PLAY__`, PAUSE = `__PAUSE__`, D = __DATA__;
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const money = (x, c) => x == null ? "" : ((c && c !== "USD") ? c + " " : "$") + (Math.abs(x) >= 1e9 ? (x/1e9).toFixed(1) + "B" :
   Math.abs(x) >= 1e6 ? (x/1e6).toFixed(1) + "M" : Math.abs(x) >= 1e3 ? Math.round(x/1e3) + "K" : Math.round(x));
 const MON = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
 $("#date").textContent = D.date; $("#assign").textContent = D.assignment ? "The assignment: " + D.assignment : "";
-const N = D.bins.length, W = 1000, H = 230, TOP = 34, BASE = H - 22, BW = W / N;
-const maxv = Math.max(1, ...D.bins.map(b => b.search + b.read + b.calc));
-const y = v => (BASE - TOP) * v / maxv;
-
-function drawChart(upto) {   // upto: seconds shown
-  let s = "";
-  for (let m = 0; m <= Math.floor(N / 5) * 5; m += 5) { const x = m * BW; s += `<line x1="${x}" x2="${x}" y1="${TOP - 6}" y2="${BASE}" stroke="#eef0f3"/>`
-    + `<text x="${x + 3}" y="${H - 6}" font-size="12" fill="#94a3b8">${m} min</text>`; }
-  D.bins.forEach((b, i) => { if (i * 60 > upto) return; const f = Math.min(1, (upto - i * 60) / 60), x = i * BW + BW * .14, w = BW * .72;
-    let h0 = 0; [["search", "#2563eb"], ["read", "#94a3b8"], ["calc", "#7c3aed"]].forEach(([k, col]) => { const h = y(b[k]) * f; if (h > 0)
-      s += `<rect x="${x}" y="${BASE - h0 - h}" width="${w}" height="${h}" rx="2" fill="${col}"/>`; h0 += h; }); });
-  D.cases.forEach((c, i) => { if (c.found_at > upto) return; const x = Math.min(W - 4, c.found_at / 60 * BW);
-    s += `<line x1="${x}" x2="${x}" y1="${TOP - 2}" y2="${BASE}" stroke="#16a34a" stroke-width="2" stroke-dasharray="3 3"/>`
-      + `<circle cx="${x}" cy="${TOP - 8}" r="7" fill="#16a34a"/><text x="${x}" y="${TOP - 4.5}" font-size="9.5" fill="#fff" text-anchor="middle" font-weight="700">${i + 1}</text>`; });
-  s += `<line x1="0" x2="${W}" y1="${BASE}" y2="${BASE}" stroke="#e2e8f0"/>`;
-  $("#chart").innerHTML = s;
-}
-function setTiles(f) { const st = D.stats; $("#k-min").textContent = Math.round(D.minutes * f); $("#k-search").textContent = Math.round(st.searches * f);
-  $("#k-doc").textContent = Math.round(st.documents * f); $("#k-calc").textContent = Math.round(st.calculations * f); }
+const FLAGS = D.cases.map((c, i) => ({t: c.found_at, n: i + 1}));
+const draw = upto => drawChart($("#chart"), D.bins, FLAGS, upto, 230);
+function setTiles(t) { const sum = k => Math.round(D.bins.reduce((a, b, i) => a + b[k] * Math.max(0, Math.min(1, (t - i * 60) / 60)), 0));
+  $("#k-min").textContent = Math.min(D.minutes, Math.floor(t / 60)); $("#k-search").textContent = sum("search");
+  $("#k-doc").textContent = sum("read"); $("#k-calc").textContent = sum("calc"); }
 function setFound(t) { const {n, k} = tally(D.cases.filter(c => c.found_at <= t)); $("#k-exp").textContent = n; $("#k-co").textContent = k; }
 const companyKey = c => c.company_id || c.company;
 function ring(share) { if (share == null) return ""; const r = 28, c = 2 * Math.PI * r, p = Math.max(0, Math.min(1, share));
@@ -272,6 +270,7 @@ function cards() {
         + `<small>${c.days != null ? (c.days > 0 ? c.days + " days out" : c.days === 0 ? "that day" : Math.abs(c.days) + " days before") : ""}</small></div></div>` : "")
       + `<div class="chip"><span class="av">${esc(c.initials)}</span><div class="ev">${esc(c.who)}<small>who to call</small></div></div>`
       + `<div class="cf"><span>found ${Math.max(1, Math.round(c.found_at / 60))} min in</span>`
+      + `<span class="links"><a href="run.html#case/${encodeURIComponent(c.oid)}">Read the full case →</a><a href="run.html#found/${encodeURIComponent(c.oid)}">How it found this</a></span>`
       + (c.opening ? `<details><summary>Read the opening message</summary><blockquote>${esc(c.opening)}</blockquote></details>` : "") + `</div>`
       + `</article>`; }).join("");
   setFound(Infinity);
@@ -289,30 +288,50 @@ function extras() {
   if (D.leads.length) parts.push(`<details><summary>Worth a look next <span>· ${D.leads.length}</span></summary><ul>${D.leads.map(l => `<li><b>${esc(l.what)}</b>: ${esc(l.why)}</li>`).join("")}</ul></details>`);
   $("#more").innerHTML = parts.join("");
 }
-function finish() { drawChart(1e9); setTiles(1); setFound(Infinity);
-  $("#ticker").innerHTML = `<b>${D.minutes} min</b>Done: found ${foundLine(D.cases)}${D.cost != null ? `, for $${D.cost.toFixed(2)} in AI usage` : ""}.`;
-  document.querySelectorAll(".c").forEach(c => c.classList.remove("dim")); }
-let playing = false;
-function play() {
-  if (playing) return; playing = true; document.getElementById("run").scrollIntoView({behavior: "smooth"});
-  const total = D.minutes * 60, dur = 24000, start = performance.now(); let ti = 0;
-  document.querySelectorAll(".c").forEach(c => c.classList.add("dim"));
-  (function step() { const f = Math.min(1, Math.max(0, (performance.now() - start) / dur)), t = f * total; drawChart(t); setTiles(f); setFound(t);
-    while (ti < D.ticker.length - 1 && D.ticker[ti + 1].t <= t) ti++;
-    const cur = D.ticker[ti]; if (cur && cur.t <= t) $("#ticker").innerHTML = `<b>${Math.floor(t / 60)} min</b>${esc(cur.label)}`;
-    D.cases.forEach((c, i) => { if (c.found_at <= t) document.querySelector(`.c[data-i="${i}"]`)?.classList.remove("dim"); });
-    if (f < 1) setTimeout(step, 50); else { playing = false; finish(); } })();
+function finish() { draw(Infinity); setTiles(Infinity); setFound(Infinity); $("#prog").style.width = "0";
+  $("#tmin").textContent = `${D.minutes} min`; $("#tlabel").innerHTML = `Done: found ${foundLine(D.cases)}${D.cost != null ? `, for $${D.cost.toFixed(2)} in AI usage` : ""}.`;
+  document.querySelectorAll(".c").forEach(c => c.classList.remove("dim", "pop")); }
+
+// The replay: the run's minutes at a steady rate, a hold at each finding, each ticker line up long enough to read
+const RUN_S = Math.max(60, D.minutes * 60), BASE_MS = 1000 * Math.min(PACE.max, Math.max(PACE.min, D.minutes * PACE.per_minute));
+const RATE = RUN_S / BASE_MS, HOLD = PACE.hold * 1000, STOPS = D.cases.map((c, i) => ({t: c.found_at, i})).sort((a, b) => a.t - b.t);
+const TOTAL = BASE_MS + STOPS.length * HOLD, LENGTH = TOTAL < 50000 ? `${Math.round(TOTAL / 1000)} sec` : `about ${Math.max(1, Math.round(TOTAL / 60000))} min`;
+function at(ms) { let acc = 0, prev = 0;
+  for (const s of STOPS) { const seg = (s.t - prev) / RATE; if (ms < acc + seg) return {t: prev + (ms - acc) * RATE}; acc += seg;
+    if (ms < acc + HOLD) return {t: s.t, stop: s.i}; acc += HOLD; prev = s.t; }
+  return {t: Math.min(RUN_S, prev + (ms - acc) * RATE)}; }
+const R = {state: "idle", ms: 0, last: 0, timer: 0, label: "", since: -1e9};
+function show(now) {
+  const {t, stop} = at(R.ms); draw(t); setTiles(t); setFound(t); $("#prog").style.width = (100 * R.ms / TOTAL) + "%";
+  document.querySelectorAll(".c").forEach(el => { const i = +el.dataset.i; el.classList.toggle("dim", D.cases[i].found_at > t); el.classList.toggle("pop", stop === i); });
+  $("#tmin").textContent = `${Math.floor(t / 60)} min`;
+  let html = null, force = stop != null;
+  if (force) { const c = D.cases[stop]; html = `<span class="hit">Found ${stop + 1}: ${esc(c.company)} · ${money(c.stake, c.currency)} at stake</span>`; }
+  else { let cur = null; for (const x of D.ticker) { if (x.t <= t) cur = x; else break; } if (cur) html = esc(cur.label); }
+  if (html != null && html !== R.label && (force || now - R.since >= PACE.label * 1000)) { R.label = html; R.since = now; $("#tlabel").innerHTML = html; }
 }
-cards(); board(); extras(); finish(); $("#play").onclick = play;
+function frame() { const now = performance.now(); R.ms = Math.min(TOTAL, R.ms + now - R.last); R.last = now; show(now);
+  if (R.ms < TOTAL) R.timer = setTimeout(frame, 50); else { R.state = "idle"; finish(); ctl(); } }
+function ctl() { $("#cplay").innerHTML = R.state === "playing" ? `${PAUSE} Pause` : R.state === "paused" ? `${PLAY} Resume` : `${PLAY} Replay · ${LENGTH}`; }
+function play(restart) {
+  if (R.state === "playing" && !restart) { clearTimeout(R.timer); R.state = "paused"; ctl(); return; }
+  clearTimeout(R.timer); if (restart || R.state !== "paused") { R.ms = 0; R.label = ""; R.since = -1e9; $("#tlabel").textContent = ""; }
+  R.state = "playing"; R.last = performance.now(); ctl(); frame();
+}
+$("#play").onclick = () => { document.getElementById("run").scrollIntoView({behavior: "smooth"}); play(true); };
+$("#cplay").onclick = () => play(false);
+window.addEventListener("resize", () => draw(R.state === "idle" ? Infinity : at(R.ms).t));
+cards(); board(); extras(); finish(); ctl();
 </script></body></html>"""
 
 
 def export_html(run_id):
     data = build(run_id)
-    return (PAGE.replace("__STYLE__", STYLE).replace("__FOUNDJS__", watch.FOUND_JS).replace("__FAVICON__", watch.FAVICON).replace("__REPO__", watch.REPO)
+    page = (PAGE.replace("__STYLE__", STYLE).replace("__FOUNDJS__", runpage.FOUND_JS).replace("__CHARTJS__", runpage.CHART_JS)
+            .replace("__FAVICON__", runpage.FAVICON).replace("__REPO__", watch.REPO).replace("__PACE__", json.dumps(PACE))
             .replace("__ASK__", ICONS["ask"]).replace("__RESEARCH__", ICONS["research"]).replace("__CHECK__", ICONS["check"])
-            .replace("__DELIVER__", ICONS["deliver"]).replace("__PLAY__", ICONS["play"])
-            .replace("__DATA__", json.dumps(data, default=str).replace("</", "<\\/")))
+            .replace("__DELIVER__", ICONS["deliver"]).replace("__PLAY__", ICONS["play"]).replace("__PAUSE__", ICONS["pause"]))
+    return page.replace("__DATA__", json.dumps(data, default=str).replace("</", "<\\/"))
 
 
 def export_guide(run_id, folder):

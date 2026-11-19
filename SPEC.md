@@ -386,30 +386,61 @@ The feed reads the run's event stream as it is written. The researcher isn't tou
 its context. The worker starts a feed with each run, and `feed RUN_ID companies|deals RECORD_ID
 [--from-now]` attaches one to a run already going. HubSpot shows new notes when the record is reloaded.
 
-**The watch page** (`watch.py`) is for watching without reloading. Each feed note and the progress field
-link to it, at `http://localhost:8790/runs/<run>` on the Mac that runs the worker (`DISTRESS_WATCH_PORT`
-changes the port).
-- The page updates itself every few seconds. Each step opens with the model's reasoning and how far into
-  the run it came, timed from the event stream so it reads right in any time zone.
-- The step's actions fold beneath it in plain words: searches, reads with the document's title,
-  calculations and lookups with what they found, and sites that blocked a read.
-- Cases appear as cards, with company names taken from the store, the revenue stream, the revenue at
-  stake and its share, and a link to the deal.
-- A side panel holds the run's clock, counts and cost, the cases, what was set aside, and at the end the
-  analyst's summary and leads.
-- `/` lists the runs, and a finished run replays the same way. It reads only the run's event stream and
-  the store.
-- `export-run RUN_ID [--public]` writes one run as a single self-contained page with a replay button.
+**The run page** (`runpage.py`, served by `watch.py`) is for watching a run without reloading, and for
+reading one afterwards. Each feed note and the progress field link to it, at
+`http://localhost:8790/runs/<run>` on the Mac that runs the worker (`DISTRESS_WATCH_PORT` changes the
+port). It is one page for every run, live or finished, served or exported, made of views with their own
+addresses rather than one long scroll. Links into a view work, and so does the back button.
+- **Overview** (`#overview`): what was asked, when, how long and the AI cost. Then tiles for the run's
+  numbers and a minute-by-minute activity chart with a flag at each finding; a click on the chart opens
+  the research at that minute. The findings follow as rows, then links to what was set aside and the leads.
+- **Findings** (`#findings`): a card for each revenue exposure, with what is at stake, the event date and
+  the person to call.
+- **A finding** (`#case/<id>`): the case in full, with a row to jump to any part. In order:
+  - why it matters;
+  - what's at stake, as bars for each outcome;
+  - why now, who to call, and the opening message;
+  - the event, the condition, and how the revenue depends on it;
+  - the figures behind it, each marked reported (with its passage and source), calculated, or assumed
+    (with the reasoning);
+  - the evidence, and the next step.
+  Previous and next move between findings.
+- **The research** (`#research/<chapter>/<page>`): the model's reasoning, step by step, timed from the
+  event stream so it reads right in any time zone.
+  - Each step shows its first sentence. The rest of the thought is a click away, and so is the list of
+    searches, reads, calculations and lookups behind it.
+  - There is one chapter per finding, ending where it was saved, then a closing chapter. Pages hold at
+    most `PAGE_STEPS` (12) steps.
+  - `#found/<id>` opens the step where a finding was saved, and `#step/<n>` any step.
+- **The replay** plays the research back at a pace set by its content, so any run can be followed (`PACE`):
+  - a step's first sentence is held 1.8 to 3.4 seconds, by its length;
+  - each search, read or calculation is held 0.35 seconds;
+  - a message from the researcher is held 2.2 to 4.5 seconds;
+  - each finding is held 3 seconds.
+  It turns pages and chapters as it goes. The player has play and pause (the space bar too), a timeline
+  with a marker for each finding that can be clicked to jump, and 1×, 2× and 4× speeds. A 30-minute run
+  takes about 6 minutes at 1×. A longer run takes longer at the same pace.
+- **Also considered** (`#also`): what was set aside, and the leads.
+- While a run is live the page polls every few seconds. A "Still searching" chapter follows the newest
+  step, and the player gives way to a live clock. Once the run finishes, it replays like any other.
+- `/` lists the runs. The page reads only the run's event stream and the store.
+- `export-run RUN_ID [--public]` writes one run's page as a single self-contained file.
   `--public` leaves out links into HubSpot and keeps the public sources.
 - `export-guide RUN_ID` writes the shareable example (`showcase.py`) to a folder for GitHub Pages:
   - `index.html` is a visual guide to the product, built from one run. It has the four steps (ask,
     research, check, deliver), the run's numbers, and a minute-by-minute activity chart that flags each
     company as it was found. Its cards show the amount at stake, a share-of-revenue ring, the event date
-    with a countdown, and the person to call. A sketch of where it all shows up in HubSpot rounds it off.
-  - Replay animates the chart, the counters and the cards.
+    with a countdown, and the person to call. Each card links to its case in `run.html` and to the step
+    where it was found. A sketch of where it all shows up in HubSpot rounds it off.
+  - The replay (`showcase.PACE`) animates the chart, the counters and the cards:
+    - it plays the run's minutes at 2 seconds each, kept between 40 and 100 seconds in all;
+    - it holds 1.8 seconds at each finding, and keeps each ticker line up at least 1.5 seconds;
+    - the counters show what had happened by each moment;
+    - it can be paused and resumed.
+    A 30-minute run replays in about a minute.
   - Words are kept to a minimum: it is a guide to the product, not a copy of the operating surface.
-  - `run.html` is the run's full research trail. The repo's GitHub Pages site serves both from the
-    `gh-pages` branch.
+  - `run.html` is the run page above, exported for the public. The repo's GitHub Pages site serves both
+    from the `gh-pages` branch.
 
 **Case notes.** Each case's deal gets a timeline note when the case is proposed (with the revenue at
 stake), when it reaches a new revision (with what changed), and when it is withdrawn (with why). Each is
@@ -500,7 +531,8 @@ python -m distress_signals ledgers [--verify]
 | `distress_signals/hubspot.py` | HubSpot: records, delivery, the researcher's view, requests, run status, leads, outcomes |
 | `distress_signals/worker.py` | The worker and its launchd service |
 | `distress_signals/feed.py` | The live feed of a run into HubSpot |
-| `distress_signals/watch.py` | The watch page for watching runs live |
+| `distress_signals/watch.py` | Serves the run page and gathers its data from the event stream and store |
+| `distress_signals/runpage.py` | The run page: its views, the research chapters and the replay |
 | `distress_signals/showcase.py` | The shareable visual guide to one run |
 | `distress_signals/names.py`, `util.py` | Name normalization, HTTP, dates, exclusions |
 | `distress_signals/__main__.py` | The commands |

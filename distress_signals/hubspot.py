@@ -93,7 +93,7 @@ def _run_fields(requests, statuses):
 STATUSES = [("queued", "Queued"), ("running", "Running"), ("done", "Done"), ("failed", "Failed")]
 DEAL_PROPERTIES = CASE_PROPERTIES + _run_fields([("refresh", "Refresh this case")], STATUSES)
 COMPANY_PROPERTIES = _run_fields([("research", "Research this company"), ("event", "Research the event in the note"),
-                                  ("mandate", "Run the standing mandate"), ("brief", "Run the note as a brief")], [("proposed", "Proposed lead"), *STATUSES]) + [
+                                  ("mandate", "Run the open search"), ("brief", "Run the note as a brief")], [("proposed", "Proposed lead"), *STATUSES]) + [
     ("distress_lead_reason", "Distress lead reason", "string", "textarea", None,
      "Why a run proposed researching this company, with its sources"),
 ]

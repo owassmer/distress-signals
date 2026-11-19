@@ -350,7 +350,7 @@ stage and outcome.
   - "Research this company": that company.
   - "Research the event in the note": the event and the companies whose revenue depends on it, as
     `research --event` runs it.
-  - "Run the standing mandate".
+  - "Run the open search": the standing mandate.
   - "Run the note as a brief".
 
   "Distress run note" holds a question for the run, the event, or the brief. Runs that aren't about the
@@ -393,8 +393,17 @@ changes the port).
   analyst's summary and leads.
 - `/` lists the runs, and a finished run replays the same way. It reads only the run's event stream and
   the store.
-- `export-run RUN_ID [--public]` writes one run as a single self-contained page with a replay button, for
-  sharing. `--public` leaves out links into HubSpot and keeps the public sources.
+- `export-run RUN_ID [--public]` writes one run as a single self-contained page with a replay button.
+  `--public` leaves out links into HubSpot and keeps the public sources.
+- `export-guide RUN_ID` writes the shareable example (`showcase.py`) to a folder for GitHub Pages:
+  - `index.html` is a visual guide to the product, built from one run. It has the four steps (ask,
+    research, check, deliver), the run's numbers, and a minute-by-minute activity chart that flags each
+    company as it was found. Its cards show the amount at stake, a share-of-revenue ring, the event date
+    with a countdown, and the person to call. A sketch of where it all shows up in HubSpot rounds it off.
+  - Replay animates the chart, the counters and the cards.
+  - Words are kept to a minimum: it is a guide to the product, not a copy of the operating surface.
+  - `run.html` is the run's full research trail. The repo's GitHub Pages site serves both from the
+    `gh-pages` branch.
 
 **Case notes.** Each case's deal gets a timeline note when the case is proposed (with the revenue at
 stake), when it reaches a new revision (with what changed), and when it is withdrawn (with why). Each is
@@ -432,6 +441,7 @@ python -m distress_signals serve
 python -m distress_signals feed RUN_ID companies|deals RECORD_ID [--from-now]
 python -m distress_signals watch
 python -m distress_signals export-run RUN_ID [--public] [--out FILE]
+python -m distress_signals export-guide RUN_ID [--out FOLDER]
 python -m distress_signals research
 python -m distress_signals research --company NAME [--company NAME ...] [--workers N]
 python -m distress_signals research --event TEXT | --source URL | --lead LEAD_ID | --brief FILE
@@ -485,6 +495,7 @@ python -m distress_signals ledgers [--verify]
 | `distress_signals/worker.py` | The worker and its launchd service |
 | `distress_signals/feed.py` | The live feed of a run into HubSpot |
 | `distress_signals/watch.py` | The watch page for watching runs live |
+| `distress_signals/showcase.py` | The shareable visual guide to one run |
 | `distress_signals/names.py`, `util.py` | Name normalization, HTTP, dates, exclusions |
 | `distress_signals/__main__.py` | The commands |
 | `docs/data-sources.md` | The payment ledgers and federal awards in detail |

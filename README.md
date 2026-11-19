@@ -85,7 +85,7 @@ Open a company record in HubSpot and set **Distress run** to one of these:
 |---|---|
 | Research this company | Looks for an upcoming event that this company's revenue depends on |
 | Research the event in the note | Starts from an event you describe in **Distress run note**, and finds the companies exposed to it |
-| Run the standing mandate | An open search for companies with this kind of exposure, anywhere |
+| Run the open search | Looks anywhere for companies with this kind of exposure, following the standing instructions in `config/mandate.md` |
 | Run the note as a brief | Answers a question you write in **Distress run note** |
 
 On a case's deal, **Refresh this case** checks the case again against current sources.
@@ -107,13 +107,13 @@ A run usually takes half an hour or so, and costs roughly $10 to $20 in model us
 Everything above can also be run directly:
 
 ```bash
-.venv/bin/python -m distress_signals research                    # the standing mandate
+.venv/bin/python -m distress_signals research                    # the open search
 .venv/bin/python -m distress_signals research --company NAME     # one company
 .venv/bin/python -m distress_signals research --event TEXT       # an event and the companies exposed to it
 .venv/bin/python -m distress_signals research --brief FILE       # a question or brief, from a file
 .venv/bin/python -m distress_signals refresh OPP_ID              # check a saved case again
 .venv/bin/python -m distress_signals push-hubspot                # send changed cases to HubSpot
-.venv/bin/python -m distress_signals export-run RUN_ID --public  # one run as a shareable page
+.venv/bin/python -m distress_signals export-guide RUN_ID         # one run as a visual guide, for sharing
 .venv/bin/python -m distress_signals show ID_OR_NAME             # a saved case, company or event
 ```
 

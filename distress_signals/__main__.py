@@ -22,6 +22,9 @@
   feed RUN_ID companies|deals RECORD_ID [--from-now]
                             stream a run that is going into a HubSpot record's timeline
   watch                     the live page for watching runs, at http://localhost:8790/
+  export-guide RUN_ID [--out FOLDER]
+                            a visual guide to one run (index.html) and its full research trail (run.html), for
+                            sharing, e.g. on GitHub Pages
   export-run RUN_ID [--public] [--out FILE]
                             one run as a single self-contained page with a replay button; --public leaves
                             out links into HubSpot
@@ -31,7 +34,7 @@ import argparse
 import json
 from pathlib import Path
 
-from . import briefs, db, feed, hubspot, pipeline, tools, transcript, watch, worker
+from . import briefs, db, feed, hubspot, pipeline, showcase, tools, transcript, watch, worker
 from .util import OUT
 from .sources import ledgers as L
 from .util import load_env
@@ -94,6 +97,7 @@ def main():
     s = sub.add_parser("feed"); s.add_argument("run_id"); s.add_argument("object", choices=["companies", "deals"]); s.add_argument("record_id")
     s.add_argument("--from-now", action="store_true", help="don't post what happened before attaching")
     sub.add_parser("watch")
+    s = sub.add_parser("export-guide"); s.add_argument("run_id"); s.add_argument("--out")
     s = sub.add_parser("export-run"); s.add_argument("run_id"); s.add_argument("--public", action="store_true"); s.add_argument("--out")
     a = ap.parse_args()
 
@@ -156,6 +160,8 @@ def main():
         f.run()
     elif a.cmd == "watch":
         watch.serve()
+    elif a.cmd == "export-guide":
+        print(showcase.export_guide(a.run_id, Path(a.out) if a.out else OUT / "guide" / a.run_id))
     elif a.cmd == "export-run":
         page = watch.export_html(a.run_id, public=a.public)
         out = Path(a.out) if a.out else OUT / "runs" / f"{a.run_id}{'-public' if a.public else ''}.html"

@@ -439,16 +439,21 @@ def _page(run_id, data=None, home="/"):
     title = _title(run)
     assignment = _assignment(run)
     purpose = assignment
-    findings_title = "Company findings"
+    results_header = '<h2 id="findings-title">Company findings</h2>'
     share_meta = ""
     project_credit = ""
     if data and data.get("example_deal"):
         project_credit = '<a class="project-credit" href="https://github.com/owassmer">Built by <strong>Owen Wassmer</strong></a>'
-        if run and run.get("seed_kind") == "mandate":
-            title = "Sales prospecting from public records"
-            purpose = ("An AI agent finds upcoming events and the companies with revenue at stake. "
-                       "It estimates the potential shortfall, identifies whom to contact, and drafts outreach.")
-            findings_title = "Prospects from an open search"
+        title = "Sales prospecting from public records"
+        purpose = ("Working from a brief, the AI agent finds companies whose revenue depends on upcoming events, "
+                   "estimates what’s at stake, and prepares a HubSpot deal with a suggested contact and draft outreach.")
+        brief = (f'<details class="demo-brief"><summary>Search brief</summary>'
+                 f'<blockquote>{html.escape(assignment)}</blockquote></details>') if assignment else ""
+        replay = ('<button type="button" id="demo-replay" class="demo-play" aria-controls="activity" hidden>'
+                  '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11L13 8z"/></svg>'
+                  '<span>Replay search · <span id="demo-replay-duration"></span></span></button>')
+        results_header = (f'<div class="demo-header"><h2 id="findings-title">Interactive demo</h2>'
+                          f'{replay}{brief}</div>')
         description = html.escape(purpose, quote=True)
         share_meta = (f'<meta name="description" content="{description}">'
                       f'<meta property="og:title" content="{html.escape(title, quote=True)} · Distress Signals">'
@@ -459,7 +464,7 @@ def _page(run_id, data=None, home="/"):
     page = (PAGE.replace("__STYLE__", STYLE + SHELL_STYLE + findingsview.STYLE + activityview.STYLE)
             .replace("__FINDINGSHTML__", findingsview.HTML).replace("__FINDINGSJS__", findingsview.JS)
             .replace("__LEADSHTML__", LEADS_HTML).replace("__ACTIVITYHTML__", activityview.HTML.strip()).replace("__ACTIVITYJS__", activityview.JS)
-            .replace("__FINDINGSTITLE__", findings_title).replace("__SHAREMETA__", share_meta)
+            .replace("__RESULTSHEADER__", results_header).replace("__SHAREMETA__", share_meta)
             .replace("__RUNINDEX__", index_link).replace("__CREDIT__", project_credit)
             .replace("__FOUNDJS__", FOUND_JS).replace("__CHARTJS__", CHART_JS)
             .replace("__ICONS__", json.dumps(ICONS)).replace("__PAGESTEPS__", str(PAGE_STEPS)).replace("__PACE__", json.dumps(PACE))

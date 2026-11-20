@@ -81,6 +81,7 @@ const activity = {
   model: null, events: [], flags: [], end: 0, time: 0, rate: 1, timer: null, lastTick: 0,
   drawnEvents: -1, drawnFlags: -1
 };
+const demoReplay = $("#demo-replay"), demoReplayDuration = $("#demo-replay-duration");
 
 function activityPrepare() {
   const atEnd = !activity.model || activity.time >= activity.end;
@@ -154,6 +155,7 @@ function activityPaint(force = false) {
   else if (t > 0) action = "Resume";
   const showDuration = action === "Replay" || action === "Play";
   const seconds = Math.ceil(activityReplaySeconds());
+  if (demoReplayDuration && demoReplayDuration.textContent !== clock(seconds)) demoReplayDuration.textContent = clock(seconds);
   const label = action + " activity" + (showDuration ? " · " + clock(seconds) : "");
   const toggle = $("#activity-toggle");
   if (toggle.dataset.label !== label) {
@@ -194,6 +196,7 @@ function activityView() {
   if (!M) return;
   if (activity.model !== M) activityPrepare();
   const empty = !activity.events.length && !activity.flags.length;
+  if (demoReplay) demoReplay.hidden = live() || empty || !activity.end;
   $("#activity-empty").hidden = !empty;
   $("#activity-empty").textContent = live() ? "Waiting for completed actions." : "No completed searches, source reads, queries, or calculations.";
   $("#activity-figure").hidden = empty;
@@ -213,15 +216,25 @@ function activityResize() {
   if (activity.model === M && M && $("#activity-chart").getBoundingClientRect().width) activityPaint(true);
 }
 
+function activityPlay(fromStart = false) {
+  if (fromStart || activity.time >= activity.end) activity.time = 0;
+  activity.lastTick = performance.now();
+  if (activity.timer === null) activity.timer = setInterval(activityTick, 100);
+}
+
 $("#activity-toggle").onclick = () => {
   if (live() || !activity.end) return;
   if (activity.timer !== null) activityLeave();
-  else {
-    if (activity.time >= activity.end) activity.time = 0;
-    activity.lastTick = performance.now();
-    activity.timer = setInterval(activityTick, 100);
-  }
+  else activityPlay();
   activityPaint();
+};
+if (demoReplay) demoReplay.onclick = () => {
+  activityPlay(true);
+  activityPaint();
+  const toggle = $("#activity-toggle");
+  $("#activity").scrollIntoView({block:"start"});
+  toggle.focus({preventScroll:true});
+  toggle.scrollIntoView({block:"nearest"});
 };
 $("#activity-speeds").onclick = e => {
   const button = e.target.closest("button[data-rate]");

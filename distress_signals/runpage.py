@@ -232,6 +232,22 @@ SHELL_STYLE = r"""
 .run-nav .github-icon{display:none;width:20px;height:20px;fill:currentColor}
 .run-nav + .wrap{max-width:1116px;padding-top:28px}
 .run-nav + .wrap .view{animation:none}
+.demo-header{display:flow-root;padding:13px 18px;background:var(--card);border:1px solid var(--line);border-bottom:0;border-radius:12px 12px 0 0}
+#section-findings .demo-header h2{float:left;margin:0 22px 0 0;font-size:19px;line-height:34px;letter-spacing:-.025em}
+#section-findings:has(.demo-header) .prospect-sheet{border-radius:0 0 12px 12px}
+.demo-brief summary{display:table;width:max-content;max-width:100%;color:var(--soft);line-height:34px;font-size:13px;font-weight:600;cursor:pointer}
+.demo-brief summary::after{content:"";display:inline-block;width:5px;height:5px;margin:0 2px 3px 8px;border:solid currentColor;border-width:0 1.5px 1.5px 0;transform:rotate(45deg)}
+.demo-brief[open] summary::after{transform:rotate(225deg);margin-bottom:0}
+.demo-brief summary:hover{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
+.demo-brief blockquote{clear:both;margin:11px 0 2px;padding:3px 0 3px 12px;max-width:76ch;border-left:2px solid var(--line);color:var(--soft);font-size:14px}
+.demo-play{float:right;display:inline-flex;align-items:center;gap:7px;min-height:34px;margin-left:12px;padding:0 12px;border:0;border-radius:7px;background:var(--ink);color:#fff;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.demo-play:hover{background:var(--soft);text-decoration:none}
+.demo-play svg{width:12px;height:12px;fill:currentColor}
+@media(max-width:360px){.demo-play{gap:5px;margin-left:4px;padding:0 8px;font-size:12px}}
+@media(max-width:600px){
+  .demo-header{padding:10px 14px}
+  #section-findings .demo-header h2{float:none;margin:0 0 5px;line-height:1.3}
+}
 #overview,#section-findings,#activity,#also,#hubspot,.doc2>h3{scroll-margin-top:calc(var(--shell-height,54px) + 16px)}
 #also{margin-top:30px}
 #also>h2{margin:0 0 12px;font-size:21px}
@@ -501,11 +517,12 @@ function sourceNote(cite) {
 }
 function caseView() {
   const box = $("#v-case"), i = M.found.findIndex(f => f.oid === route.oid);
-  if (i < 0) { box.innerHTML = `<div class="crumbs"><a class="back" href="#section-findings">‹ All findings</a></div><div class="empty">No case with this ID is available in this run.</div>`; return; }
+  const listLabel = DATA?.example_deal ? "Prospects" : "Findings";
+  if (i < 0) { box.innerHTML = `<div class="crumbs"><a class="back" href="#section-findings">‹ ${listLabel}</a></div><div class="empty">No case with this ID is available in this run.</div>`; return; }
   const f = M.found[i], c = f.c, prev = M.found[i - 1], next = M.found[i + 1];
   const secs = [], p = t => t ? `<p>${esc(t)}</p>` : "";
   const sec = (h, body) => { if (!body) return ""; secs.push(h); return `<h3 id="sec${secs.length}">${h}</h3><div>${body}</div>`; };
-  box.innerHTML = `<div class="crumbs"><a class="back" href="#section-findings">‹ Findings</a><span class="spacer"></span>`
+  box.innerHTML = `<div class="crumbs"><a class="back" href="#section-findings">‹ ${listLabel}</a><span class="spacer"></span>`
     + (prev ? `<a class="btn sm" href="#case/${esc(prev.oid)}">‹ Previous case</a>` : "")
     + (next ? `<a class="btn sm" href="#case/${esc(next.oid)}">Next case ›</a>` : "") + `</div>`
     + `<div class="casehead"><div><div class="eyebrow">${esc(c.company)}</div><h1>${esc(c.stream || "Revenue exposure")}</h1></div>`

@@ -6,22 +6,94 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
-async function testExampleDeal(page, url) {
+async function testSearchBriefAndReplay(page, url) {
   await page.goto(url);
-  const company = page.getByRole("rowgroup", { name: "RYTHM, Inc.", exact: true });
-  const toggle = company.getByRole("button", { name: "Example HubSpot deal" });
-  const deal = company.locator("#hubspot");
-  assert.equal(await toggle.getAttribute("aria-expanded"), "false");
-  assert.equal(await deal.isVisible(), false);
-  await toggle.press("Enter");
-  assert.equal(await toggle.getAttribute("aria-expanded"), "true");
-  assert.match(await deal.innerText(), /Hemp-derived THC product sales/);
-  assert.match(await deal.innerText(), /Brad Asher/);
-  await toggle.press("Enter");
-  assert.equal(await deal.isVisible(), false);
+  const overview = page.locator("#v-findings");
+  const brief = overview.locator("details").filter({ has: page.locator("summary", { hasText: "Search brief" }) });
+  const summary = brief.locator("summary");
+  assert.equal(await brief.evaluate(element => element.open), false);
+  await summary.press("Enter");
+  const assignment = "Find operating companies where a material share of revenue depends on the outcome of a specific upcoming event outside the company's control.";
+  assert.ok((await brief.innerText()).replace(/\s+/g, " ").includes(assignment));
+  await summary.press("Enter");
+  const replay = overview.getByRole("button", { name: /^Replay search\b/i })
+    .or(overview.getByRole("link", { name: /^Replay search\b/i }));
+  assert.equal((await replay.innerText()).trim(), "Replay search · 0:59");
+  await replay.click();
+  const activity = overview.locator("#activity");
+  const pauseActivity = activity.getByRole("button", { name: "Pause activity", exact: true });
+  await pauseActivity.waitFor();
+  assert.ok(await activity.evaluate(element => element.contains(document.activeElement)));
+  const controlInView = await pauseActivity.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    return rect.top >= 0 && rect.bottom <= window.innerHeight;
+  });
+  assert.ok(controlInView, "The visitor should see the activity playback control.");
+  const seek = activity.getByRole("slider");
+  const start = Number(await seek.inputValue());
+  await page.clock.runFor(1000);
+  assert.ok(Number(await seek.inputValue()) > start, "The header control should start playback on the first click.");
+  await pauseActivity.click();
+
+  // A direct link to the detailed transcript still starts its own replay.
+  await page.goto("about:blank");
+  await page.goto(url + "#play");
+  const pause = page.locator("#v-research").getByRole("button", { name: "Pause replay", exact: true });
+  await pause.waitFor();
+  assert.equal(page.url(), url + "#play");
+  await pause.click();
+}
+
+async function testExampleDeals(page, url) {
+  await page.goto(url);
+  const overview = page.locator("#v-findings");
+  const expected = [
+    ["Hemp-derived THC product sales", "Brad Asher"],
+    ["Green Thumb brand licensing fees", "Sanjay Tolia"],
+    ["U.S. WAKIX net product revenue", "Peter Anastasiou"],
+    ["Event-contract revenue", "Shiv Verma"],
+  ];
+  assert.equal(await overview.getByRole("button", { name: /^Preview deal\b/ }).count(), expected.length);
+  const panelIds = new Set();
+  for (const [stream, contact] of expected) {
+    const caseLink = overview.getByRole("link", { name: stream, exact: true });
+    const row = overview.getByRole("row").filter({ has: page.getByRole("link", { name: stream, exact: true }) });
+    const toggle = row.getByRole("button", { name: /^Preview deal\b/ });
+    const id = await toggle.getAttribute("aria-controls");
+    assert.ok(id && !panelIds.has(id), `Each prospect needs its own preview: ${stream}`);
+    panelIds.add(id);
+    const deal = overview.locator(`[id="${id}"]`);
+    assert.equal(await toggle.getAttribute("aria-expanded"), "false");
+    assert.equal(await deal.isVisible(), false);
+    await toggle.press("Enter");
+    await deal.waitFor();
+    assert.equal(await toggle.getAttribute("aria-expanded"), "true");
+    assert.ok((await deal.innerText()).includes(stream));
+    assert.ok((await deal.innerText()).includes(contact));
+    const outreach = await deal.locator("blockquote").innerText();
+    assert.ok(outreach.trim());
+    const caseHref = await caseLink.getAttribute("href");
+    assert.equal(await deal.getByRole("link", { name: /open case/i }).getAttribute("href"), caseHref);
+    await toggle.press("Enter");
+    assert.equal(await deal.isVisible(), false);
+
+    await caseLink.click();
+    const casePage = page.locator("#v-case");
+    await casePage.getByRole("heading", { name: stream, exact: true }).waitFor();
+    assert.equal(await casePage.getByRole("heading", { name: "Evidence", exact: true }).isVisible(), true);
+    assert.ok(await casePage.locator('.ev a[href^="https://"]').count());
+    assert.equal((await casePage.locator(".opening").textContent()).trim(), outreach.trim());
+    await page.goBack();
+    await overview.waitFor();
+  }
+
+  // Bookmarks to the original example still open the same company's sales case.
   await page.goto(url + "#hubspot");
-  await deal.waitFor();
-  assert.equal(await toggle.getAttribute("aria-expanded"), "true");
+  const legacyDeal = overview.locator("#hubspot");
+  await legacyDeal.waitFor();
+  assert.match(await legacyDeal.innerText(), /Hemp-derived THC product sales/);
+  assert.match(await legacyDeal.innerText(), /Brad Asher/);
+  assert.equal(await overview.locator('button[aria-controls="hubspot"]').getAttribute("aria-expanded"), "true");
 }
 
 async function testReplay(page, url) {
@@ -94,10 +166,11 @@ async function main() {
     const url = pathToFileURL(path.resolve(process.argv[2])).href;
     await page.clock.install({ time: new Date("2026-11-19T12:00:00Z") });
     await page.clock.pauseAt(new Date("2026-11-19T12:00:01Z"));
-    await testExampleDeal(page, url);
+    await testSearchBriefAndReplay(page, url);
+    await testExampleDeals(page, url);
     await testReplay(page, url);
     await testActivity(page, url);
-    console.log("Transcript continuity, saved-finding playback and research activity passed.");
+    console.log("Search brief, full replay, deal previews, case evidence, transcript continuity, saved-finding playback and research activity passed.");
   } finally {
     await browser.close();
   }

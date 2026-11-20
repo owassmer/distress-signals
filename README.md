@@ -1,16 +1,16 @@
 # Distress Signals
 
-Distress Signals searches public records for companies with material revenue exposure to an upcoming event. In an open search, the agent discovers both the event and the companies. It estimates the revenue exposed and identifies whom an adviser, broker, insurer or lender could contact about it.
+Distress Signals is an AI sales prospecting agent. It finds companies whose revenue depends on an upcoming event, estimates how much is at stake, and identifies whom to contact. With HubSpot connected, each qualified opportunity becomes a proposed deal with a sourced memo and draft outreach.
 
-In the published search, the agent investigated federal hemp restrictions and found two exposures in RYTHM’s filings. The restrictions could interrupt product sales and satisfy one condition for a Green Thumb affiliate to repurchase licensed brands. The licensing fees depend on whether the affiliate exercises that right, which brands it buys and when. [View the company cases](https://owassmer.github.io/distress-signals/#found)
+[Explore the interactive demo](https://owassmer.github.io/distress-signals/)
 
 ## How it works
 
-**Research.** A Claude agent searches public records, follows leads and selects cases that fit the brief. Sources include SEC filings, Federal Register notices and rules, federal contract awards, participating state and local payment ledgers, and the open web. Government payment records can identify private suppliers as well as public companies.
+**Prospecting.** A Claude agent can start with a company, an event, or a custom brief. In an open search, it discovers both the events and the companies by following leads through filings, regulatory notices, public contracts, payment records, and the open web.
 
-**Evidence and calculation.** Each model input has a source passage, a calculation from stored records or an explicit assumption. The system checks quoted passages against stored document text when available. When it has only a web excerpt, it records the quotation as unchecked. The agent specifies the scenarios and formulas, and the software calculates the revenue under each scenario.
+**Qualification.** The agent explains how an event could affect a revenue stream and chooses the scenarios and formulas. The software runs the calculations, checks quotations against stored records when available, and keeps the source, calculation, or assumption behind each input.
 
-**HubSpot.** With the integration configured, the operator can request research from a company record and review cases as proposed deals. Each deal includes a memo and links to the company and contact when available. The integration records deal outcomes for subsequent research.
+**Follow-up.** From HubSpot, a team can request research, review a proposed deal, or ask the agent to revisit it when circumstances change. The agent can retrieve earlier work and recorded deal outcomes in later searches.
 
 ## Setting it up
 

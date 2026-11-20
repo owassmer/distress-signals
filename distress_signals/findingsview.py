@@ -24,15 +24,18 @@ STYLE = r"""
 .finding-contact{font-size:14px;line-height:1.4;font-weight:580;color:var(--ink)}
 .prospect-table .mobile-label{display:none}
 .prospect-table .stream-continuation :is(th,td){border-top-color:var(--line2)}
-.company-heading{display:flex;align-items:baseline;flex-wrap:wrap;gap:1px 12px;margin-bottom:4px}
-.prospect-table .company-heading .finding-company{margin:0}
-.deal-toggle{display:inline-flex;align-items:center;gap:6px;border:0;border-radius:3px;padding:4px 0;background:none;color:var(--blue);font:inherit;font-size:12px;font-weight:600;cursor:pointer}
-.deal-toggle:hover{text-decoration:underline;text-underline-offset:3px}
-.deal-toggle::after{content:"";width:5px;height:5px;border:solid currentColor;border-width:0 1.5px 1.5px 0;transform:translateY(-1px) rotate(45deg)}
+.prospect-queue col:nth-child(1){width:32%}.prospect-queue col:nth-child(2){width:26%}.prospect-queue col:nth-child(3){width:auto}.prospect-queue col:nth-child(4){width:146px}
+.deal-toggle{display:inline-flex;align-items:center;gap:8px;max-width:100%;border:1px solid #cfd9e7;border-radius:6px;padding:5px 9px;background:var(--card);color:var(--soft);font:inherit;font-size:12px;font-weight:600;white-space:nowrap;cursor:pointer;line-height:1.4}
+.deal-toggle:hover,.deal-toggle[aria-expanded=true]{border-color:#a5bbdc;background:#f3f7ff;color:var(--blue)}
+.deal-toggle::after{content:"";flex:0 0 5px;width:5px;height:5px;border:solid currentColor;border-width:0 1.5px 1.5px 0;transform:translateY(-1px) rotate(45deg)}
 .deal-toggle[aria-expanded=true]::after{transform:translateY(1px) rotate(225deg)}
 .prospect-table .deal-cell{padding:15px 18px;background:#f6f9fd}
-.deal-body{max-width:800px;color:var(--soft);font-size:14px;line-height:1.45}
-.deal-body h4{margin:0 0 10px;color:var(--ink);font-size:14px;font-weight:650}
+.deal-body{scroll-margin-top:calc(var(--shell-height,54px) + 16px);max-width:800px;color:var(--soft);font-size:14px;line-height:1.45}
+.deal-head{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:4px 16px;margin-bottom:12px}
+.deal-head small{display:block;color:var(--mute);font-size:12px}
+.deal-head h4{margin:2px 0 0;color:var(--ink);font-size:16px;font-weight:650;line-height:1.3}
+.deal-head a{font-size:13px;font-weight:600;white-space:nowrap}
+.deal-head a:hover{text-decoration:underline}
 .deal-body dl{display:flex;flex-wrap:wrap;gap:8px 28px;margin:0}
 .deal-body dt{font-size:12px;color:var(--mute)}.deal-body dd{margin:2px 0 0}
 .deal-body blockquote{max-width:780px;margin:5px 0 0;padding-left:12px;border-left:2px solid #bdd1ef;color:var(--ink)}
@@ -71,6 +74,19 @@ STYLE = r"""
   .prospect-table .finding-amount{font-size:19px}
   .prospect-table .finding-condition{margin:2px 0 0}
 }
+@media(min-width:661px) and (max-width:800px){
+  .prospect-queue col:nth-child(1){width:31%}.prospect-queue col:nth-child(2){width:24%}
+  .prospect-queue col:nth-child(3){width:auto}.prospect-queue col:nth-child(4){width:136px}
+}
+@media(max-width:660px){
+  .prospect-queue tbody tr:not(.deal-row){grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"company company" "stream action" "person action";gap:4px 12px}
+  .prospect-queue tbody tr.stream-continuation{grid-template-areas:"stream action" "person action"}
+  .prospect-queue .company-event{grid-area:company}
+  .prospect-queue .finding-stream{grid-area:stream}
+  .prospect-queue .finding-person{grid-area:person}
+  .prospect-queue .deal-action{grid-area:action;align-self:center}
+  .deal-body dl{gap:8px 20px}
+}
 
 """
 
@@ -78,7 +94,7 @@ HTML = """<section class="view" id="v-findings" hidden>
   <header class="finding-intro" id="overview"><h1>__TITLE__</h1><p class="lede" __PURPOSEHIDDEN__>__PURPOSE__</p>
     <p class="requester" id="requester" hidden></p></header>
   <section id="section-findings" aria-labelledby="findings-title">
-    <h2 id="findings-title">__FINDINGSTITLE__</h2>
+    __RESULTSHEADER__
     <div id="cards"></div>
   </section>
   __ACTIVITYHTML__
@@ -97,42 +113,52 @@ function findingSource(c) {
   } catch { return ""; }
 }
 
-function prospectRow(c, eventCell, source) {
+function exposureCell(c) {
   const worst = (c.scenarios || []).filter(s => s.shortfall != null).reduce(
     (max, next) => !max || next.shortfall > max.shortfall ? next : max, null);
   const scenario = worst?.summary || worst?.description || worst?.label;
-  const period = periodLabel(c), url = "#case/" + encodeURIComponent(c.oid);
+  const measure = c.stake == null ? "" : `<span class="finding-measure"><b class="finding-amount">${esc(money(c.stake,c.currency))}</b><span class="mobile-label">Largest modeled shortfall</span><span class="finding-period">${esc(periodLabel(c))}</span></span>
+    ${scenario ? `<span class="finding-condition">${esc(scenario)}</span>` : ""}`;
+  return `<td class="finding-stake">${measure}</td>`;
+}
+
+function prospectRow(c, eventCell, source, dealId) {
+  const url = "#case/" + encodeURIComponent(c.oid);
   const contact = c.who || "", comma = contact.indexOf(", ");
   const name = comma === -1 ? contact : contact.slice(0, comma);
   const role = comma === -1 ? "" : contact.slice(comma + 2);
-  const measure = c.stake == null ? "" : `<span class="finding-measure"><b class="finding-amount">${esc(money(c.stake,c.currency))}</b><span class="mobile-label">Largest modeled shortfall</span><span class="finding-period">${esc(period)}</span></span>
-    ${scenario ? `<span class="finding-condition">${esc(scenario)}</span>` : ""}`;
   return `<tr${eventCell ? "" : ' class="stream-continuation"'}>${eventCell}
     <th class="finding-stream" scope="row"><a class="stream-link" href="${esc(url)}">${esc(c.stream || "View case")}</a>${source}</th>
-    <td class="finding-stake">${measure}</td>
+    ${dealId ? "" : exposureCell(c)}
     <td class="finding-person">${name ? `<span class="mobile-label">Contact · </span><span class="finding-contact">${esc(name)}</span>` : ""}
-      ${role ? `<span class="finding-role">${esc(role)}</span>` : ""}</td></tr>`;
+      ${role ? `<span class="finding-role">${esc(role)}</span>` : ""}</td>
+    ${dealId ? `<td class="deal-action"><button type="button" class="deal-toggle" aria-expanded="false" aria-controls="${esc(dealId)}" aria-label="Preview deal for ${esc([c.company, c.stream].filter(Boolean).join(", "))}">Preview deal</button></td>` : ""}</tr>`;
 }
 
-function exampleDealRow(c) {
-  const fields = [["Revenue stream", c.stream], ["Suggested contact", c.who], ["Deal stage", "Proposed"]];
+function exampleDealRow(c, id) {
+  const fields = [["Deal stage", "Proposed"], ["Company", c.company], ["Suggested contact", c.who]];
   return `<tr class="deal-row" hidden><td class="deal-cell" colspan="4">
-    <section class="deal-body" id="hubspot" aria-labelledby="deal-title" tabindex="-1">
-      <h4 id="deal-title">${c.company ? `HubSpot deal for ${esc(c.company)}` : "Example HubSpot deal"}</h4>
+    <section class="deal-body" id="${esc(id)}" aria-labelledby="${esc(id)}-title" tabindex="-1">
+      <div class="deal-head"><div><small>HubSpot deal preview</small>
+        <h4 id="${esc(id)}-title">${esc(c.stream || c.company || "Proposed deal")}</h4></div>
+        <a href="#case/${esc(encodeURIComponent(c.oid))}">Open case</a></div>
       <dl>${fields.filter(([, value]) => value).map(([name, value]) =>
         `<div><dt>${esc(name)}</dt><dd>${esc(value)}</dd></div>`).join("")}</dl>
       ${c.opening ? `<span class="draft-label">Draft outreach</span><blockquote>${esc(c.opening)}</blockquote>` : ""}
     </section></td></tr>`;
 }
 
-function setExampleDealOpen(open) {
-  const button = $("#deal-toggle"), panel = $("#hubspot");
-  if (!button || !panel) return;
+function setExampleDealOpen(open, button = $('#cards .deal-toggle[aria-controls="hubspot"]')) {
+  if (!button) return;
+  const panel = document.getElementById(button.getAttribute("aria-controls"));
+  const previous = $("#cards .deal-toggle[aria-expanded=true]");
+  if (open && previous && previous !== button) setExampleDealOpen(false, previous);
   button.setAttribute("aria-expanded", String(open));
   panel.closest("tr").hidden = !open;
+  return panel;
 }
 
-function companyRows(cases, exampleDeal) {
+function companyRows(cases, dealIds) {
   const byEvent = new Map();
   for (const c of cases) {
     const key = JSON.stringify([c.event, c.event_date, c.date_label]);
@@ -140,38 +166,39 @@ function companyRows(cases, exampleDeal) {
     byEvent.get(key).push(c);
   }
   return Array.from(byEvent.values(), (streams, i) => {
-    const c = streams[0], sources = streams.map(findingSource);
-    const hasDeal = streams.includes(exampleDeal);
-    const toggle = hasDeal ? '<button type="button" id="deal-toggle" class="deal-toggle" aria-expanded="false" aria-controls="hubspot">Example HubSpot deal</button>' : "";
-    const commonSource = streams.length > 1 && sources.every(source => source === sources[0]) ? sources[0] : "";
-    const eventDate = c.event_date && new Date(c.event_date + "T12:00:00Z").toLocaleDateString("en-US",
+    const c = streams[0], sources = dealIds ? [] : streams.map(findingSource);
+    const commonSource = sources.length > 1 && sources.every(source => source === sources[0]) ? sources[0] : "";
+    const eventDate = !dealIds && c.event_date && new Date(c.event_date + "T12:00:00Z").toLocaleDateString("en-US",
       {month:"short", day:"numeric", year:"numeric", timeZone:"UTC"});
     const cell = `<th class="company-event" rowspan="${streams.length}" scope="rowgroup">
-      ${i === 0 ? `<div class="company-heading"><h3 class="finding-company">${esc(c.company || "Company unspecified")}</h3>${toggle}</div>` : toggle}
+      ${i === 0 ? `<h3 class="finding-company">${esc(c.company || "Company unspecified")}</h3>` : ""}
       ${c.event ? `<div class="finding-event">${esc(c.event)}</div>` : ""}
       ${eventDate ? `<span class="finding-date">${esc(c.date_label || "Event reference date")} · ${esc(eventDate)}</span>` : ""}${commonSource}</th>`;
-    return `<tbody aria-label="${esc(c.company || "Company findings")}">${streams.map((s, j) => prospectRow(s, j === 0 ? cell : "", commonSource ? "" : sources[j])).join("")}${hasDeal ? exampleDealRow(exampleDeal) : ""}</tbody>`;
+    const rows = streams.map((s, j) => prospectRow(s, j === 0 ? cell : "", commonSource ? "" : sources[j] || "", dealIds?.get(s.oid)));
+    const previews = dealIds ? streams.map(s => exampleDealRow(s, dealIds.get(s.oid))).join("") : "";
+    return `<tbody aria-label="${esc(c.company || "Company findings")}">${rows.join("")}${previews}</tbody>`;
   }).join("");
 }
 
 function findings() {
   const cases = M.found.map(f => f.c);
-  const exampleDeal = DATA?.example_deal ? cases[0] : null;
-  $("#cards").innerHTML = cases.length ? `<div class="prospect-sheet"><table class="prospect-table" aria-labelledby="findings-title">
+  const dealIds = DATA?.example_deal ? new Map(cases.map((c, i) => [c.oid, i ? "hubspot-" + c.oid : "hubspot"])) : null;
+  const headers = dealIds ? ["Company and event", "Revenue stream", "Suggested contact", "HubSpot"]
+                          : ["Company and event", "Revenue stream", "Largest modeled shortfall", "Suggested contact"];
+  $("#cards").innerHTML = cases.length ? `<div class="prospect-sheet"><table class="prospect-table${dealIds ? " prospect-queue" : ""}" aria-labelledby="findings-title">
     <colgroup><col><col><col><col></colgroup>
-    <thead><tr><th scope="col">Company and event</th><th scope="col">Revenue stream</th>
-    <th scope="col">Largest modeled shortfall</th><th scope="col">Suggested contact</th></tr></thead>
-    ${groupByCompany(cases).map(group => companyRows(group, exampleDeal)).join("")}</table></div>` : `<p class="sub">${emptyFindings()}</p>`;
+    <thead><tr>${headers.map(header => `<th scope="col">${header}</th>`).join("")}</tr></thead>
+    ${groupByCompany(cases).map(group => companyRows(group, dealIds)).join("")}</table></div>` : `<p class="sub">${emptyFindings()}</p>`;
   const rq = status.requester, requester = $("#requester");
   requester.hidden = !rq;
   if (rq) requester.innerHTML = `Requested from <a href="${esc(rq.url)}">${esc(rq.name)}</a> in HubSpot.`;
-  if (exampleDeal) {
-    const button = $("#deal-toggle"), panel = $("#hubspot");
-    button.onclick = () => {
-      const open = button.getAttribute("aria-expanded") === "false";
-      setExampleDealOpen(open);
-      if (open) panel.scrollIntoView({block:"nearest"});
-    };
-  }
 }
+
+$("#cards").addEventListener("click", e => {
+  const button = e.target.closest("button.deal-toggle");
+  if (!button) return;
+  const open = button.getAttribute("aria-expanded") === "false";
+  const panel = setExampleDealOpen(open, button);
+  if (open) panel.scrollIntoView({block:"nearest"});
+});
 """

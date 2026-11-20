@@ -75,6 +75,7 @@
         ],
         "role": "The audit committee reviews and approves related-party transactions, including arrangements with Green Thumb.",
         "next_action": "Route an inquiry through RYTHM’s corporate secretary. Check subsequent filings for an option exercise notice and the brands and dates it covers.",
+        "contact_route": "Inquiries for Tolia can go through RYTHM’s corporate secretary.",
         "date_label": "Scheduled effective date"
       }
     },
@@ -317,23 +318,23 @@
   "aside": {
     "4353688e99bd648f9d955cdf4cc9f590e91574ee843dc609762558a37968189f": {
       "title": "CV Sciences · Missing sales breakdown for affected products",
-      "reason": "CV Sciences sells hemp-derived CBD products and reported about $3 million of quarterly revenue. Management said it could not reasonably estimate the financial effect of the new hemp definition. The research found no revenue breakdown for the affected products. A later disclosure of full-spectrum product sales could support an estimate."
+      "reason": "CV Sciences sells hemp-derived CBD products and reported about $3 million of quarterly revenue. Management said it could not reasonably estimate the financial effect of the new hemp definition. The available figures do not break out affected product sales. A breakdown of full-spectrum sales could help establish the exposure."
     },
     "114e20d08e6f9eba9640603ad4b4e92a9bd3a9d0cdee7d022a41edf164cda5b8": {
       "title": "Glass House Brands · No material impact reported from export suspension",
-      "reason": "Glass House Brands suspended its hemp biomass export operations in Q3 2026 and said the suspension had no material impact. Its principal business sells cannabis licensed by California. The research found no material revenue stream exposed to the change in the federal hemp definition."
+      "reason": "Glass House Brands suspended its hemp biomass export operations in Q3 2026 and said the suspension had no material impact. Its principal business sells cannabis licensed by California. The available records identify no material sales exposed to the revised federal hemp definition."
     },
     "3e6ed50f8526c9aaf4a7e6ebf78af43d90f2352598030b02a67572ade89c7f56": {
       "title": "Ironwood · Medicare price already published",
-      "reason": "Ironwood’s negotiated Medicare price for LINZESS had already been published at $136 per 30-day supply, effective January 1, 2027. Ironwood said the price met its expectations and had already reduced the list price. The research found no unresolved pricing decision for that effective date."
+      "reason": "Ironwood’s negotiated Medicare price for LINZESS was already public at $136 per 30-day supply, effective January 1, 2027. Ironwood said the price met its expectations and had already reduced the list price."
     },
     "0d43808bbce2844831852aca778f1c06e00ba82be3e6a9556c228abfd0658321": {
       "title": "Gemini · Prediction contracts accounted for about 2% of Q3 revenue",
-      "reason": "Gemini reported $0.8 million of Q3 2026 revenue from Gemini Predictions out of $40.9 million total. All prediction contracts together represented about 2% of revenue, which limits the possible exposure from its sports contracts alone. Separate state enforcement matters would require their own analysis."
+      "reason": "Gemini reported $0.8 million of Q3 2026 revenue from Gemini Predictions out of $40.9 million total. All prediction contracts together represented about 2% of revenue, which limits the possible exposure from its sports contracts alone. The financial impact of separate state enforcement matters remains uncertain."
     },
     "d865050224cf81f2cbfe175f93e5325f4a4d6f1e1bf1bc1ad7675fb45f8646a6": {
       "title": "Tilray · Hemp-seed foods expected to retain federal hemp status",
-      "reason": "Tilray expected its Manitoba Harvest hemp-seed foods to remain within the revised federal definition. The research found no separate revenue figure for affected hemp-THC products, so it could not size a shortfall for Tilray."
+      "reason": "Tilray expected its Manitoba Harvest hemp-seed foods to remain within the revised federal definition. The available figures do not break out sales of affected hemp-THC products, leaving the potential revenue loss uncertain."
     }
   },
   "leads": {
@@ -343,7 +344,7 @@
     },
     "13c3c1194fe0b5f6c84d95aec1e93b92f215a21e36c83d8135ca32db8ccc51c5": {
       "company_or_event": "DraftKings and Flutter · competition from sports event contracts",
-      "reason": "A ruling for Kalshi could expand competition from federally listed sports contracts. Estimate which sportsbook fees or wagers could shift and account for DraftKings’ own prediction-market business."
+      "reason": "A ruling for Kalshi could draw wagers away from DraftKings and Flutter to federally listed sports contracts. The revenue at stake depends on how much wagering would shift and how much of that business DraftKings could retain through its own prediction market."
     },
     "e613b179a5b979b34d5c0600755e5d2b71f6e557b4a2f624839babcea5bf2c2f": {
       "company_or_event": "Live Oak Bancshares · SBA loan-sale income",
@@ -351,19 +352,19 @@
     },
     "f4ce4a47e0e5ef58c5ceda0ba40b620d788dd1a78f9582975a3073e82d1a5ac4": {
       "company_or_event": "Frontier and other low-cost airlines · federal funding lapse",
-      "reason": "Frontier attributed about $30 million of Q4 2025 revenue loss to the shutdown and FAA flight reductions. To estimate a December 2026 lapse, identify which flights would face restrictions and for how much of the holiday travel period."
+      "reason": "Frontier attributed about $30 million of Q4 2025 revenue loss to the shutdown and FAA flight reductions. Its exposure to a December 2026 funding lapse would depend on which flights faced restrictions and how long those restrictions lasted during the holiday travel season."
     },
     "bd428242e1077c767efa44844dadbb45a83536c8fec3275b962a17d493558c05": {
       "company_or_event": "Telepsychiatry providers · federal prescribing rules",
-      "reason": "Federal flexibilities for remote prescribing of controlled substances were scheduled to expire December 31, 2026. Check for an extension or replacement rule, then determine which visits and prescriptions providers such as LifeStance Health would need to move in person."
+      "reason": "Federal rules allowing remote prescribing of controlled substances were scheduled to expire December 31, 2026. For providers such as LifeStance Health, the revenue at stake depended on whether those rules were extended or replaced and how many patients would need an in-person visit to obtain a prescription."
     },
     "c2679fe34d3ad728901df53cca4f1f5d442cf886cb31fb8ae688f3bdb6f1e713": {
       "company_or_event": "Clinical laboratories · Medicare payment rates",
-      "reason": "Preliminary 2027 rates indicated 15% cuts for about 775 lab tests unless Congress acted. A company-level estimate requires the lab’s Medicare volume and revenue for the affected test codes."
+      "reason": "Preliminary 2027 rates indicated 15% cuts for about 775 lab tests unless Congress acted. Each lab’s exposure depends on the number of affected tests it bills to Medicare and the revenue those tests generate."
     },
     "cad52dadbd5be44640fee8484687516cfdb495585bce7caf553c209736e5faa7": {
       "company_or_event": "Centene and Molina · Medicaid work requirements",
-      "reason": "New requirements were scheduled to begin January 1, 2027. Exposure would depend on state implementation, the challenge to the federal rule, and membership among affected adults. The research found no company estimate of the resulting revenue effect."
+      "reason": "New requirements were scheduled to begin January 1, 2027. Exposure would depend on state implementation, the challenge to the federal rule, and membership among affected adults. The available records give no company-level estimate of the revenue effect."
     }
   }
 }

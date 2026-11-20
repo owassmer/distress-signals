@@ -6,11 +6,9 @@ Distress Signals is an autonomous prospecting agent for brokers and advisers who
 
 ## How it works
 
-**Discovery.** A Claude agent chooses which companies and risks to investigate. It follows leads through filings, contracts, regulatory notices, payment records, and the open web to identify what a revenue stream depends on. For each prospect, it documents which contract, customer, product, or operation is exposed, what could reduce sales, and when the company would feel the loss.
+The agent follows leads through company filings, contracts, regulatory notices, payment records, and the open web. For each prospect, it identifies the part of the business at risk and explains how and when sales could fall.
 
-**Revenue analysis.** The agent chooses how to model the affected revenue stream. The software runs the calculations and records which inputs were reported, derived, or assumed. A reviewer can trace a reported figure back to its source passage.
-
-**Follow-up.** A sales team can launch research from a HubSpot company record, request an update from an existing deal, and record the outcome. The agent can consult that history when it researches the company again.
+Claude builds a revenue model for each opportunity. Python calculates the shortfall under each scenario. The deal memo shows which figures are reported, calculated, or assumed and links to the supporting records.
 
 ## Setting it up
 
@@ -39,56 +37,33 @@ line tool signed in to a Claude account, and a HubSpot account with a private ap
 
    The installed services start at macOS login and restart if they stop.
 
-## Request research in HubSpot
+## Using HubSpot
 
-The **Distress run** field on a company record accepts the following requests. **Run the open search** uses the standing mandate across companies.
+On a company record, use **Distress run** to search for new prospects, investigate that company, or find businesses exposed to a particular event. Each opportunity appears as a **Proposed** deal with the research memo and draft outreach.
 
-| Option | What it does |
-|---|---|
-| Research this company | Looks for an upcoming event that this company's revenue depends on |
-| Research the event in the note | Starts from an event you describe in **Distress run note**, and finds the companies exposed to it |
-| Run the open search | Discovers events and exposed companies under the standing mandate in `config/mandate.md` |
-| Run the note as a brief | Answers a question you write in **Distress run note** |
-
-On a case's deal, **Refresh this case** checks the case again against current sources.
-
-The worker marks the request **Running** when research starts.
-
-- Each case appears as a deal in the **Proposed** stage, with the company, the person and the memo.
-- The activity timeline links to the live research log.
-- The completed run adds a summary to the requesting record.
-- Follow-on leads appear as companies marked **Proposed lead**. Set **Research this company** on one to
-  investigate the lead.
-
-Record the result in the deal’s **Distress outcome** field. Subsequent company lookups include the recorded outcome.
+Use **Refresh this case** on a deal to check whether the exposure has changed. Record the result of a conversation in **Distress outcome** so the agent can refer to it the next time it researches that company. [HubSpot reference](SPEC.md#9-hubspot)
 
 ## From a terminal
 
 ```bash
-.venv/bin/python -m distress_signals research                    # the open search
-.venv/bin/python -m distress_signals research --company NAME     # one company
-.venv/bin/python -m distress_signals research --event TEXT       # an event and the companies exposed to it
-.venv/bin/python -m distress_signals research --brief FILE       # a question or brief, from a file
+.venv/bin/python -m distress_signals research                    # find new prospects
+.venv/bin/python -m distress_signals research --company NAME     # investigate one company
+.venv/bin/python -m distress_signals research --event TEXT       # find companies exposed to an event
 .venv/bin/python -m distress_signals refresh OPP_ID              # check a saved case again
 .venv/bin/python -m distress_signals push-hubspot                # send changed cases to HubSpot
 .venv/bin/python -m distress_signals export-guide RUN_ID         # one run as a visual guide, for sharing
 .venv/bin/python -m distress_signals show ID_OR_NAME             # a saved case, company or event
 ```
 
-The live view of runs is at http://localhost:8790 while the services are running.
+Watch the agent work at http://localhost:8790 while the services are running. [Command reference](SPEC.md#10-commands)
 
 ## Configuration
 
 | File | Holds |
 |---|---|
-| `config/mandate.md` | What the researcher is asked to do, in plain words |
-| `config/offering.local.md` | A description of what you offer, if you want the researcher to know it (not committed) |
-| `config/briefs/` | Saved briefs, each used only when you choose it |
+| `config/mandate.md` | Criteria for identifying prospects |
+| `config/offering.local.md` | Your firm’s products and services (optional, kept local) |
 | `config/exclude.yaml`, `config/exclude.local.yaml` | Companies to leave out |
 | `config/ledgers.yaml` | The state and local government payment ledgers |
 
-## Design
-
-The research log preserves the agent’s searches, source reads, calculations, and saved cases. The software checks quoted passages against stored documents and marks quotations drawn from web excerpts alone as unchecked.
-
-The [design specification](SPEC.md) describes the research tools, evidence checks and data model.
+[Design specification and evidence checks](SPEC.md)

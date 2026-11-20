@@ -232,21 +232,15 @@ SHELL_STYLE = r"""
 .run-nav .github-icon{display:none;width:20px;height:20px;fill:currentColor}
 .run-nav + .wrap{max-width:1116px;padding-top:28px}
 .run-nav + .wrap .view{animation:none}
-.demo-header{display:flow-root;padding:13px 18px;background:var(--card);border:1px solid var(--line);border-bottom:0;border-radius:12px 12px 0 0}
-#section-findings .demo-header h2{float:left;margin:0 22px 0 0;font-size:19px;line-height:34px;letter-spacing:-.025em}
+.demo-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 12px;padding:13px 18px;background:var(--card);border:1px solid var(--line);border-bottom:0;border-radius:12px 12px 0 0}
+#section-findings .demo-header h2{margin:0;font-size:19px;line-height:1.3;letter-spacing:-.025em}
 #section-findings:has(.demo-header) .prospect-sheet{border-radius:0 0 12px 12px}
-.demo-brief summary{display:table;width:max-content;max-width:100%;color:var(--soft);line-height:34px;font-size:13px;font-weight:600;cursor:pointer}
-.demo-brief summary::after{content:"";display:inline-block;width:5px;height:5px;margin:0 2px 3px 8px;border:solid currentColor;border-width:0 1.5px 1.5px 0;transform:rotate(45deg)}
-.demo-brief[open] summary::after{transform:rotate(225deg);margin-bottom:0}
-.demo-brief summary:hover{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
-.demo-brief blockquote{clear:both;margin:11px 0 2px;padding:3px 0 3px 12px;max-width:76ch;border-left:2px solid var(--line);color:var(--soft);font-size:14px}
-.demo-play{float:right;display:inline-flex;align-items:center;gap:7px;min-height:34px;margin-left:12px;padding:0 12px;border:0;border-radius:7px;background:var(--ink);color:#fff;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.demo-play{display:inline-flex;align-items:center;gap:7px;min-height:34px;padding:0 12px;border:0;border-radius:7px;background:var(--ink);color:#fff;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
 .demo-play:hover{background:var(--soft);text-decoration:none}
 .demo-play svg{width:12px;height:12px;fill:currentColor}
-@media(max-width:360px){.demo-play{gap:5px;margin-left:4px;padding:0 8px;font-size:12px}}
+@media(max-width:360px){.demo-play{gap:5px;padding:0 8px;font-size:12px}}
 @media(max-width:600px){
   .demo-header{padding:10px 14px}
-  #section-findings .demo-header h2{float:none;margin:0 0 5px;line-height:1.3}
 }
 #overview,#section-findings,#activity,#also,#hubspot,.doc2>h3{scroll-margin-top:calc(var(--shell-height,54px) + 16px)}
 #also{margin-top:30px}
@@ -538,7 +532,7 @@ function caseView() {
           + `<span class="unit">${esc(u)}</span>${x.how ? `<div>${esc(x.how)}</div>` : ""}${x.passage || x.url ? quote(x.passage, x.url) + sourceNote(x) : ""}`
           + `${x.note ? `<small class="note">${esc(x.note)}</small>` : ""}</div></div>`; }).join(""))
     + sec("Evidence", (c.evidence || []).map(e => `<div class="ev"><b>${esc(e.supports || "")}</b>${quote(e.passage, e.url)}${sourceNote(e)}</div>`).join(""))
-    + sec("Suggested outreach", (c.who ? `<b>${esc(c.who)}</b>` : "") + p(c.role) + p(c.why_now) + p(c.next_action)
+    + sec("Suggested outreach", (c.who ? `<b>${esc(c.who)}</b>` : "") + p(c.role) + p(c.why_now) + p(DATA?.example_deal ? c.contact_route : c.next_action)
         + (c.opening ? `<details><summary>Draft message</summary><blockquote class="opening">${esc(c.opening)}</blockquote></details>` : ""))
     + "</div>";
   $("#jump").hidden = !secs.length;

@@ -437,8 +437,7 @@ def public_leads(run_id, items):
 def _page(run_id, data=None, home="/"):
     run = _run_row(run_id)
     title = _title(run)
-    assignment = _assignment(run)
-    purpose = assignment
+    purpose = _assignment(run)
     results_header = '<h2 id="findings-title">Company findings</h2>'
     share_meta = ""
     project_credit = ""
@@ -448,13 +447,10 @@ def _page(run_id, data=None, home="/"):
         purpose = ("Distress Signals helps brokers and advisers find businesses that may need to hedge against revenue losses. "
                    "It searches public records for companies where a single decision or disruption outside their control could cost them a significant share of sales. "
                    "Each proposed deal in HubSpot shows how much is at stake and whom to contact.")
-        brief = (f'<details class="demo-brief"><summary>Search brief</summary>'
-                 f'<blockquote>{html.escape(assignment)}</blockquote></details>') if assignment else ""
         replay = ('<button type="button" id="demo-replay" class="demo-play" aria-controls="activity" hidden>'
                   '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11L13 8z"/></svg>'
                   '<span>Replay search · <span id="demo-replay-duration"></span></span></button>')
-        results_header = (f'<div class="demo-header"><h2 id="findings-title">Prospects from this search</h2>'
-                          f'{replay}{brief}</div>')
+        results_header = f'<div class="demo-header"><h2 id="findings-title">Prospects</h2>{replay}</div>'
         description = html.escape(purpose, quote=True)
         share_meta = (f'<meta name="description" content="{description}">'
                       f'<meta property="og:title" content="{html.escape(title, quote=True)} · Distress Signals">'

@@ -6,16 +6,11 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
-async function testSearchBriefAndReplay(page, url) {
+async function testOverviewReplay(page, url) {
   await page.goto(url);
   const overview = page.locator("#v-findings");
-  const brief = overview.locator("details").filter({ has: page.locator("summary", { hasText: "Search brief" }) });
-  const summary = brief.locator("summary");
-  assert.equal(await brief.evaluate(element => element.open), false);
-  await summary.press("Enter");
-  const assignment = "Find operating companies where a material share of revenue depends on the outcome of a specific upcoming event outside the company's control.";
-  assert.ok((await brief.innerText()).replace(/\s+/g, " ").includes(assignment));
-  await summary.press("Enter");
+  await overview.getByRole("table", { name: "Prospects", exact: true }).waitFor();
+  assert.equal(await overview.getByText("Search brief", { exact: true }).count(), 0);
   const replay = overview.getByRole("button", { name: /^Replay search\b/i })
     .or(overview.getByRole("link", { name: /^Replay search\b/i }));
   assert.equal((await replay.innerText()).trim(), "Replay search · 0:59");
@@ -199,12 +194,12 @@ async function main() {
     const url = pathToFileURL(path.resolve(process.argv[2])).href;
     await page.clock.install({ time: new Date("2026-11-19T12:00:00Z") });
     await page.clock.pauseAt(new Date("2026-11-19T12:00:01Z"));
-    await testSearchBriefAndReplay(page, url);
+    await testOverviewReplay(page, url);
     await testExampleDeals(page, url);
     await testReplay(page, url);
     await testActivity(page, url);
     await testActivityEntryLayout(page, url);
-    console.log("Search brief, full replay, deal previews, case evidence, transcript continuity, saved-finding playback and research activity passed.");
+    console.log("Overview replay, full replay, deal previews, case evidence, transcript continuity, saved-case playback and research activity passed.");
   } finally {
     await browser.close();
   }

@@ -157,6 +157,39 @@ async function testActivity(page, url) {
   assert.match(await time.innerText(), /^13:11\b/);
 }
 
+async function testActivityEntryLayout(page, url) {
+  for (const width of [320, 1280]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto(url);
+    const seek = page.locator("#activity-seek");
+    const entry = page.locator("#activity-entry");
+    const label = entry.locator("#activity-entry-label");
+    const link = entry.getByRole("link");
+    const heights = [];
+    // The long SEC search at 26:53 sits between two shorter filing lookups.
+    for (const [second, step] of [[1605, 99], [1621, 101], [1613, 100]]) {
+      await seek.evaluate((slider, value) => {
+        slider.value = value;
+        slider.dispatchEvent(new Event("input", { bubbles: true }));
+      }, second);
+      assert.equal(await link.getAttribute("href"), "#step/" + step);
+      const row = await entry.boundingBox(), action = await label.boundingBox(), log = await link.boundingBox();
+      assert.ok(row && action && log && action.width > 0, "The action and log link should both be visible.");
+      assert.ok(Math.abs(action.y + action.height / 2 - log.y - log.height / 2) <= 2,
+        "The action and its log link should share a line.");
+      assert.ok(action.x >= row.x - 1 && action.x + action.width <= log.x + 1 && log.x + log.width <= row.x + row.width + 1,
+        "The action and log link should fit side by side without overlap.");
+      assert.ok(row.x >= 0 && row.x + row.width <= width + 1);
+      heights.push(row.height);
+    }
+    assert.ok(Math.max(...heights) - Math.min(...heights) <= 1, "Action length should not change the replay panel height.");
+    assert.match(await label.textContent(), /Paragraph IV/);
+    await link.press("Enter");
+    await page.locator("#v-research #s100").waitFor();
+    assert.equal(page.url(), url + "#step/100");
+  }
+}
+
 async function main() {
   if (process.argv.length !== 3) throw new Error("Usage: node tests/example-replay.cjs /path/to/exported/index.html");
   const { chromium } = require("playwright");
@@ -170,6 +203,7 @@ async function main() {
     await testExampleDeals(page, url);
     await testReplay(page, url);
     await testActivity(page, url);
+    await testActivityEntryLayout(page, url);
     console.log("Search brief, full replay, deal previews, case evidence, transcript continuity, saved-finding playback and research activity passed.");
   } finally {
     await browser.close();

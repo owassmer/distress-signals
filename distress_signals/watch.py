@@ -444,15 +444,15 @@ def _page(run_id, data=None, home="/"):
     project_credit = ""
     if data and data.get("example_deal"):
         project_credit = '<a class="project-credit" href="https://github.com/owassmer">Built by <strong>Owen Wassmer</strong></a>'
-        title = "Sales prospecting from public records"
-        purpose = ("Working from a brief, the AI agent finds companies whose revenue depends on upcoming events, "
-                   "estimates what’s at stake, and prepares a HubSpot deal with a suggested contact and draft outreach.")
+        title = "An AI agent for sales prospecting"
+        purpose = ("Distress Signals searches public records for upcoming events and the companies whose revenue depends on them. "
+                   "It creates proposed deals in HubSpot showing how much is at stake, who to contact, and why the timing matters.")
         brief = (f'<details class="demo-brief"><summary>Search brief</summary>'
                  f'<blockquote>{html.escape(assignment)}</blockquote></details>') if assignment else ""
         replay = ('<button type="button" id="demo-replay" class="demo-play" aria-controls="activity" hidden>'
                   '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11L13 8z"/></svg>'
                   '<span>Replay search · <span id="demo-replay-duration"></span></span></button>')
-        results_header = (f'<div class="demo-header"><h2 id="findings-title">Interactive demo</h2>'
+        results_header = (f'<div class="demo-header"><h2 id="findings-title">Prospects from this search</h2>'
                           f'{replay}{brief}</div>')
         description = html.escape(purpose, quote=True)
         share_meta = (f'<meta name="description" content="{description}">'

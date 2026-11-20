@@ -28,7 +28,8 @@ STYLE = r"""
 #activity-speeds{display:inline-flex;gap:1px;padding:3px;border-radius:99px;background:#f1f3f6}
 #activity-speeds button{border:0;border-radius:99px;background:transparent;color:var(--faint);cursor:pointer;font:inherit;font-size:12px;font-weight:650;min-width:32px;min-height:28px}
 #activity-speeds button[aria-pressed="true"]{color:var(--ink);background:var(--card);box-shadow:0 1px 3px #0f172a24}
-.activity-entry{margin:13px 0 0;padding-top:12px;display:flex;align-items:baseline;gap:5px 20px;justify-content:space-between;flex-wrap:wrap;border-top:1px solid var(--line2);font-size:13px;color:var(--soft);overflow-wrap:anywhere}
+.activity-entry{margin:13px 0 0;padding-top:12px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;gap:clamp(8px,2vw,20px);border-top:1px solid var(--line2);font-size:13px;color:var(--soft)}
+#activity-entry-label{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .activity-entry a{white-space:nowrap}
 @media(max-width:620px){#activity{padding:15px 14px}.activity-controls{grid-template-columns:auto 1fr auto;gap:4px 10px}
 #activity-seek{grid-column:1/-1;grid-row:2}#activity-speeds{grid-column:3;grid-row:1}}
@@ -143,7 +144,9 @@ function activityPaint(force = false) {
     activity.drawnFlags = seen;
     const latest = events[count - 1], link = $("#activity-entry-link");
     if (latest) {
-      $("#activity-entry-label").textContent = latest.label || "";
+      const label = $("#activity-entry-label");
+      label.textContent = latest.label || "";
+      label.title = label.textContent;
       link.textContent = "Research log at " + clock(M.steps[latest.step].el) + " →";
       link.href = "#step/" + latest.step;
     }

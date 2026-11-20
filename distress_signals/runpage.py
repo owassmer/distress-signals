@@ -309,7 +309,7 @@ PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name
 __FINDINGSHTML__
 <section class="view" id="v-case" hidden></section>
 <section class="view" id="v-research" hidden>
-  <div class="loghead"><h1>Research log</h1><select id="saved-jump" aria-label="Jump to a saved finding" hidden></select></div>
+  <div class="loghead"><h1>Research log</h1><select id="saved-jump" aria-label="Jump to a saved case" hidden></select></div>
   <div class="player" id="player"><button class="pp" id="pp" aria-label="Play replay"></button>
     <div class="pmeta"><b id="ptitle"></b><button id="full-log" hidden>Show full log</button><span id="ptime"></span></div>
     <div class="scrub" id="scrub"><div class="track" role="slider" tabindex="0" aria-label="Research step" aria-valuemin="1">
@@ -595,7 +595,7 @@ function stepBody(s, part, beat) {
     + says.map(t => `<div class="say">${paras(t)}</div>`).join("")
     + (rest || acts.length ? `<div class="srow">${acts.length ? `<button class="chips" data-acts="${s.i}" aria-expanded="${showActs}">${chipsHTML(acts)}<span class="chev">${showActs ? "Hide" : "Show"}</span></button>` : ""}${rest}</div>` : "")
     + (acts.length && showActs ? `<ul class="al">${acts.map((a, j) => actHTML(a, part && beat.k === "act" && j === acts.length - 1)).join("")}</ul>` : "")
-    + finds.map(f => `<a class="found${part && beat.f === f ? " new" : ""}" href="#case/${esc(f.oid)}"><span class="num">${f.n}</span><span>${clock(f.el)} · Finding saved · <b>${esc(f.c.company)}</b> · `
+    + finds.map(f => `<a class="found${part && beat.f === f ? " new" : ""}" href="#case/${esc(f.oid)}"><span class="num">${f.n}</span><span>${clock(f.el)} · Case saved · <b>${esc(f.c.company)}</b> · `
       + `${esc(f.c.stream || "")}${f.c.stake != null ? ` · ${money(f.c.stake, f.c.currency)} modeled shortfall` : ""}</span><span class="go">View case →</span></a>`).join("")
     + `</div>`;
 }
@@ -628,7 +628,7 @@ function research() {
   if (logModel !== M) {
     const jump = $("#saved-jump"); jump.hidden = !M.found.length;
     const options = M.found.map(f => new Option([clock(f.el), f.c.company, f.c.stream].filter(Boolean).join(" · "), f.oid));
-    jump.replaceChildren(new Option("Jump to finding", ""), ...options);
+    jump.replaceChildren(new Option("Jump to case", ""), ...options);
     for (let i = 0; i < count; i++) paintRow(i, beat);
     logModel = M;
   } else {

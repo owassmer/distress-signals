@@ -1,16 +1,16 @@
 # Distress Signals
 
-Distress Signals is an AI sales prospecting agent. It finds companies whose revenue depends on an upcoming event, estimates how much is at stake, and identifies whom to contact. With HubSpot connected, each qualified opportunity becomes a proposed deal with a sourced memo and draft outreach.
+Distress Signals is an autonomous sales prospecting agent. It discovers upcoming events, identifies companies with revenue at risk, and uses public records to estimate what each company could lose. It creates a proposed deal in HubSpot with the supporting research, a suggested contact, and a draft message.
 
 [Explore the interactive demo](https://owassmer.github.io/distress-signals/)
 
 ## How it works
 
-**Prospecting.** A Claude agent can start with a company, an event, or a custom brief. In an open search, it discovers both the events and the companies by following leads through filings, regulatory notices, public contracts, payment records, and the open web.
+**Discovery.** A Claude agent chooses which events and companies to investigate. It follows leads through filings, regulatory notices, contracts, payment records, and the open web to identify the part of a company’s business an event could affect.
 
-**Qualification.** The agent explains how an event could affect a revenue stream and chooses the scenarios and formulas. The software runs the calculations, checks quotations against stored records when available, and keeps the source, calculation, or assumption behind each input.
+**Revenue analysis.** The agent chooses how to model the affected revenue stream. The software runs the calculations and records which inputs were reported, derived, or assumed. A reviewer can trace a reported figure back to its source passage.
 
-**Follow-up.** From HubSpot, a team can request research, review a proposed deal, or ask the agent to revisit it when circumstances change. The agent can retrieve earlier work and recorded deal outcomes in later searches.
+**Follow-up.** A sales team can launch research from a HubSpot company record, request an update from an existing deal, and record the outcome. The agent can consult that history when it researches the company again.
 
 ## Setting it up
 
@@ -89,6 +89,6 @@ The live view of runs is at http://localhost:8790 while the services are running
 
 ## Design
 
-The research log stores reasoning summaries, messages and tool calls. A case refresh starts from the saved case and checks its sources again.
+The research log preserves the agent’s searches, source reads, calculations, and saved cases. The software checks quoted passages against stored documents and marks quotations drawn from web excerpts alone as unchecked.
 
 The [design specification](SPEC.md) describes the research tools, evidence checks and data model.

@@ -32,7 +32,10 @@ STYLE = r"""
 .activity-entry a{white-space:nowrap}
 @media(max-width:620px){#activity{padding:15px 14px}.activity-controls{grid-template-columns:auto 1fr auto;gap:4px 10px}
 #activity-seek{grid-column:1/-1;grid-row:2}#activity-speeds{grid-column:3;grid-row:1}}
-@media(max-width:380px){.activity-toggle{width:34px;height:34px;padding:0}.activity-toggle span{display:none}}
+@media(max-width:480px){.activity-controls{grid-template-columns:minmax(0,1fr) auto auto;gap:6px}
+.activity-toggle{grid-column:1/3;grid-row:1;justify-self:start;padding:8px 10px;white-space:nowrap}
+.activity-time{grid-column:3;grid-row:1;justify-self:end}
+#activity-seek{grid-column:1;grid-row:2}#activity-speeds{grid-column:2/4;grid-row:2;justify-self:end}}
 """
 
 HTML = r"""
@@ -145,12 +148,18 @@ function activityPaint(force = false) {
     }
   }
   const playing = activity.timer !== null;
-  const action = playing ? "Pause" : t >= activity.end ? "Replay" : "Play";
+  let action = "Play";
+  if (playing) action = "Pause";
+  else if (t >= activity.end) action = "Replay";
+  else if (t > 0) action = "Resume";
+  const showDuration = action === "Replay" || action === "Play";
+  const seconds = Math.ceil(activityReplaySeconds());
+  const label = action + " activity" + (showDuration ? " · " + clock(seconds) : "");
   const toggle = $("#activity-toggle");
-  if (toggle.dataset.action !== action) {
-    toggle.dataset.action = action;
-    toggle.setAttribute("aria-label", action + " activity");
-    toggle.innerHTML = (playing ? ICONS.pause : ICONS.play) + "<span>" + action + "</span>";
+  if (toggle.dataset.label !== label) {
+    toggle.dataset.label = label;
+    toggle.setAttribute("aria-label", action + " activity" + (showDuration ? ", " + seconds + " seconds of playback" : ""));
+    toggle.innerHTML = (playing ? ICONS.pause : ICONS.play) + "<span>" + label + "</span>";
   }
   $("#activity-time").textContent = clock(t);
   const seek = $("#activity-seek");
@@ -163,12 +172,16 @@ function activityStop() {
   activity.timer = null;
 }
 
+function activityReplaySeconds() {
+  // At the base speed one minute of research takes two seconds in the replay.
+  return Math.min(activity.end, Math.max(40, Math.min(100, activity.end / 30))) / activity.rate;
+}
+
 function activityAdvance() {
   const now = performance.now(), seconds = (now - activity.lastTick) / 1000;
   activity.lastTick = now;
-  // At the base speed one minute of research takes two seconds in the replay.
-  const replaySeconds = Math.min(activity.end, Math.max(40, Math.min(100, activity.end / 30)));
-  if (replaySeconds) activity.time = Math.min(activity.end, activity.time + seconds * activity.end / replaySeconds * activity.rate);
+  const replaySeconds = activityReplaySeconds();
+  if (replaySeconds) activity.time = Math.min(activity.end, activity.time + seconds * activity.end / replaySeconds);
   if (activity.time >= activity.end) activityStop();
 }
 
@@ -213,9 +226,10 @@ $("#activity-toggle").onclick = () => {
 $("#activity-speeds").onclick = e => {
   const button = e.target.closest("button[data-rate]");
   if (!button) return;
-  if (activity.timer !== null) activityTick();
+  if (activity.timer !== null) activityAdvance();
   activity.rate = Number(button.dataset.rate);
   for (const option of $$("#activity-speeds button")) option.setAttribute("aria-pressed", String(option === button));
+  activityPaint();
 };
 function activitySeek(seconds) {
   if (!activity.model || live() || !activity.end) return;

@@ -441,11 +441,13 @@ def _page(run_id, data=None, home="/"):
     purpose = assignment
     findings_title = "Company findings"
     share_meta = ""
+    project_credit = ""
     if data and data.get("example_deal"):
+        project_credit = '<a class="project-credit" href="https://github.com/owassmer">Built by <strong>Owen Wassmer</strong></a>'
         if run and run.get("seed_kind") == "mandate":
             title = "Sales prospecting from public records"
-            purpose = ("Distress Signals finds upcoming events and the companies whose revenue depends on them. "
-                       "It models the potential shortfall and prepares a proposed HubSpot deal with sources, a suggested contact and draft outreach.")
+            purpose = ("An AI agent finds upcoming events and the companies with revenue at stake. "
+                       "It estimates the potential shortfall, identifies whom to contact, and drafts outreach.")
             findings_title = "Prospects from an open search"
         description = html.escape(purpose, quote=True)
         share_meta = (f'<meta name="description" content="{description}">'
@@ -458,7 +460,8 @@ def _page(run_id, data=None, home="/"):
             .replace("__FINDINGSHTML__", findingsview.HTML).replace("__FINDINGSJS__", findingsview.JS)
             .replace("__LEADSHTML__", LEADS_HTML).replace("__ACTIVITYHTML__", activityview.HTML.strip()).replace("__ACTIVITYJS__", activityview.JS)
             .replace("__FINDINGSTITLE__", findings_title).replace("__SHAREMETA__", share_meta)
-            .replace("__RUNINDEX__", index_link).replace("__FOUNDJS__", FOUND_JS).replace("__CHARTJS__", CHART_JS)
+            .replace("__RUNINDEX__", index_link).replace("__CREDIT__", project_credit)
+            .replace("__FOUNDJS__", FOUND_JS).replace("__CHARTJS__", CHART_JS)
             .replace("__ICONS__", json.dumps(ICONS)).replace("__PAGESTEPS__", str(PAGE_STEPS)).replace("__PACE__", json.dumps(PACE))
             .replace("__RUN__", run_id).replace("__FAVICON__", FAVICON).replace("__REPO__", REPO)
             .replace("__PURPOSEHIDDEN__", "" if purpose else "hidden").replace("__PURPOSE__", html.escape(purpose))

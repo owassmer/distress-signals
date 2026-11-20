@@ -6,6 +6,24 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
+async function testExampleDeal(page, url) {
+  await page.goto(url);
+  const company = page.getByRole("rowgroup", { name: "RYTHM, Inc.", exact: true });
+  const toggle = company.getByRole("button", { name: "Example HubSpot deal" });
+  const deal = company.locator("#hubspot");
+  assert.equal(await toggle.getAttribute("aria-expanded"), "false");
+  assert.equal(await deal.isVisible(), false);
+  await toggle.press("Enter");
+  assert.equal(await toggle.getAttribute("aria-expanded"), "true");
+  assert.match(await deal.innerText(), /Hemp-derived THC product sales/);
+  assert.match(await deal.innerText(), /Brad Asher/);
+  await toggle.press("Enter");
+  assert.equal(await deal.isVisible(), false);
+  await page.goto(url + "#hubspot");
+  await deal.waitFor();
+  assert.equal(await toggle.getAttribute("aria-expanded"), "true");
+}
+
 async function testReplay(page, url) {
   await page.goto(url + "#step/9");
   const log = page.locator("#v-research");
@@ -37,6 +55,7 @@ async function testActivity(page, url) {
   assert.equal(await overview.locator("#also").isVisible(), true);
   const seek = activity.getByRole("slider");
   const toggle = activity.locator("#activity-toggle");
+  assert.equal(await toggle.innerText(), "Replay activity · 0:59");
   const distances = [];
   for (const speed of [1, 2, 4]) {
     await seek.press("Home");
@@ -75,6 +94,7 @@ async function main() {
     const url = pathToFileURL(path.resolve(process.argv[2])).href;
     await page.clock.install({ time: new Date("2026-11-19T12:00:00Z") });
     await page.clock.pauseAt(new Date("2026-11-19T12:00:01Z"));
+    await testExampleDeal(page, url);
     await testReplay(page, url);
     await testActivity(page, url);
     console.log("Transcript continuity, saved-finding playback and research activity passed.");

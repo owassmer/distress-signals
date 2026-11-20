@@ -24,12 +24,15 @@ STYLE = r"""
 .finding-contact{font-size:14px;line-height:1.4;font-weight:580;color:var(--ink)}
 .prospect-table .mobile-label{display:none}
 .prospect-table .stream-continuation :is(th,td){border-top-color:var(--line2)}
-.finding-deal{background:var(--card);border:1px solid var(--line);border-top:0;border-radius:0 0 12px 12px;color:var(--soft);font-size:14px}
-#section-findings:has(.finding-deal:not([hidden])) .prospect-sheet{border-radius:12px 12px 0 0}
-.finding-deal summary{padding:9px 15px;color:var(--blue);font-size:13px;font-weight:600;cursor:pointer}
-.finding-deal summary::marker{color:var(--blue)}
-.deal-subject{margin-left:6px;color:var(--mute);font-weight:450}
-.deal-body{padding:3px 16px 15px}
+.company-heading{display:flex;align-items:baseline;flex-wrap:wrap;gap:1px 12px;margin-bottom:4px}
+.prospect-table .company-heading .finding-company{margin:0}
+.deal-toggle{display:inline-flex;align-items:center;gap:6px;border:0;border-radius:3px;padding:4px 0;background:none;color:var(--blue);font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.deal-toggle:hover{text-decoration:underline;text-underline-offset:3px}
+.deal-toggle::after{content:"";width:5px;height:5px;border:solid currentColor;border-width:0 1.5px 1.5px 0;transform:translateY(-1px) rotate(45deg)}
+.deal-toggle[aria-expanded=true]::after{transform:translateY(1px) rotate(225deg)}
+.prospect-table .deal-cell{padding:15px 18px;background:#f6f9fd}
+.deal-body{max-width:800px;color:var(--soft);font-size:14px;line-height:1.45}
+.deal-body h4{margin:0 0 10px;color:var(--ink);font-size:14px;font-weight:650}
 .deal-body dl{display:flex;flex-wrap:wrap;gap:8px 28px;margin:0}
 .deal-body dt{font-size:12px;color:var(--mute)}.deal-body dd{margin:2px 0 0}
 .deal-body blockquote{max-width:780px;margin:5px 0 0;padding-left:12px;border-left:2px solid #bdd1ef;color:var(--ink)}
@@ -56,7 +59,8 @@ STYLE = r"""
   .prospect-table .finding-stake .mobile-label{display:block;flex-basis:100%;order:-1;color:var(--mute);font-size:11px;margin-bottom:1px}
   .prospect-table .finding-contact{font-weight:500;font-size:12px}
   .prospect-table .finding-role{display:none}
-  .finding-deal summary{padding:10px 14px}.deal-subject{margin-left:0;display:block}
+  .prospect-table tbody .deal-row{display:block;padding:0}
+  .prospect-table .deal-cell{padding:14px}
 }
 @media(max-width:480px){
   .prospect-table tbody tr{grid-template-columns:minmax(0,1fr);gap:4px}
@@ -76,7 +80,6 @@ HTML = """<section class="view" id="v-findings" hidden>
   <section id="section-findings" aria-labelledby="findings-title">
     <h2 id="findings-title">__FINDINGSTITLE__</h2>
     <div id="cards"></div>
-    <details id="hubspot" class="finding-deal" hidden><summary>Example HubSpot deal <span class="deal-subject" id="deal-subject"></span></summary><div class="deal-body" id="deal"></div></details>
   </section>
   __ACTIVITYHTML__
   __LEADSHTML__
@@ -111,7 +114,25 @@ function prospectRow(c, eventCell, source) {
       ${role ? `<span class="finding-role">${esc(role)}</span>` : ""}</td></tr>`;
 }
 
-function companyRows(cases) {
+function exampleDealRow(c) {
+  const fields = [["Revenue stream", c.stream], ["Suggested contact", c.who], ["Deal stage", "Proposed"]];
+  return `<tr class="deal-row" hidden><td class="deal-cell" colspan="4">
+    <section class="deal-body" id="hubspot" aria-labelledby="deal-title" tabindex="-1">
+      <h4 id="deal-title">${c.company ? `HubSpot deal for ${esc(c.company)}` : "Example HubSpot deal"}</h4>
+      <dl>${fields.filter(([, value]) => value).map(([name, value]) =>
+        `<div><dt>${esc(name)}</dt><dd>${esc(value)}</dd></div>`).join("")}</dl>
+      ${c.opening ? `<span class="draft-label">Draft outreach</span><blockquote>${esc(c.opening)}</blockquote>` : ""}
+    </section></td></tr>`;
+}
+
+function setExampleDealOpen(open) {
+  const button = $("#deal-toggle"), panel = $("#hubspot");
+  if (!button || !panel) return;
+  button.setAttribute("aria-expanded", String(open));
+  panel.closest("tr").hidden = !open;
+}
+
+function companyRows(cases, exampleDeal) {
   const byEvent = new Map();
   for (const c of cases) {
     const key = JSON.stringify([c.event, c.event_date, c.date_label]);
@@ -120,34 +141,37 @@ function companyRows(cases) {
   }
   return Array.from(byEvent.values(), (streams, i) => {
     const c = streams[0], sources = streams.map(findingSource);
+    const hasDeal = streams.includes(exampleDeal);
+    const toggle = hasDeal ? '<button type="button" id="deal-toggle" class="deal-toggle" aria-expanded="false" aria-controls="hubspot">Example HubSpot deal</button>' : "";
     const commonSource = streams.length > 1 && sources.every(source => source === sources[0]) ? sources[0] : "";
     const eventDate = c.event_date && new Date(c.event_date + "T12:00:00Z").toLocaleDateString("en-US",
       {month:"short", day:"numeric", year:"numeric", timeZone:"UTC"});
     const cell = `<th class="company-event" rowspan="${streams.length}" scope="rowgroup">
-      ${i === 0 ? `<h3 class="finding-company">${esc(c.company || "Company unspecified")}</h3>` : ""}
+      ${i === 0 ? `<div class="company-heading"><h3 class="finding-company">${esc(c.company || "Company unspecified")}</h3>${toggle}</div>` : toggle}
       ${c.event ? `<div class="finding-event">${esc(c.event)}</div>` : ""}
       ${eventDate ? `<span class="finding-date">${esc(c.date_label || "Event reference date")} · ${esc(eventDate)}</span>` : ""}${commonSource}</th>`;
-    return `<tbody aria-label="${esc(c.company || "Company findings")}">${streams.map((s, j) => prospectRow(s, j === 0 ? cell : "", commonSource ? "" : sources[j])).join("")}</tbody>`;
+    return `<tbody aria-label="${esc(c.company || "Company findings")}">${streams.map((s, j) => prospectRow(s, j === 0 ? cell : "", commonSource ? "" : sources[j])).join("")}${hasDeal ? exampleDealRow(exampleDeal) : ""}</tbody>`;
   }).join("");
 }
 
 function findings() {
   const cases = M.found.map(f => f.c);
+  const exampleDeal = DATA?.example_deal ? cases[0] : null;
   $("#cards").innerHTML = cases.length ? `<div class="prospect-sheet"><table class="prospect-table" aria-labelledby="findings-title">
     <colgroup><col><col><col><col></colgroup>
     <thead><tr><th scope="col">Company and event</th><th scope="col">Revenue stream</th>
     <th scope="col">Largest modeled shortfall</th><th scope="col">Suggested contact</th></tr></thead>
-    ${groupByCompany(cases).map(companyRows).join("")}</table></div>` : `<p class="sub">${emptyFindings()}</p>`;
+    ${groupByCompany(cases).map(group => companyRows(group, exampleDeal)).join("")}</table></div>` : `<p class="sub">${emptyFindings()}</p>`;
   const rq = status.requester, requester = $("#requester");
   requester.hidden = !rq;
   if (rq) requester.innerHTML = `Requested from <a href="${esc(rq.url)}">${esc(rq.name)}</a> in HubSpot.`;
-  const first = cases[0], preview = $("#hubspot");
-  preview.hidden = !(DATA?.example_deal && first);
-  if (preview.hidden) return;
-  $("#deal-subject").textContent = first.company || "";
-  const fields = [["Revenue stream", first.stream], ["Suggested contact", first.who], ["Deal stage", "Proposed"]];
-  $("#deal").innerHTML = "<dl>" + fields.filter(([,value]) => value).map(([name,value]) =>
-    `<div><dt>${esc(name)}</dt><dd>${esc(value)}</dd></div>`).join("") + "</dl>"
-    + (first.opening ? `<span class="draft-label">Draft outreach</span><blockquote>${esc(first.opening)}</blockquote>` : "");
+  if (exampleDeal) {
+    const button = $("#deal-toggle"), panel = $("#hubspot");
+    button.onclick = () => {
+      const open = button.getAttribute("aria-expanded") === "false";
+      setExampleDealOpen(open);
+      if (open) panel.scrollIntoView({block:"nearest"});
+    };
+  }
 }
 """

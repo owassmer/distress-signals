@@ -226,6 +226,9 @@ SHELL_STYLE = r"""
 .run-nav .tabs .on:after{content:"";position:absolute;bottom:-1px;left:0;right:0;height:2px;background:var(--blue)}
 .run-nav .project-link{font-size:13px;font-weight:600;color:var(--mute);white-space:nowrap}
 .run-nav .project-link:hover{color:var(--ink)}
+.run-nav .project-credit{border-left:1px solid var(--line);padding-left:18px;color:var(--mute);font-size:12px;line-height:1.4;white-space:nowrap}
+.project-credit strong{font-weight:600;color:var(--soft)}
+.project-credit:hover strong{text-decoration:underline;text-underline-offset:3px}
 .run-nav .github-icon{display:none;width:20px;height:20px;fill:currentColor}
 .run-nav + .wrap{max-width:1116px;padding-top:28px}
 .run-nav + .wrap .view{animation:none}
@@ -253,11 +256,23 @@ SHELL_STYLE = r"""
   .run-nav .source-link{display:grid;place-items:center;min-width:25px;min-height:40px}
   .run-nav:not(:has(.operator-home,.pill:not([hidden]))) .in{display:grid;grid-template-columns:minmax(0,1fr) auto auto;column-gap:12px}
   .run-nav:has(.operator-home) .tabs{order:1;flex-basis:100%}
+  .run-nav .in:has(.project-credit):not(:has(.operator-home,.pill:not([hidden]))){grid-template-rows:auto auto;min-height:54px;row-gap:2px}
+  .run-nav .in:has(.project-credit) .brand{grid-area:1/1;align-self:end;line-height:1.25}
+  .run-nav .project-credit{grid-area:2/1;align-self:start;justify-self:start;padding:0;border:0;font-size:11px;line-height:1.25}
+  .run-nav .in:has(.project-credit) .tabs{grid-area:1/2/3/3}
+  .run-nav .in:has(.project-credit) .source-link{grid-area:1/3/3/4}
 }
 @media(max-width:375px){
   .run-nav .in{gap:0 10px;padding:0 12px}.run-nav .brand{gap:6px;font-size:12px}
   .run-nav .brand img{width:17px;height:17px}.run-nav .tabs{gap:10px}
   .run-nav .tabs a,.run-nav .project-link{font-size:12px}
+}
+@media(max-width:360px){
+  .run-nav .in:has(.project-credit) .brand{align-self:center}
+  .run-nav .in:has(.project-credit) .project-credit{grid-area:1/2;align-self:center}
+  .run-nav .in:has(.project-credit) .source-link{grid-area:1/3;min-height:34px}
+  .run-nav .in:has(.project-credit) .tabs{grid-area:2/1/3/-1;gap:15px}
+  .run-nav .in:has(.project-credit) .tabs a{padding:1px 0 7px}
 }
 @media(max-width:340px){.run-nav .brand img{display:none}}
 """
@@ -272,7 +287,7 @@ PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name
   <nav class="tabs" id="tabs" aria-label="Run navigation">
     <a href="#overview">Overview</a><a href="#research">Research log</a>
   </nav><span class="pill" id="pill" hidden></span>
-  __RUNINDEX__<a class="project-link source-link" href="__REPO__" aria-label="Source on GitHub" title="Source on GitHub">
+  __RUNINDEX____CREDIT__<a class="project-link source-link" href="__REPO__" aria-label="Source on GitHub" title="Source on GitHub">
     <svg class="github-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.45 7.45 0 018 3.86c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8Z"/></svg><span class="github-label">GitHub</span></a></div></header>
 <main class="wrap">
 __FINDINGSHTML__
@@ -758,8 +773,7 @@ function openRoute(moveFocus = false) {
   displayedURL = location.href;
   const anchor = next.section && document.getElementById(next.section);
   if (anchor && next.section === "hubspot") {
-    const detail = anchor.closest("details");
-    if (detail) detail.open = true;
+    setExampleDealOpen(true);
   }
   if (Number.isFinite(saved)) window.scrollTo({top:saved, behavior:"instant"});
   else if (anchor && anchor.getClientRects().length) anchor.scrollIntoView({block:"start", behavior:"instant"});

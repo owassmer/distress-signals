@@ -75,6 +75,7 @@ def _quoted(terms):
 def _where(ref):
     return (_domain(ref) if ref.startswith("http") else "the company's SEC record" if ref.startswith("sec:")
             else "a federal award" if ref.startswith("usaspending:") else "a payment ledger" if ref.startswith("ledger")
+            else "every Federal Register document matching its search" if ref.startswith("federal_register:search")
             else "the source record")
 
 

@@ -662,7 +662,7 @@ SEARCH_FILTERS = {
 }
 VIEW = 12000  # characters of text a read returns at once
 TABLES_OF = {"award": "awards, award_funding, award_modifications", "payment": "payments",
-             "financial_fact": "revenue, filings"}
+             "financial_fact": "revenue, filings", "register_search": "register_documents"}
 
 
 def search_records(source: str, query: str, filters: dict | None = None) -> dict:
@@ -677,7 +677,8 @@ def search_records(source: str, query: str, filters: dict | None = None) -> dict
             got = public_records.search_awards(query or None, **filters)
             rows, extra = got.pop("results"), got
         elif source == "sec":
-            rows, extra = sec.search(query), {}
+            got = sec.search(query)
+            rows, extra = got.pop("results"), got
         elif source == "filings":
             got = filings.search(query, **filters)
             rows, extra = got.pop("results"), got
@@ -696,6 +697,8 @@ def _locate(ref):
     """(observation ID, fetch function) for a URL or a native record ID."""
     if re.match(r"^https?://", ref):
         return db.make_id("obs_", "page", ref), lambda: web.read(ref)
+    if ref.startswith(federal_register.PREFIX):
+        return db.make_id("obs_", "federal_register", ref), lambda: federal_register.read_all(ref)
     m = re.match(r"^usaspending:award:(.+)$", ref)
     if m:
         return db.make_id("obs_", "usaspending", m[1]), lambda: public_records.award(m[1])
@@ -708,7 +711,7 @@ def _locate(ref):
         return (db.make_id("obs_", "ledger", lid, since or "default", payee),
                 lambda: ledgers.payee_lines(lid, payee, since))
     raise ToolError("read_record takes a URL, an observation ID (obs_...), or a record_id from search_records "
-                    "(usaspending:award:..., sec:CIK, ledger:LEDGER:SINCE:PAYEE)")
+                    "(usaspending:award:..., sec:CIK, ledger:LEDGER:SINCE:PAYEE, federal_register:search?...)")
 
 
 def _source_ref(obs):
@@ -717,6 +720,8 @@ def _source_ref(obs):
         return f"usaspending:award:{obs['native_id']}"
     if obs["source"] == "sec" and obs["kind"] == "financial_fact" and obs.get("native_id"):
         return f"sec:{obs['native_id']}"
+    if obs["source"] == "federal_register" and obs["kind"] == "register_search" and obs.get("native_id"):
+        return obs["native_id"]
     if obs["source"].startswith("ledger:") and obs.get("native_id"):
         return f"ledger:{obs['native_id']}"
     return obs.get("url")

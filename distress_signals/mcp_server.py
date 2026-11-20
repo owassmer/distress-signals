@@ -63,16 +63,20 @@ def search_records(source: Literal["filings", "federal_register", "usaspending",
       last 120 days), max_results (the default is 100).
     - federal_register: every federal rule, proposed rule, notice and presidential document, searched by
       words. Each result gives the title, agencies, action, publication date, effective date, comment
-      deadline and address. Filters: type (rule, proposed_rule, notice or presidential_document), agency (its
+      deadline and address. When more match than are returned, it gives how the matches divide by type and by
+      agency. read_all is a record_id for every match: read_record reads them all (up to 25,000) into
+      register_documents. Filters: type (rule, proposed_rule, notice or presidential_document), agency (its
       name), effective_from and effective_until, comments_close_from and comments_close_until, since and until
-      (publication dates; without any dates, the last year), max_results (the default is 50).
+      (publication dates; without any dates, the last year), max_results (the default is 50, at most 200).
     - usaspending: U.S. federal awards to a recipient (query is the recipient's name). Filters: agency (the
       awarding agency's top-level name as USAspending lists it), keyword (words in the award), since and
       until (dates of award actions, YYYY-MM-DD; the default is the last three years), award_types
       (contracts, idvs, grants, loans, direct_payments or other; the default is contracts), active_on
       (only awards whose current end date is on or after this date; every such award is read, back to 2007,
       and the largest are returned with a count of how many qualified), max_results (the default is 300).
-    - sec: a ticker or company name, matched to the company's SEC EDGAR record.
+    - sec: a ticker or company name, matched against every name EDGAR holds for every filer, current or former,
+      with a ticker or without one. Filers with a ticker come first; one without says what kind of filer it is,
+      its industry, when it last filed and which forms it files.
     - ledgers: a company name, searched in 19 U.S. state and local government payment ledgers; returns each
       payee spelling by paying department with payment counts, totals and dates. Takes one to two minutes.
       Filters: since (YYYY-MM-DD; the record IDs it returns keep it), ledgers (ledger IDs)."""
@@ -87,10 +91,11 @@ def read_record(id_or_url: str, find: str | None = None, offset: int = 0, fresh:
     Returns the text 12,000 characters at a time (next_offset continues it) and the page's links. find takes
     terms separated by '|' and returns the passages around each match instead (plain text, any letter case).
     A federal award returns its period of performance, values, funding accounts and modifications; an SEC
-    record returns the company's filings with links and its reported revenue by quarter and year (a fourth
-    quarter is derived from the year and labeled so); a ledger record returns every payment line it keeps.
-    Those three also fill the workspace tables. A stored record is reused; fresh reads its source again and
-    updates the same record."""
+    record returns the filer's former names, the forms it files, its recent filings with links and its
+    reported revenue by quarter and year (a fourth quarter is derived from the year and labeled so); a ledger
+    record returns every payment line it keeps; a Federal Register read_all returns every matching document,
+    one line each. Those four also fill the workspace tables. A stored record is reused; fresh reads its
+    source again and updates the same record."""
     return _call("read_record", tools.read_record, id_or_url, find, offset, fresh)
 
 
@@ -102,7 +107,9 @@ value comes from it cites it as derived, and saving checks the value is in it. S
 Tables filled when a record is read:
 {tables}
 In award_funding, obligated is the amount obligated in that fiscal period; outlays_fytd is outlays from the
-start of the fiscal year to that period; one period can have several rows for the same account. Also in
+start of the fiscal year to that period; one period can have several rows for the same account. In
+register_documents, significant is 1 where the document is a significant regulatory action, dates is the
+document's own DATES section, and cfr lists the parts of the Code of Federal Regulations it changes. Also in
 the workspace: observations(id, kind, source, native_id, url, published, retrieved_at, text, data), findings
 and workspace_results."""
 

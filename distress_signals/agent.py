@@ -32,9 +32,9 @@ reach are current.
 
 - `search_records` and `read_record` reach records about companies, public or private: U.S. federal awards and 19
   state and local government payment ledgers, which cover any company paid by those governments; the full text of SEC
-  filings and public companies' reported revenue; the Federal Register's rules and notices; and any web page or PDF.
-  WebSearch searches the web; WebFetch reads a page without storing it. A passage can be cited only from a record
-  read with `read_record`.
+  filings and the filings and reported revenue of any SEC filer; the Federal Register's rules and notices; and any
+  web page or PDF. WebSearch searches the web; WebFetch reads a page without storing it. A passage can be cited only
+  from a record read with `read_record`.
 - `compute` runs SQL over the records read with `read_record` and the findings and results recorded, for totals,
   intermediate figures and dates.
 - `record_finding` records facts, inferences, conclusions, open questions and dropped leads, and can withdraw a

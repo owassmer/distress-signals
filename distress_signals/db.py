@@ -74,6 +74,8 @@ RECORD_TABLES = {
     "revenue": ["company", "cik", "concept", "start_date", "end_date", "period_days", "period_type", "value", "form",
                 "filed", "accession"],
     "filings": ["company", "cik", "form", "filed", "report_date", "items", "document", "index_url", "description"],
+    "register_documents": ["document_number", "type", "title", "agencies", "action", "publication_date", "effective_on",
+                           "comments_close_on", "significant", "rins", "docket_ids", "cfr", "dates", "abstract", "url"],
 }
 DDL += "".join(f"CREATE TABLE IF NOT EXISTS {t} (observation_id TEXT NOT NULL, {', '.join(cols)});\n"
                f"CREATE INDEX IF NOT EXISTS {t}_obs ON {t}(observation_id);\n" for t, cols in RECORD_TABLES.items())

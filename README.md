@@ -1,12 +1,12 @@
 # Distress Signals
 
-Distress Signals is an autonomous sales prospecting agent. It discovers upcoming events, identifies companies with revenue at risk, and uses public records to estimate what each company could lose. It creates a proposed deal in HubSpot with the supporting research, a suggested contact, and a draft message.
+Distress Signals is an autonomous prospecting agent for brokers and advisers who help businesses hedge against revenue losses. It finds companies where a significant share of sales depends on a specific outcome outside their control. The agent traces that exposure through public records, estimates the potential shortfall, and creates a proposed deal in HubSpot with the evidence, a suggested contact, and a draft message.
 
 [Explore the interactive demo](https://owassmer.github.io/distress-signals/)
 
 ## How it works
 
-**Discovery.** A Claude agent chooses which events and companies to investigate. It follows leads through filings, regulatory notices, contracts, payment records, and the open web to identify the part of a company’s business an event could affect.
+**Discovery.** A Claude agent chooses which companies and risks to investigate. It follows leads through filings, contracts, regulatory notices, payment records, and the open web to identify what a revenue stream depends on. For each prospect, it documents which contract, customer, product, or operation is exposed, what could reduce sales, and when the company would feel the loss.
 
 **Revenue analysis.** The agent chooses how to model the affected revenue stream. The software runs the calculations and records which inputs were reported, derived, or assumed. A reviewer can trace a reported figure back to its source passage.
 

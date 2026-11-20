@@ -1,5 +1,5 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sales prospecting from public records · Distress Signals</title><meta name="description" content="Distress Signals finds upcoming events and the companies whose revenue depends on them. It models the potential shortfall and prepares a proposed HubSpot deal with sources, a suggested contact and draft outreach."><meta property="og:title" content="Sales prospecting from public records · Distress Signals"><meta property="og:description" content="Distress Signals finds upcoming events and the companies whose revenue depends on them. It models the potential shortfall and prepares a proposed HubSpot deal with sources, a suggested contact and draft outreach."><meta property="og:type" content="website"><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23111827'/%3E%3Cpath d='M7 20l5-6 4 4 9-10' stroke='%2334d399' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"><style>
+<title>Sales prospecting from public records · Distress Signals</title><meta name="description" content="An AI agent finds upcoming events and the companies with revenue at stake. It estimates the potential shortfall, identifies whom to contact, and drafts outreach."><meta property="og:title" content="Sales prospecting from public records · Distress Signals"><meta property="og:description" content="An AI agent finds upcoming events and the companies with revenue at stake. It estimates the potential shortfall, identifies whom to contact, and drafts outreach."><meta property="og:type" content="website"><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23111827'/%3E%3Cpath d='M7 20l5-6 4 4 9-10' stroke='%2334d399' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"><style>
 :root{--bg:#f7f8fa;--card:#fff;--line:#e7e9ee;--line2:#eff1f4;--ink:#0f172a;--soft:#334155;--mute:#64748b;--faint:#52647a;
 --blue:#2563eb;--bluebg:#eef3ff;--green:#16a34a;--greenink:#15803d;--greenbg:#ecfdf3;--greenline:#bbf7d0;--violet:#7c3aed;
 --amber:#b45309;--amberbg:#fff7ed;--red:#dc2626}
@@ -136,6 +136,9 @@ padding:10px 18px;font-weight:600;font-size:13px;line-height:1;cursor:pointer;bo
 .run-nav .tabs .on:after{content:"";position:absolute;bottom:-1px;left:0;right:0;height:2px;background:var(--blue)}
 .run-nav .project-link{font-size:13px;font-weight:600;color:var(--mute);white-space:nowrap}
 .run-nav .project-link:hover{color:var(--ink)}
+.run-nav .project-credit{border-left:1px solid var(--line);padding-left:18px;color:var(--mute);font-size:12px;line-height:1.4;white-space:nowrap}
+.project-credit strong{font-weight:600;color:var(--soft)}
+.project-credit:hover strong{text-decoration:underline;text-underline-offset:3px}
 .run-nav .github-icon{display:none;width:20px;height:20px;fill:currentColor}
 .run-nav + .wrap{max-width:1116px;padding-top:28px}
 .run-nav + .wrap .view{animation:none}
@@ -163,11 +166,23 @@ padding:10px 18px;font-weight:600;font-size:13px;line-height:1;cursor:pointer;bo
   .run-nav .source-link{display:grid;place-items:center;min-width:25px;min-height:40px}
   .run-nav:not(:has(.operator-home,.pill:not([hidden]))) .in{display:grid;grid-template-columns:minmax(0,1fr) auto auto;column-gap:12px}
   .run-nav:has(.operator-home) .tabs{order:1;flex-basis:100%}
+  .run-nav .in:has(.project-credit):not(:has(.operator-home,.pill:not([hidden]))){grid-template-rows:auto auto;min-height:54px;row-gap:2px}
+  .run-nav .in:has(.project-credit) .brand{grid-area:1/1;align-self:end;line-height:1.25}
+  .run-nav .project-credit{grid-area:2/1;align-self:start;justify-self:start;padding:0;border:0;font-size:11px;line-height:1.25}
+  .run-nav .in:has(.project-credit) .tabs{grid-area:1/2/3/3}
+  .run-nav .in:has(.project-credit) .source-link{grid-area:1/3/3/4}
 }
 @media(max-width:375px){
   .run-nav .in{gap:0 10px;padding:0 12px}.run-nav .brand{gap:6px;font-size:12px}
   .run-nav .brand img{width:17px;height:17px}.run-nav .tabs{gap:10px}
   .run-nav .tabs a,.run-nav .project-link{font-size:12px}
+}
+@media(max-width:360px){
+  .run-nav .in:has(.project-credit) .brand{align-self:center}
+  .run-nav .in:has(.project-credit) .project-credit{grid-area:1/2;align-self:center}
+  .run-nav .in:has(.project-credit) .source-link{grid-area:1/3;min-height:34px}
+  .run-nav .in:has(.project-credit) .tabs{grid-area:2/1/3/-1;gap:15px}
+  .run-nav .in:has(.project-credit) .tabs a{padding:1px 0 7px}
 }
 @media(max-width:340px){.run-nav .brand img{display:none}}
 
@@ -194,12 +209,15 @@ padding:10px 18px;font-weight:600;font-size:13px;line-height:1;cursor:pointer;bo
 .finding-contact{font-size:14px;line-height:1.4;font-weight:580;color:var(--ink)}
 .prospect-table .mobile-label{display:none}
 .prospect-table .stream-continuation :is(th,td){border-top-color:var(--line2)}
-.finding-deal{background:var(--card);border:1px solid var(--line);border-top:0;border-radius:0 0 12px 12px;color:var(--soft);font-size:14px}
-#section-findings:has(.finding-deal:not([hidden])) .prospect-sheet{border-radius:12px 12px 0 0}
-.finding-deal summary{padding:9px 15px;color:var(--blue);font-size:13px;font-weight:600;cursor:pointer}
-.finding-deal summary::marker{color:var(--blue)}
-.deal-subject{margin-left:6px;color:var(--mute);font-weight:450}
-.deal-body{padding:3px 16px 15px}
+.company-heading{display:flex;align-items:baseline;flex-wrap:wrap;gap:1px 12px;margin-bottom:4px}
+.prospect-table .company-heading .finding-company{margin:0}
+.deal-toggle{display:inline-flex;align-items:center;gap:6px;border:0;border-radius:3px;padding:4px 0;background:none;color:var(--blue);font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.deal-toggle:hover{text-decoration:underline;text-underline-offset:3px}
+.deal-toggle::after{content:"";width:5px;height:5px;border:solid currentColor;border-width:0 1.5px 1.5px 0;transform:translateY(-1px) rotate(45deg)}
+.deal-toggle[aria-expanded=true]::after{transform:translateY(1px) rotate(225deg)}
+.prospect-table .deal-cell{padding:15px 18px;background:#f6f9fd}
+.deal-body{max-width:800px;color:var(--soft);font-size:14px;line-height:1.45}
+.deal-body h4{margin:0 0 10px;color:var(--ink);font-size:14px;font-weight:650}
 .deal-body dl{display:flex;flex-wrap:wrap;gap:8px 28px;margin:0}
 .deal-body dt{font-size:12px;color:var(--mute)}.deal-body dd{margin:2px 0 0}
 .deal-body blockquote{max-width:780px;margin:5px 0 0;padding-left:12px;border-left:2px solid #bdd1ef;color:var(--ink)}
@@ -226,7 +244,8 @@ padding:10px 18px;font-weight:600;font-size:13px;line-height:1;cursor:pointer;bo
   .prospect-table .finding-stake .mobile-label{display:block;flex-basis:100%;order:-1;color:var(--mute);font-size:11px;margin-bottom:1px}
   .prospect-table .finding-contact{font-weight:500;font-size:12px}
   .prospect-table .finding-role{display:none}
-  .finding-deal summary{padding:10px 14px}.deal-subject{margin-left:0;display:block}
+  .prospect-table tbody .deal-row{display:block;padding:0}
+  .prospect-table .deal-cell{padding:14px}
 }
 @media(max-width:480px){
   .prospect-table tbody tr{grid-template-columns:minmax(0,1fr);gap:4px}
@@ -270,22 +289,24 @@ padding:10px 18px;font-weight:600;font-size:13px;line-height:1;cursor:pointer;bo
 .activity-entry a{white-space:nowrap}
 @media(max-width:620px){#activity{padding:15px 14px}.activity-controls{grid-template-columns:auto 1fr auto;gap:4px 10px}
 #activity-seek{grid-column:1/-1;grid-row:2}#activity-speeds{grid-column:3;grid-row:1}}
-@media(max-width:380px){.activity-toggle{width:34px;height:34px;padding:0}.activity-toggle span{display:none}}
+@media(max-width:480px){.activity-controls{grid-template-columns:minmax(0,1fr) auto auto;gap:6px}
+.activity-toggle{grid-column:1/3;grid-row:1;justify-self:start;padding:8px 10px;white-space:nowrap}
+.activity-time{grid-column:3;grid-row:1;justify-self:end}
+#activity-seek{grid-column:1;grid-row:2}#activity-speeds{grid-column:2/4;grid-row:2;justify-self:end}}
 </style></head><body>
 <header class="top run-nav"><div class="in"><a class="brand" href="#overview" aria-label="Distress Signals overview"><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23111827'/%3E%3Cpath d='M7 20l5-6 4 4 9-10' stroke='%2334d399' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" alt=""><span>Distress Signals</span></a>
   <nav class="tabs" id="tabs" aria-label="Run navigation">
     <a href="#overview">Overview</a><a href="#research">Research log</a>
   </nav><span class="pill" id="pill" hidden></span>
-  <a class="project-link source-link" href="https://github.com/owassmer/distress-signals" aria-label="Source on GitHub" title="Source on GitHub">
+  <a class="project-credit" href="https://github.com/owassmer">Built by <strong>Owen Wassmer</strong></a><a class="project-link source-link" href="https://github.com/owassmer/distress-signals" aria-label="Source on GitHub" title="Source on GitHub">
     <svg class="github-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.45 7.45 0 018 3.86c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8Z"/></svg><span class="github-label">GitHub</span></a></div></header>
 <main class="wrap">
 <section class="view" id="v-findings" hidden>
-  <header class="finding-intro" id="overview"><h1>Sales prospecting from public records</h1><p class="lede" >Distress Signals finds upcoming events and the companies whose revenue depends on them. It models the potential shortfall and prepares a proposed HubSpot deal with sources, a suggested contact and draft outreach.</p>
+  <header class="finding-intro" id="overview"><h1>Sales prospecting from public records</h1><p class="lede" >An AI agent finds upcoming events and the companies with revenue at stake. It estimates the potential shortfall, identifies whom to contact, and drafts outreach.</p>
     <p class="requester" id="requester" hidden></p></header>
   <section id="section-findings" aria-labelledby="findings-title">
     <h2 id="findings-title">Prospects from an open search</h2>
     <div id="cards"></div>
-    <details id="hubspot" class="finding-deal" hidden><summary>Example HubSpot deal <span class="deal-subject" id="deal-subject"></span></summary><div class="deal-body" id="deal"></div></details>
   </section>
   <section id="activity" aria-labelledby="activity-heading">
   <div class="activity-head"><h2 id="activity-heading">Research activity</h2><a id="activity-open-log" href="#research">Open research log <span aria-hidden="true">→</span></a></div>
@@ -581,7 +602,25 @@ function prospectRow(c, eventCell, source) {
       ${role ? `<span class="finding-role">${esc(role)}</span>` : ""}</td></tr>`;
 }
 
-function companyRows(cases) {
+function exampleDealRow(c) {
+  const fields = [["Revenue stream", c.stream], ["Suggested contact", c.who], ["Deal stage", "Proposed"]];
+  return `<tr class="deal-row" hidden><td class="deal-cell" colspan="4">
+    <section class="deal-body" id="hubspot" aria-labelledby="deal-title" tabindex="-1">
+      <h4 id="deal-title">${c.company ? `HubSpot deal for ${esc(c.company)}` : "Example HubSpot deal"}</h4>
+      <dl>${fields.filter(([, value]) => value).map(([name, value]) =>
+        `<div><dt>${esc(name)}</dt><dd>${esc(value)}</dd></div>`).join("")}</dl>
+      ${c.opening ? `<span class="draft-label">Draft outreach</span><blockquote>${esc(c.opening)}</blockquote>` : ""}
+    </section></td></tr>`;
+}
+
+function setExampleDealOpen(open) {
+  const button = $("#deal-toggle"), panel = $("#hubspot");
+  if (!button || !panel) return;
+  button.setAttribute("aria-expanded", String(open));
+  panel.closest("tr").hidden = !open;
+}
+
+function companyRows(cases, exampleDeal) {
   const byEvent = new Map();
   for (const c of cases) {
     const key = JSON.stringify([c.event, c.event_date, c.date_label]);
@@ -590,35 +629,38 @@ function companyRows(cases) {
   }
   return Array.from(byEvent.values(), (streams, i) => {
     const c = streams[0], sources = streams.map(findingSource);
+    const hasDeal = streams.includes(exampleDeal);
+    const toggle = hasDeal ? '<button type="button" id="deal-toggle" class="deal-toggle" aria-expanded="false" aria-controls="hubspot">Example HubSpot deal</button>' : "";
     const commonSource = streams.length > 1 && sources.every(source => source === sources[0]) ? sources[0] : "";
     const eventDate = c.event_date && new Date(c.event_date + "T12:00:00Z").toLocaleDateString("en-US",
       {month:"short", day:"numeric", year:"numeric", timeZone:"UTC"});
     const cell = `<th class="company-event" rowspan="${streams.length}" scope="rowgroup">
-      ${i === 0 ? `<h3 class="finding-company">${esc(c.company || "Company unspecified")}</h3>` : ""}
+      ${i === 0 ? `<div class="company-heading"><h3 class="finding-company">${esc(c.company || "Company unspecified")}</h3>${toggle}</div>` : toggle}
       ${c.event ? `<div class="finding-event">${esc(c.event)}</div>` : ""}
       ${eventDate ? `<span class="finding-date">${esc(c.date_label || "Event reference date")} · ${esc(eventDate)}</span>` : ""}${commonSource}</th>`;
-    return `<tbody aria-label="${esc(c.company || "Company findings")}">${streams.map((s, j) => prospectRow(s, j === 0 ? cell : "", commonSource ? "" : sources[j])).join("")}</tbody>`;
+    return `<tbody aria-label="${esc(c.company || "Company findings")}">${streams.map((s, j) => prospectRow(s, j === 0 ? cell : "", commonSource ? "" : sources[j])).join("")}${hasDeal ? exampleDealRow(exampleDeal) : ""}</tbody>`;
   }).join("");
 }
 
 function findings() {
   const cases = M.found.map(f => f.c);
+  const exampleDeal = DATA?.example_deal ? cases[0] : null;
   $("#cards").innerHTML = cases.length ? `<div class="prospect-sheet"><table class="prospect-table" aria-labelledby="findings-title">
     <colgroup><col><col><col><col></colgroup>
     <thead><tr><th scope="col">Company and event</th><th scope="col">Revenue stream</th>
     <th scope="col">Largest modeled shortfall</th><th scope="col">Suggested contact</th></tr></thead>
-    ${groupByCompany(cases).map(companyRows).join("")}</table></div>` : `<p class="sub">${emptyFindings()}</p>`;
+    ${groupByCompany(cases).map(group => companyRows(group, exampleDeal)).join("")}</table></div>` : `<p class="sub">${emptyFindings()}</p>`;
   const rq = status.requester, requester = $("#requester");
   requester.hidden = !rq;
   if (rq) requester.innerHTML = `Requested from <a href="${esc(rq.url)}">${esc(rq.name)}</a> in HubSpot.`;
-  const first = cases[0], preview = $("#hubspot");
-  preview.hidden = !(DATA?.example_deal && first);
-  if (preview.hidden) return;
-  $("#deal-subject").textContent = first.company || "";
-  const fields = [["Revenue stream", first.stream], ["Suggested contact", first.who], ["Deal stage", "Proposed"]];
-  $("#deal").innerHTML = "<dl>" + fields.filter(([,value]) => value).map(([name,value]) =>
-    `<div><dt>${esc(name)}</dt><dd>${esc(value)}</dd></div>`).join("") + "</dl>"
-    + (first.opening ? `<span class="draft-label">Draft outreach</span><blockquote>${esc(first.opening)}</blockquote>` : "");
+  if (exampleDeal) {
+    const button = $("#deal-toggle"), panel = $("#hubspot");
+    button.onclick = () => {
+      const open = button.getAttribute("aria-expanded") === "false";
+      setExampleDealOpen(open);
+      if (open) panel.scrollIntoView({block:"nearest"});
+    };
+  }
 }
 
 
@@ -699,12 +741,18 @@ function activityPaint(force = false) {
     }
   }
   const playing = activity.timer !== null;
-  const action = playing ? "Pause" : t >= activity.end ? "Replay" : "Play";
+  let action = "Play";
+  if (playing) action = "Pause";
+  else if (t >= activity.end) action = "Replay";
+  else if (t > 0) action = "Resume";
+  const showDuration = action === "Replay" || action === "Play";
+  const seconds = Math.ceil(activityReplaySeconds());
+  const label = action + " activity" + (showDuration ? " · " + clock(seconds) : "");
   const toggle = $("#activity-toggle");
-  if (toggle.dataset.action !== action) {
-    toggle.dataset.action = action;
-    toggle.setAttribute("aria-label", action + " activity");
-    toggle.innerHTML = (playing ? ICONS.pause : ICONS.play) + "<span>" + action + "</span>";
+  if (toggle.dataset.label !== label) {
+    toggle.dataset.label = label;
+    toggle.setAttribute("aria-label", action + " activity" + (showDuration ? ", " + seconds + " seconds of playback" : ""));
+    toggle.innerHTML = (playing ? ICONS.pause : ICONS.play) + "<span>" + label + "</span>";
   }
   $("#activity-time").textContent = clock(t);
   const seek = $("#activity-seek");
@@ -717,12 +765,16 @@ function activityStop() {
   activity.timer = null;
 }
 
+function activityReplaySeconds() {
+  // At the base speed one minute of research takes two seconds in the replay.
+  return Math.min(activity.end, Math.max(40, Math.min(100, activity.end / 30))) / activity.rate;
+}
+
 function activityAdvance() {
   const now = performance.now(), seconds = (now - activity.lastTick) / 1000;
   activity.lastTick = now;
-  // At the base speed one minute of research takes two seconds in the replay.
-  const replaySeconds = Math.min(activity.end, Math.max(40, Math.min(100, activity.end / 30)));
-  if (replaySeconds) activity.time = Math.min(activity.end, activity.time + seconds * activity.end / replaySeconds * activity.rate);
+  const replaySeconds = activityReplaySeconds();
+  if (replaySeconds) activity.time = Math.min(activity.end, activity.time + seconds * activity.end / replaySeconds);
   if (activity.time >= activity.end) activityStop();
 }
 
@@ -767,9 +819,10 @@ $("#activity-toggle").onclick = () => {
 $("#activity-speeds").onclick = e => {
   const button = e.target.closest("button[data-rate]");
   if (!button) return;
-  if (activity.timer !== null) activityTick();
+  if (activity.timer !== null) activityAdvance();
   activity.rate = Number(button.dataset.rate);
   for (const option of $$("#activity-speeds button")) option.setAttribute("aria-pressed", String(option === button));
+  activityPaint();
 };
 function activitySeek(seconds) {
   if (!activity.model || live() || !activity.end) return;
@@ -1095,8 +1148,7 @@ function openRoute(moveFocus = false) {
   displayedURL = location.href;
   const anchor = next.section && document.getElementById(next.section);
   if (anchor && next.section === "hubspot") {
-    const detail = anchor.closest("details");
-    if (detail) detail.open = true;
+    setExampleDealOpen(true);
   }
   if (Number.isFinite(saved)) window.scrollTo({top:saved, behavior:"instant"});
   else if (anchor && anchor.getClientRects().length) anchor.scrollIntoView({block:"start", behavior:"instant"});

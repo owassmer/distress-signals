@@ -1,12 +1,8 @@
-"""Government payment ledgers (Socrata SODA API): who a government pays, from which department,
-how much and when.
-
-  search_payee()   a name across every ledger: payee spelling x department, with totals and dates
-  payee_lines()    every payment line for one exact payee spelling in one ledger
+"""State and local government payment ledgers (Socrata SODA API): who a government pays, from which
+department, how much and when. config/ledgers.yaml maps each government's published checkbook onto the same
+fields; a search asks every ledger at once and merges their payments by date.
 """
 
-import datetime as dt
-import re
 import os
 import statistics as st
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -14,7 +10,8 @@ from dataclasses import dataclass, field
 from urllib.parse import urlencode
 
 from .. import names
-from ..util import SourceError, config, http_json, money, to_date, to_float, today
+from ..util import SourceError, config, http_json, to_date, to_float
+from . import F, Series, page
 
 PAGE = 50000
 
@@ -92,107 +89,114 @@ def history_start(ledger):
     return ledger._history_start
 
 
-def _since(since):
-    return to_date(since) or today() - dt.timedelta(days=3 * 365)
+def _where(L, s, taken):
+    """The SoQL conditions one ledger applies for a search, with its own column names; None when the search
+    asks for something the ledger does not record."""
+    parts, text = [], []
+    for given in taken["payee"]:  # a list is any of them: each name's words, all in the payee column
+        words = names.core_tokens(given) or names.tokens(given)
+        text.append("(" + " AND ".join(f"upper({L.vendor}) like {q('%' + w.upper() + '%')}" for w in words) + ")")
+    if text:
+        parts.append("(" + " OR ".join(text) + ")")
+    lo, hi = taken["paid_date"]
+    parts += [f"{L.paid} >= {q(lo)}"] if lo else []
+    parts += [f"{L.paid} <= {q(hi + 'T23:59:59')}"] if hi else []
+    lo, hi = taken["amount"]
+    parts += [f"{L.amount}::number >= {lo}"] if lo is not None else []
+    parts += [f"{L.amount}::number <= {hi}"] if hi is not None else []
+    if taken["invoice_id"]:
+        if not L.invoice_id:
+            return None
+        parts.append(f"{L.invoice_id} in ({', '.join(q(x) for x in taken['invoice_id'])})")
+    return " AND ".join(parts)
 
 
-def _payee_rows(ledger, name, since):
-    # $q is Socrata's indexed full-text search: much faster than a like-scan on large ledgers. It can match
-    # other columns, so rows are kept only where the payee name matches as whole words. Amounts are cast
-    # because some ledgers store them as text.
-    rows = []
-    for ds in ledger.datasets:
-        rows += soql(ledger, ds, {"$select": f"{ledger.vendor} as v, {ledger.unit} as u, count(*) as n, "
-                                             f"sum({ledger.amount}::number) as a, min({ledger.paid}) as f, max({ledger.paid}) as l",
-                                  "$q": " ".join(names.core_tokens(name)), "$where": f"{ledger.paid} >= '{since.isoformat()}'",
-                                  "$group": f"{ledger.vendor}, {ledger.unit}", "$limit": 2000}, timeout=120)
-    return [r for r in rows if names.matches(r.get("v") or "", name)]
+def _payment(L, ds, r):
+    row = r.get(":id")
+    return {"id": f"{L.id}:{ds}:{row}", "url": L.dataset_page(ds), "government": L.payer,
+            "payee": (r.get(L.vendor) or "").strip() or None, "department": names.clean_unit(r.get(L.unit) or "") or None,
+            "paid_date": (r.get(L.paid) or "")[:10] or None, "amount": to_float(r.get(L.amount)),
+            "invoice_date": ((r.get(L.invoice_date) or "")[:10] or None) if L.invoice_date else None,
+            "invoice_id": r.get(L.invoice_id) if L.invoice_id else None,
+            "description": r.get(L.description) if L.description else None}
 
 
-def search_payee(name, since=None, ledger_ids=None):
-    """{results, errors, coverage}: each payee spelling that matches the name as whole words, by
-    department, across the ledgers (all of them unless ledger_ids)."""
-    if not names.core_tokens(name):
-        raise SourceError("give a company name to search payees for")
-    since = _since(since)
-    chosen = [L for L in load() if not ledger_ids or L.id in ledger_ids]
-    results, errors, coverage = [], {}, {}
+def _search(s):
+    """Payments across the ledgers, newest first: each ledger's next rows, merged by date."""
+    governments = s.any("government")
+    chosen = [L for L in load() if not governments or any(set(names.tokens(g)) <= set(names.tokens(L.payer)) for g in governments)]
+    taken = {"payee": s.any("payee"), "paid_date": s.between("paid_date"), "amount": s.between("amount"),
+             "invoice_id": s.any("invoice_id")}
+    # Socrata's full-text search is indexed, where a like-scan of a large ledger is not: the words of the query,
+    # of each payee and of a description narrow it, and the conditions on the payee column make it exact.
+    words = " ".join([s.query()] + [" ".join(names.core_tokens(g) or names.tokens(g)) for g in taken["payee"][:1]]
+                     + s.peek("description").get("is", [])[:1]).strip() if len(taken["payee"]) <= 1 else s.query()
+    at = s.cursor or {"at": {L.id: 0 for L in chosen}}
+    size = max(1, min(s.size, 1000))
 
     def one(L):
-        try:
-            return L, _payee_rows(L, name, since), None
-        except Exception as e:
-            return L, [], e
+        where, rows, count = _where(L, s, taken), [], 0
+        if where is None:
+            return L, [], 0
+        cols = ",".join(dict.fromkeys([":id", *L.columns().values()]))
+        for ds in L.datasets:
+            params = {"$select": cols, "$order": f"{L.paid} DESC, :id", "$limit": size, "$offset": at["at"][L.id]}
+            params |= {"$where": where} if where else {}
+            params |= {"$q": words} if words else {}
+            rows += [_payment(L, ds, r) for r in soql(L, ds, params, timeout=120)]
+            if s.cursor is None:
+                n = soql(L, ds, {k: v for k, v in params.items() if k in ("$where", "$q")} | {"$select": "count(*) as n"}, timeout=120)
+                count += int((n or [{}])[0].get("n") or 0)
+        return L, rows, count
 
+    live = [L for L in chosen if at["at"].get(L.id, -1) >= 0]
+    got, total = {}, 0
     with ThreadPoolExecutor(8) as ex:
-        for fut in as_completed([ex.submit(one, L) for L in chosen]):
-            L, rows, err = fut.result()
-            if err:
-                errors[L.id] = f"{type(err).__name__}: {str(err)[:150]}"
-                continue
-            for r in rows:
-                payee = (r.get("v") or "").strip()
-                results.append({"record_id": f"ledger:{L.id}:{since.isoformat()}:{payee}", "government": L.payer,
-                                "payee": payee,
-                                "department": names.clean_unit(r.get("u") or ""), "payments": int(r.get("n") or 0),
-                                "total": round(to_float(r.get("a")) or 0.0, 2),
-                                "first": (r.get("f") or "")[:10], "last": (r.get("l") or "")[:10]})
-            if rows:
-                start = history_start(L)
-                coverage[L.id] = {"government": L.payer, "from": start.isoformat() if start else None}
-    results.sort(key=lambda r: -r["total"])
-    return {"results": results[:300], "errors": errors, "coverage": coverage, "since": since.isoformat()}
+        futures = {ex.submit(one, L): L for L in live}
+        for fut in as_completed(futures):
+            L = futures[fut]
+            try:
+                _, rows, count = fut.result()
+            except Exception as e:
+                raise SourceError(f"{L.payer}'s ledger did not answer ({type(e).__name__}: {str(e)[:120]}). The same search "
+                                  "can be made again, or with government set to the others.")
+            got[L.id], total = rows, total + count
+    merged = sorted((r for rows in got.values() for r in rows), key=lambda r: r["paid_date"] or "", reverse=True)[:size]
+    used = {}
+    for r in merged:
+        lid = r["id"].split(":", 1)[0]
+        used[lid] = used.get(lid, 0) + 1
+    nxt = dict(at["at"])
+    for L in live:  # a ledger is finished when it returned fewer rows than asked and all of them were used
+        n = used.get(L.id, 0)
+        nxt[L.id] = -1 if len(got[L.id]) < size * len(L.datasets) and n == len(got[L.id]) else at["at"][L.id] + n
+    more = any(v >= 0 for v in nxt.values())
+    return page(merged, {"at": nxt} if more else None, total if s.cursor is None else None, "newest first")
 
 
-RETAIN = 10000  # payment lines a record keeps and lists
+def _read(given):
+    lid, ds, row = (given.split(":", 2) + ["", ""])[:3]
+    L = next((x for x in load() if x.id == lid), None)
+    if not L or ds not in L.datasets:
+        raise SourceError(f"government_payments has no record {given!r}")
+    cols = ",".join(dict.fromkeys([":id", *L.columns().values()]))
+    rows = soql(L, ds, {"$select": cols, "$where": f":id = {q(row)}"})
+    if not rows:
+        raise SourceError(f"{L.payer}'s ledger no longer has the row {row}; search for the payment again.")
+    return _payment(L, ds, rows[0])
 
 
-def payee_lines(ledger_id, payee, since=None):
-    """The observation for one payee spelling in one ledger since `since`: totals over every line, and
-    the lines themselves (the newest RETAIN), all listed in the text."""
-    L = next((x for x in load() if x.id == ledger_id), None)
-    if not L:
-        raise SourceError(f"no ledger {ledger_id!r}")
-    since = _since(since)
-    where = f"{L.vendor}={q(payee)} AND {L.paid} >= '{since.isoformat()}'"
-    cols = L.columns()
-    lines = []
-    for ds in L.datasets:
-        for r in soql_all(L, ds, {"$select": ",".join(dict.fromkeys(cols.values())), "$where": where,
-                                  "$order": f"{L.paid} DESC"}):
-            lines.append({"paid": (r.get(L.paid) or "")[:10], "department": names.clean_unit(r.get(L.unit) or ""),
-                          "amount": to_float(r.get(L.amount)),
-                          "invoice_date": (r.get(L.invoice_date) or "")[:10] if L.invoice_date else None,
-                          "invoice_id": r.get(L.invoice_id) if L.invoice_id else None,
-                          "description": (r.get(L.description) or "")[:160] if L.description else None})
-    if not lines:
-        raise SourceError(f"{L.payer} shows no payments to {payee!r} since {since}")
-    lines.sort(key=lambda x: x["paid"], reverse=True)
-    by_dept = {}
-    for x in lines:
-        d = by_dept.setdefault(x["department"], {"payments": 0, "total": 0.0})
-        d["payments"] += 1
-        d["total"] += x["amount"] or 0.0
-    kept = lines[:RETAIN]
-    start = history_start(L)
-    text = [f"{L.payer} payments to {payee} from {since} through {lines[0]['paid']} "
-            f"(ledger coverage from {start}; invoice date means {L.invoice_date_meaning or 'not available'}).",
-            f"{len(lines)} payment lines, {money(sum(x['amount'] or 0 for x in lines))} in total.", "", "By department:"]
-    text += [f"  {d}: {v['payments']} payments, {money(v['total'])}" for d, v in sorted(by_dept.items(), key=lambda kv: -kv[1]["total"])]
-    if len(lines) > RETAIN:
-        text += ["", f"Totals cover all {len(lines)} lines; the newest {RETAIN} are listed below. "
-                     "Read again with a later since to list a shorter period in full."]
-    text += ["", "Lines, newest first (paid | department | amount | invoice date | invoice ID | description):"]
-    text += [f"  {x['paid']} | {x['department']} | {money(x['amount'])} | {x['invoice_date'] or ''} | {x['invoice_id'] or ''} | "
-             f"{x['description'] or ''}" for x in kept]
-    rows = {"payments": [{"government": L.payer, "payee": payee, "paid_date": x["paid"], "department": x["department"],
-                          "amount": x["amount"], "invoice_date": x["invoice_date"] or None, "invoice_id": x["invoice_id"],
-                          "description": x["description"]} for x in kept]}
-    return {"kind": "payment", "source": L.source, "native_id": f"{ledger_id}:{since.isoformat()}:{payee}", "rows": rows,
-            "url": L.rows_url(L.datasets[0], where), "text": "\n".join(text),
-            "data": {"title": f"{L.payer} payments to {payee} since {since}", "government": L.payer, "payee": payee,
-                     "ledger": ledger_id, "since": since.isoformat(), "coverage_from": start.isoformat() if start else None,
-                     "lines_total": len(lines), "lines_listed": len(kept), "by_department": by_dept}}
+def _coverage(series):
+    """The earliest and latest payment dates across the ledgers."""
+    def span(L):
+        out = []
+        for ds in L.datasets:
+            r = soql(L, ds, {"$select": f"min({L.paid}) as lo, max({L.paid}) as hi"})
+            out += [(r[0].get("lo") or "")[:10], (r[0].get("hi") or "")[:10]] if r else []
+        return [x for x in out if x]
+    with ThreadPoolExecutor(8) as ex:
+        dates = [d for found in ex.map(span, load()) for d in found]
+    return (min(dates), max(dates)) if dates else (None, None)
 
 
 def verify_invoice_dates(ledger, n=5000):
@@ -212,3 +216,12 @@ def verify_invoice_dates(ledger, n=5000):
            "share_negative": round(sum(x < 0 for x in lags) / len(lags), 3)}
     res["pass"] = res["share_negative"] < 0.05 and res["share_zero"] < 0.5 and res["median"] > 0
     return res
+
+
+SERIES = [Series(
+    id="government_payments", title="state and local government payments",
+    record="a payment by a state or local government to a payee: one line of its published checkbook",
+    creator="state and local governments", jurisdiction="; ".join(L.payer for L in load()), coverage=_coverage,
+    fields=(F("government", "place"), F("payee", "name"), F("department", "name"), F("paid_date", "date"),
+            F("amount", "amount"), F("invoice_date", "date"), F("invoice_id", "identifier"), F("description", "text")),
+    search=_search, read=_read)]

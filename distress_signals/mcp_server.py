@@ -52,7 +52,8 @@ def _call(name, fn, *args, **kwargs):
 ORDER = sources.order(os.environ.get("DISTRESS_RUN_ID"))
 SEARCH = """Search a series of public records. A series is one kind of record. Each entry below gives what one
 record is, the body that creates the records, the publisher where another body makes them available, the
-jurisdiction, the dates covered, and the record's fields with their types.
+jurisdiction, the dates covered, and the record's fields with their types. A type in the plural (names, dates)
+is a field that holds several values. A field marked required is given in every search of its series.
 
 - query: words to find in a record's text, and in its whole document where the series has a full text field.
   A phrase goes in double quotes.

@@ -312,9 +312,7 @@ SERIES = [
         id="dod_contract_announcements", title="Department of War contract announcements",
         record="an announcement of one contract action valued at $7.5 million or more, from the Department of War's "
                "daily release",
-        creator="U.S. Department of War", publisher="U.S. Department of War; each release's text is read from the Internet "
-                                                    "Archive's copy of its page",
-        jurisdiction="federal", coverage=_releases_span,
+        creator="U.S. Department of War", jurisdiction="federal", coverage=_releases_span,
         fields=(F("text", "text"), F("military_department", "text"), F("publication_date", "date")),
         search=_search_announcements, read=_read_announcement),
 ]

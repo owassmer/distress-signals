@@ -38,7 +38,7 @@ BILLS_DB = OUT / "sources" / "bills.db"
 MODS_KEPT = OUT / "sources" / "govinfo"
 HOUSE = "https://docs.house.gov/Committee/Calendar/"
 HOUSE_KEPT = OUT / "sources" / "house_meetings"
-HOUSE_FIRST = dt.date(2012, 1, 1)
+HOUSE_FIRST = dt.date(2011, 1, 1)
 SENATE = "https://www.senate.gov/general/committee_schedules/hearings.xml"
 CITE = {"HR": "H.R.", "S": "S.", "HJRES": "H.J. Res.", "SJRES": "S.J. Res.", "HCONRES": "H. Con. Res.",
         "SCONRES": "S. Con. Res.", "HRES": "H. Res.", "SRES": "S. Res."}

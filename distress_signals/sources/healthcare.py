@@ -332,7 +332,8 @@ SERIES = [
         record="a national coverage analysis (NCA) or coding analysis for labs (CAL): CMS's review of whether and how "
                "Medicare covers an item or service, with its tracking sheet",
         creator=CMS, jurisdiction="federal",
-        coverage=lambda series: (lambda dates: (min(dates), max(dates)))([r["last_updated"] for r in _analyses() if r["last_updated"]]),
+        coverage=lambda series: (min((r["formal_request_date"] for r in _analyses() if r["formal_request_date"]), default=None),
+                                 max((r["last_updated"] for r in _analyses() if r["last_updated"]), default=None)),
         fields=(F("cag_id", "identifier"), F("document_type", ("NCA", "CAL")),
                 F("status", ("Open", "Open For Public Comment", "Closed")), F("title", "text"), F("review_type", "text"),
                 F("benefit_category", "text"), F("requestor", "name", many=True), F("formal_request_date", "date"),

@@ -447,9 +447,9 @@ def _decode(cursor):
 def _fetch(series, spec, state, want, everything, seconds):
     """Records meeting the search, from the position in state, until `want` of them are in hand, the end is
     reached, or the time is up. Returns (records, the state to continue from or None, what the search reports).
-    The total is the publisher's count where it applied every filter, and the count in hand where the search
-    was read from its start to its end."""
-    out, examined, filtered, total, order_ = [], 0, False, None, None
+    The total is the publisher's count where it applied every filter, and the count in hand where the adapter
+    returned every record at once or the search was read from its start to its end."""
+    out, examined, filtered, total, order_, whole = [], 0, False, None, None, None
     started, from_start = time.monotonic(), state["c"] is None and not state["skip"]
     c, skip, n = state["c"], state["skip"], state["n"]
     while True:
@@ -461,6 +461,8 @@ def _fetch(series, spec, state, want, everything, seconds):
             filtered = True
             records = [r for r in records if _keep(series, r, spec["q"] if q_left else "", f_left)]
         examined += len(got["records"])
+        if c is None and got.get("cursor") is None:
+            whole = len(records)  # the adapter returned every record at once: the count that match is in hand
         order_ = order_ or got.get("order")
         total = got.get("total") if total is None else total
         rest = records[skip:]
@@ -478,7 +480,9 @@ def _fetch(series, spec, state, want, everything, seconds):
         if len(out) >= want or time.monotonic() - started > seconds:
             nxt = {"c": c, "skip": 0, "n": n}
             break
-    if filtered or total is None:
+    if whole is not None:
+        total = whole
+    elif filtered or total is None:
         total = len(out) if nxt is None and from_start else None
     return out, nxt, {"total": total, "examined": examined if filtered else None, "order": order_}
 
@@ -602,6 +606,31 @@ def again(observation):
             return observation["native_id"]
         return f"{observation['source']}:{observation['native_id']}"
     return None
+
+
+def outline(value, depth=0, skip=()):
+    """A structured value written out as indented lines of 'label: value', for a record's document: every
+    stated value is on a line with its label, so it can be quoted. Empty values and the keys in skip are left out."""
+    pad, lines = "  " * depth, []
+    if isinstance(value, dict):
+        for k, v in value.items():
+            if v in (None, "", [], {}) or k in skip:
+                continue
+            if isinstance(v, (dict, list)):
+                lines.append(f"{pad}{k}:")
+                lines += outline(v, depth + 1, skip)
+            else:
+                lines.append(f"{pad}{k}: {' '.join(str(v).split())}")
+    elif isinstance(value, list):
+        for v in value:
+            if isinstance(v, (dict, list)):
+                inner = outline(v, depth + 1, skip)
+                lines += [f"{pad}- {inner[0].strip()}"] + inner[1:] if inner else []
+            elif v not in (None, ""):
+                lines.append(f"{pad}- {' '.join(str(v).split())}")
+    else:
+        lines.append(f"{pad}{' '.join(str(value).split())}")
+    return lines
 
 
 # ---------- wording, for the run page and the stored text ----------

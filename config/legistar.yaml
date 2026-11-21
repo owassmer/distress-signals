@@ -1,0 +1,31 @@
+# City and county legislative bodies whose legislation is published through Legistar's web API.
+#
+# Each entry is the body's Legistar client name and the jurisdiction it belongs to. A client listed with
+# token: true answers only with a token its clerk issues, read from LEGISTAR_TOKEN_<CLIENT>; without one it
+# is left out. Each client here answered an open request for its latest meeting when it was added.
+
+clients:
+  - {client: seattle, jurisdiction: "Seattle, WA"}
+  - {client: kingcounty, jurisdiction: "King County, WA"}
+  - {client: oakland, jurisdiction: "Oakland, CA"}
+  - {client: sanjose, jurisdiction: "San Jose, CA"}
+  - {client: sacramento, jurisdiction: "Sacramento, CA"}
+  - {client: lacounty, jurisdiction: "Los Angeles County, CA"}
+  - {client: phoenix, jurisdiction: "Phoenix, AZ"}
+  - {client: mesa, jurisdiction: "Mesa, AZ"}
+  - {client: denver, jurisdiction: "Denver, CO"}
+  - {client: fortworthgov, jurisdiction: "Fort Worth, TX"}
+  - {client: stpaul, jurisdiction: "Saint Paul, MN"}
+  - {client: madison, jurisdiction: "Madison, WI"}
+  - {client: milwaukee, jurisdiction: "Milwaukee, WI"}
+  - {client: cook-county, jurisdiction: "Cook County, IL"}
+  - {client: columbus, jurisdiction: "Columbus, OH"}
+  - {client: louisville, jurisdiction: "Louisville, KY"}
+  - {client: nashville, jurisdiction: "Nashville, TN"}
+  - {client: charlottenc, jurisdiction: "Charlotte, NC"}
+  - {client: alexandria, jurisdiction: "Alexandria, VA"}
+  - {client: baltimore, jurisdiction: "Baltimore, MD"}
+  - {client: pittsburgh, jurisdiction: "Pittsburgh, PA"}
+  - {client: newark, jurisdiction: "Newark, NJ"}
+  - {client: boston, jurisdiction: "Boston, MA"}
+  - {client: nyc, jurisdiction: "New York, NY", token: true}

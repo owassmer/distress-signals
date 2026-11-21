@@ -1,323 +1,252 @@
-"""WARN notices and the agenda items published for local legislative meetings."""
+"""Two series: WARN notices of plant closings and mass layoffs, and legislation before city and county councils.
 
-import csv
-import datetime as dt
-import io
+  warn_notices        WARN Index (warnindex.com) compiles the notices each state posts. Its API applies the
+                      state, the employer and a range of notice dates, and counts the matches. A read returns
+                      the notice's fields and, where the state posts the employer's letter, the letter's text.
+  local_legislation   Legistar's web API, one client per council (config/legistar.yaml). Each client applies
+                      every filter itself; a search asks them all at once and merges their matters by the time
+                      each was last modified.
+"""
+
 import os
-import re
-from urllib.parse import quote, unquote, urljoin
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
-from bs4 import BeautifulSoup
-from pypdf.errors import PyPdfError
 
-from ..util import SourceError, http_json, session, stable_id, to_date, today
-from . import web
+from .. import names
+from ..util import SourceError, config, http_json
+from . import F, Series, page, web
 
-
-FILTERS = {
-    "warn": {"state", "effective_from", "effective_until", "page"},
-    "local_agendas": {"client", "since", "until", "page"},
-}
 WARN_INDEX = "https://warnindex.com"
-# Existing observations may still identify rows in the APVentureEngine archive.
-ARCHIVE = "https://raw.githubusercontent.com/APVentureEngine/warn-act-notices/main/data"
-WA = "https://fortress.wa.gov/esd/file/WARN/Public/SearchWARN.aspx"
 LEGISTAR = "https://webapi.legistar.com/v1"
+STATES = {"Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR", "California": "CA", "Colorado": "CO",
+          "Connecticut": "CT", "Delaware": "DE", "District of Columbia": "DC", "Florida": "FL", "Georgia": "GA", "Hawaii": "HI",
+          "Idaho": "ID", "Illinois": "IL", "Indiana": "IN", "Iowa": "IA", "Kansas": "KS", "Kentucky": "KY", "Louisiana": "LA",
+          "Maine": "ME", "Maryland": "MD", "Massachusetts": "MA", "Michigan": "MI", "Minnesota": "MN", "Mississippi": "MS",
+          "Missouri": "MO", "Montana": "MT", "Nebraska": "NE", "Nevada": "NV", "New Hampshire": "NH", "New Jersey": "NJ",
+          "New Mexico": "NM", "New York": "NY", "North Carolina": "NC", "North Dakota": "ND", "Ohio": "OH", "Oklahoma": "OK",
+          "Oregon": "OR", "Pennsylvania": "PA", "Puerto Rico": "PR", "Rhode Island": "RI", "South Carolina": "SC",
+          "South Dakota": "SD", "Tennessee": "TN", "Texas": "TX", "Utah": "UT", "Vermont": "VT", "Virginia": "VA",
+          "Washington": "WA", "West Virginia": "WV", "Wisconsin": "WI", "Wyoming": "WY"}
+CODES = {v: k for k, v in STATES.items()}
 
 
-def _dates(start, end):
+# ---------- WARN notices ----------
+
+def _index(path, **params):
     try:
-        for value in (start, end):
-            if value is not None and dt.date.fromisoformat(value).isoformat() != value:
-                raise ValueError()
-        if start and end and start > end:
-            raise ValueError()
-    except (ValueError, TypeError):
-        raise SourceError("Use YYYY-MM-DD dates, with the start on or before the end.") from None
-    return start, end
+        return http_json(f"{WARN_INDEX}/api/{path}", params=params or None, tries=3, timeout=45)
+    except Exception as e:
+        raise SourceError(f"WARN Index: {type(e).__name__}: {str(e)[:160]}")
 
 
-def _includes(value, start, end):
-    return (not start or bool(value and value >= start)) and (not end or bool(value and value <= end))
+def _notice(row):
+    return {"id": row["notice_id"], "url": f"{WARN_INDEX}/notices/{row['notice_id']}", "employer": row.get("employer"),
+            "state": row.get("state"), "location": row.get("location"), "category": row.get("closure_category"),
+            "notice_type": row.get("closure_type"), "notice_date": row.get("notice_date"),
+            "layoff_date": row.get("effective_date"), "affected_employees": row.get("layoff_count")}
 
 
-def _archive_file(state=None):
-    return f"{ARCHIVE}/by-state/{state.lower()}.csv" if state else f"{ARCHIVE}/warn_notices.csv"
+def _code(given):
+    """A state's two-letter code, from the code or the state's name."""
+    given = given.strip()
+    return given.upper() if given.upper() in CODES else next((c for n, c in STATES.items() if n.casefold() == given.casefold()), None)
 
 
-def _archive_rows(state):
-    url = _archive_file(state)
-    response = session().get(url, timeout=40)
-    response.raise_for_status()
-    rows = csv.DictReader(io.StringIO(response.content.decode("utf-8-sig")))
-    if not {"id", "state", "company", "notice_date", "effective_date"}.issubset(rows.fieldnames or []):
-        raise SourceError("The WARN archive's records no longer have the expected columns.")
-    return rows
-
-
-def _warn_row(row, directory):
-    state = row["state"]
-    return {
-        "record_id": f"warn:{state}:{row['id']}", "title": row["company"],
-        "url": _archive_file(state), "state_source_url": directory.get(state, {}).get("url"),
-        "publisher": "APVentureEngine normalized WARN archive",
-        **{key: row.get(key) or None for key in ("state", "location", "employees_affected", "notice_type",
-                                                  "notice_date", "effective_date", "first_seen")},
-    }
-
-
-def _index_row(row):
-    record_id = row["notice_id"]
-    return {"record_id": f"warn:index:{record_id}", "title": row["employer"],
-            "url": f"{WARN_INDEX}/notices/{record_id}", "publisher": "WARN Index",
-            "state": row["state"], "location": row.get("location"), "address": row.get("address"),
-            "notice_date": row.get("notice_date"), "effective_date": row.get("effective_date"),
-            "employees_affected": row.get("layoff_count"), "notice_type": row.get("closure_type"),
-            "state_source_url": row.get("source_url"), "raw_notice_url": row.get("raw_notice_url"),
-            "scraped_at": row.get("scraped_at")}
-
-
-def _warn_index(query, state, start, end, page):
-    # The publisher's after/before filter is on the notice date. The planned layoff is a different date.
-    size = 50
-    offset = (page - 1) * size
-    params = {"offset": offset, "limit": size, "sort_by": "notice_date", "sort_dir": "desc"}
+def _search_notices(s):
+    params = {"offset": s.cursor or 0, "limit": max(1, min(s.size, 500)), "sort_by": "notice_date", "sort_dir": "desc"}
+    state, employer = s.one("state"), s.one("employer")
     if state:
-        params["state"] = state
-    if query:
-        params["employer"] = query
-    data = http_json(f"{WARN_INDEX}/api/notices", params=params)
-    items = data["items"]
-    more = offset + len(items) < data["total"]
-    return {"results": [_index_row(r) for r in items if _includes(r.get("effective_date"), start, end)],
-            "notices_scanned": len(items), "total_before_effective_date_filter": data["total"],
-            "complete": not more, "next_page": page + 1 if more else None,
-            "note": "WARN Index transcribes state records. Each page checks the next 50 notices in filing-date "
-                    "order and filters their effective dates. Follow state_source_url or raw_notice_url "
-                    "to check the original record."}
+        if not _code(state):
+            return page([], total=0)
+        params["state"] = _code(state)
+    if employer:
+        params["employer"] = employer
+    lo, hi = s.between("notice_date")
+    params |= {"after": lo} if lo else {}
+    params |= {"before": hi} if hi else {}
+    data = _index("notices", **params)
+    rows = data.get("items") or []
+    end = params["offset"] + len(rows)
+    return page([_notice(r) for r in rows], end if rows and end < (data.get("total") or 0) else None, data.get("total"),
+                "latest notice first")
 
 
-def _wa_form(query, page):
-    """Use the form's current state and only the page numbers offered by the state website."""
-    def request(data=None):
-        r = session().post(WA, data=data, timeout=30) if data is not None else session().get(WA, timeout=30)
-        r.raise_for_status()
-        doc = BeautifulSoup(r.content, "html.parser")
-        if not doc.select_one('input[name="ucPSW$txtSearch"]'):
-            raise SourceError("Washington's WARN search form is unavailable.")
-        return doc
-
-    def fields(doc):
-        return {tag["name"]: tag.get("value", "") for tag in doc.select('input[type="hidden"][name]')}
-
-    doc = request()
-    if query:
-        doc = request({**fields(doc), "ucPSW$txtSearch": query, "ucPSW$btnSearchCompany": "Search"})
-    current = 1
-    while True:
-        grid = doc.select_one("#ucPSW_gvMain")
-        if grid is None:
-            return None, False
-        available = {int(n) for link in grid.find_all("a", href=True)
-                     for n in re.findall(r"Page\$(\d+)", link["href"])}
-        if current == page:
-            return grid, any(n > page for n in available)
-        forward = [n for n in available if current < n <= page]
-        if not forward:
-            return None, False
-        current = max(forward)
-        doc = request({**fields(doc), "ucPSW$txtSearch": query, "__EVENTTARGET": "ucPSW$gvMain",
-                       "__EVENTARGUMENT": f"Page${current}"})
-        selected = doc.select_one("#ucPSW_gvMain td[colspan] span")
-        if selected and selected.get_text(strip=True) != str(current):
-            raise SourceError("Washington WARN did not return the requested results page.")
+def _read_notice(key):
+    row = _index(f"notices/{key}")
+    lines, links = [], []
+    if row.get("source_url"):
+        links.append({"text": "The state's posting", "url": row["source_url"]})
+        lines.append(f"The state's posting: {row['source_url']}")
+    if row.get("raw_notice_url"):
+        links.append({"text": "The notice as filed", "url": row["raw_notice_url"]})
+        try:
+            lines += ["", "The notice as filed:", web.read(row["raw_notice_url"])["text"]]
+        except Exception:  # the state posts no readable letter: the fields stand as the index gives them
+            lines.append(f"The notice as filed: {row['raw_notice_url']}")
+    return {**_notice(row), "document": "\n".join(lines), "links": links, "published": row.get("notice_date")}
 
 
-def _warn_washington(query, start, end, page):
-    grid, more = _wa_form(query, page)
-    results = []
-    if grid is not None:
-        headings = [th.get_text(" ", strip=True) for th in grid.find_all("th")]
-        expected = {"Company", "Location", "Layoff Start Date", "# of Workers", "Received Date", "Notice"}
-        if not expected.issubset(headings):
-            raise SourceError("Washington's WARN table columns changed.")
-        for tr in grid.find_all("tr", recursive=False):
-            cells = tr.find_all("td", recursive=False)
-            if len(cells) != len(headings):
-                continue
-            row = {h: c.get_text(" ", strip=True) for h, c in zip(headings, cells)}
-            link = cells[headings.index("Notice")].find("a", href=True)
-            effective = to_date(row["Layoff Start Date"])
-            date = effective.isoformat() if effective else None
-            if not _includes(date, start, end):
-                continue
-            letter = urljoin(WA, link["href"]) if link else None
-            identity = stable_id(letter) if letter else stable_id(row["Company"], row["Location"],
-                                                                   row["Received Date"], row["Layoff Start Date"])
-            record_id = f"warn:entry:{quote(row['Company'], safe='')}:{identity}"
-            results.append({"record_id": record_id, "url": letter or WA, "directory_url": WA, "letter_url": letter,
-                            "title": row["Company"], "location": row["Location"],
-                            "effective_date": date, "received_date": row["Received Date"],
-                            "employees_affected": row["# of Workers"], "notice_type": row.get("Closure Layoff"),
-                            "layoff_type": row.get("Type of Layoff")})
-    return {"results": results, "complete": not more, "next_page": page + 1 if more else None,
-            "state_directory": WA,
-            "note": "Washington ESD pages employer matches by receipt date. Date filters apply to "
-                    "layoff start dates on this page."}
+def _notice_span(series):
+    edge = lambda way: ((_index("notices", offset=0, limit=1, sort_by="notice_date", sort_dir=way).get("items") or [{}])[0]  # noqa: E731
+                        .get("notice_date"))
+    return edge("asc"), edge("desc")
 
 
-def _client(value):
-    if not isinstance(value, str) or not re.fullmatch(r"[a-z0-9-]{1,70}", value):
-        raise SourceError("Use the jurisdiction's lowercase Legistar client slug.")
-    return value
+def _notice_states(series):
+    def has(code):
+        return code if (_index("notices", offset=0, limit=1, state=code).get("total") or 0) > 0 else None
+    with ThreadPoolExecutor(8) as ex:
+        found = [c for c in ex.map(has, sorted(CODES)) if c]
+    return ", ".join(found)
+
+
+# ---------- local legislation (Legistar) ----------
+
+def _clients():
+    """[(client, jurisdiction)] for the councils this run can read."""
+    return [(c["client"], c["jurisdiction"]) for c in config("legistar.yaml")["clients"]
+            if not c.get("token") or os.environ.get(_token_name(c["client"]))]
+
+
+def _token_name(client):
+    return "LEGISTAR_TOKEN_" + client.upper().replace("-", "_")
 
 
 def _legistar(client, path, params=None):
     params = dict(params or {})
-    token_name = "LEGISTAR_TOKEN_" + client.upper().replace("-", "_")
-    token = os.environ.get(token_name)
+    token = os.environ.get(_token_name(client))
     if token:
         params["token"] = token
     try:
-        return http_json(f"{LEGISTAR}/{client}/{path}", params=params, tries=2, timeout=30)
+        return http_json(f"{LEGISTAR}/{client}/{path}", params=params, tries=2, timeout=40)
     except (requests.RequestException, ValueError) as e:
         # The publisher takes its access token in the URL. Keep it out of tool logs.
-        response = getattr(e, "response", None)
-        status = response.status_code if response is not None else None
-        if status in (401, 403):
-            raise SourceError(f"Legistar denied access for {client}. Set its issued token in {token_name}.") from None
+        status = getattr(getattr(e, "response", None), "status_code", None)
         raise SourceError(f"Legistar could not read {client}/{path} (HTTP {status or 'unavailable'}).") from None
 
 
-def _meeting(client, event):
-    event_id = event["EventId"]
-    return {"record_id": f"local_agendas:{client}:{event_id}", "title": event["EventBodyName"],
-            "url": event.get("EventInSiteURL") or f"{LEGISTAR}/{client}/events/{event_id}",
-            "meeting_date": event["EventDate"][:10], "meeting_time": event.get("EventTime"),
-            "agenda_last_published": event.get("EventAgendaLastPublishedUTC"),
-            "agenda_status": event.get("EventAgendaStatusName"), "agenda_pdf": event.get("EventAgendaFile")}
+def _matter(client, jurisdiction, m):
+    day = lambda v: (v or "")[:10] or None  # noqa: E731
+    return {"id": f"{client}:{m['MatterId']}",
+            "url": f"https://{client}.legistar.com/LegislationDetail.aspx?ID={m['MatterId']}&GUID={m.get('MatterGuid')}",
+            "jurisdiction": jurisdiction, "body": m.get("MatterBodyName"), "file_number": m.get("MatterFile"),
+            "type": m.get("MatterTypeName"), "status": m.get("MatterStatusName"), "title": m.get("MatterTitle"),
+            "name": m.get("MatterName"), "introduced": day(m.get("MatterIntroDate")), "agenda_date": day(m.get("MatterAgendaDate")),
+            "passed_date": day(m.get("MatterPassedDate")), "enactment_number": m.get("MatterEnactmentNumber"),
+            "last_modified": day(m.get("MatterLastModifiedUtc")), "_modified": m.get("MatterLastModifiedUtc") or ""}
 
 
-def _items(client, event_id):
-    rows = _legistar(client, f"events/{event_id}/eventitems", {"AgendaNote": 1})
-    return [{k: row.get(k) for k in ("EventItemId", "EventItemAgendaNumber", "EventItemMatterFile",
-                                      "EventItemTitle", "EventItemMatterName", "EventItemAgendaNote")}
-            for row in rows]
+TEXT = {"title": ("MatterTitle",), "name": ("MatterName",), "body": ("MatterBodyName",), "type": ("MatterTypeName",),
+        "status": ("MatterStatusName",)}
+EXACT = {"file_number": "MatterFile", "enactment_number": "MatterEnactmentNumber"}
+DATED = {"introduced": "MatterIntroDate", "agenda_date": "MatterAgendaDate", "passed_date": "MatterPassedDate",
+         "last_modified": "MatterLastModifiedUtc"}
 
 
-def _agendas(query, client, since, until, page):
-    client = _client(client)
-    start = since or today().isoformat()
-    start, end = _dates(start, until)
-    end = end or (dt.date.fromisoformat(start) + dt.timedelta(days=30)).isoformat()
-    # Legistar EventDate is a local calendar date at midnight, independent of EventTime.
-    params = {"$filter": f"EventDate ge datetime'{start}' and EventDate le datetime'{end}'",
-              "$orderby": "EventDate asc,EventId asc", "$top": 6, "$skip": (page - 1) * 5}
-    events = _legistar(client, "events", params)
-    more = len(events) > 5
-    results = []
-    for event in events[:5]:
-        matches = []
-        for item in _items(client, event["EventId"]):
-            words = (item.get(key) or "" for key in ("EventItemTitle", "EventItemMatterName",
-                                                       "EventItemMatterFile", "EventItemAgendaNote"))
-            if any(query.casefold() in word.casefold() for word in words):
-                matches.append(item)
-        if matches:
-            results.append({**_meeting(client, event), "matching_items": len(matches),
-                            "items": matches[:5]})
-    return {"results": results, "client": client, "since": start, "until": end,
-            "meetings_scanned": min(5, len(events)), "complete": not more,
-            "next_page": page + 1 if more else None,
-            "note": "One page searches five meetings. Read a meeting for its full public agenda-item text."}
+def _quote(value):
+    return "'" + str(value).replace("'", "''") + "'"
 
 
-def search(source, query, **filters):
-    page = filters.get("page", 1)
-    if type(page) is not int or page < 1:
-        raise SourceError("page must be a positive integer.")
+def _filter(s):
+    """The OData filter every client applies: each word found in the field, each date within its range."""
+    def words(given, columns):
+        return " and ".join("(" + " or ".join(f"substringof({_quote(w)}, {c})" for c in columns) + ")" for w in given.split())
+    parts = [words(s.query(), ("MatterTitle", "MatterName"))] if s.words() else []
+    for field, columns in TEXT.items():
+        given = s.any(field)
+        if given:
+            parts.append("(" + " or ".join(f"({words(g, columns)})" for g in given) + ")")
+    for field, column in EXACT.items():
+        given = s.any(field)
+        if given:
+            parts.append("(" + " or ".join(f"{column} eq {_quote(g)}" for g in given) + ")")
+    for field, column in DATED.items():
+        lo, hi = s.between(field)
+        parts += [f"{column} ge datetime'{lo}'"] if lo else []
+        parts += [f"{column} le datetime'{hi}T23:59:59'"] if hi else []
+    return " and ".join(p for p in parts if p)
+
+
+def _search_matters(s):
+    given = s.any("jurisdiction")
+    chosen = [(c, j) for c, j in _clients() if not given or any(set(names.tokens(g)) <= set(names.tokens(j)) for g in given)]
+    where, size = _filter(s), max(1, min(s.size, 1000))
+    at = s.cursor or {c: 0 for c, _ in chosen}
+
+    def one(client, jurisdiction):
+        params = {"$orderby": "MatterLastModifiedUtc desc,MatterId desc", "$top": size, "$skip": at[client]}
+        params |= {"$filter": where} if where else {}
+        return [_matter(client, jurisdiction, m) for m in _legistar(client, "matters", params)]
+
+    live, got = [(c, j) for c, j in chosen if at.get(c, -1) >= 0], {}
+    with ThreadPoolExecutor(8) as ex:
+        futures = {ex.submit(one, c, j): (c, j) for c, j in live}
+        for fut in as_completed(futures):
+            client, jurisdiction = futures[fut]
+            try:
+                got[client] = fut.result()
+            except SourceError as e:
+                raise SourceError(f"{jurisdiction}'s legislation did not answer ({e}). The same search can be made again, "
+                                  "or with jurisdiction set to the others.")
+    merged = sorted((r for rows in got.values() for r in rows), key=lambda r: r["_modified"], reverse=True)[:size]
+    used = {}
+    for r in merged:
+        client = r["id"].split(":", 1)[0]
+        used[client] = used.get(client, 0) + 1
+    nxt = dict(at)
+    for client, _ in live:  # a council is finished when it returned fewer matters than asked and all were used
+        n = used.get(client, 0)
+        nxt[client] = -1 if len(got[client]) < size and n == len(got[client]) else at[client] + n
+    return page([{k: v for k, v in r.items() if not k.startswith("_")} for r in merged],
+                nxt if any(v >= 0 for v in nxt.values()) else None, order="latest modified first")
+
+
+def _read_matter(key):
+    client, _, number = key.partition(":")
+    jurisdiction = next((j for c, j in _clients() if c == client), None)
+    if not jurisdiction or not number.isdigit():
+        raise SourceError(f"local_legislation has no record {key!r}")
+    record = _matter(client, jurisdiction, _legistar(client, f"matters/{number}"))
+    lines, links = [], []
     try:
-        if source == "local_agendas":
-            return _agendas(query or "", filters.get("client"), filters.get("since"),
-                            filters.get("until"), page)
-        value = filters.get("state")
-        if value is not None and (not isinstance(value, str) or not re.fullmatch(r"[A-Za-z]{2}", value)):
-            raise SourceError("state must be a two-letter state or district code.")
-        state = (value or "").upper()
-        start, end = _dates(filters.get("effective_from"), filters.get("effective_until"))
-        if state == "WA":
-            return _warn_washington(query or "", start, end, page)
-        return _warn_index(query or "", state, start, end, page)
-    except (requests.RequestException, ValueError, KeyError, TypeError) as e:
-        raise SourceError(f"{source} could not read the publisher's records ({type(e).__name__}).") from None
+        history = _legistar(client, f"matters/{number}/histories")
+        lines.append("History (date, action, body, result):")
+        lines += [f"  {(h.get('MatterHistoryActionDate') or '')[:10]} | {h.get('MatterHistoryActionName') or ''} | "
+                  f"{h.get('MatterHistoryActionBodyName') or ''} | {h.get('MatterHistoryPassedFlagName') or ''}"
+                  + (f" | {' '.join(str(h['MatterHistoryActionText']).split())}" if h.get("MatterHistoryActionText") else "")
+                  for h in history]
+        links = [{"text": a.get("MatterAttachmentName") or "Attachment", "url": a["MatterAttachmentHyperlink"]}
+                 for a in _legistar(client, f"matters/{number}/attachments") if a.get("MatterAttachmentHyperlink")]
+        versions = _legistar(client, f"matters/{number}/versions")
+        if versions:
+            text = _legistar(client, f"matters/{number}/texts/{versions[-1]['Key']}").get("MatterTextPlain")
+            if text:
+                lines += ["", "Text:", text]
+    except SourceError:
+        pass  # the council publishes the matter without its history or text
+    return {**{k: v for k, v in record.items() if not k.startswith("_")}, "document": "\n".join(lines), "links": links,
+            "published": record["last_modified"]}
 
 
-def _read_wa(native_id):
-    _, encoded, identity = native_id.split(":")
-    employer = unquote(encoded)
-    if not employer or not re.fullmatch(r"[a-f0-9]{20}", identity):
-        raise SourceError("Invalid Washington WARN entry ID.")
-    page = 1
-    while page:
-        batch = _warn_washington(employer, None, None, page)
-        row = next((r for r in batch["results"] if r["record_id"] == f"warn:{native_id}"), None)
-        if row:
-            lines = [f"{key}: {value}" for key, value in row.items() if key != "record_id" and value is not None]
-            if row["letter_url"]:
-                try:
-                    letter = web.read(row["letter_url"])
-                    lines.extend(["", "Filed letter", letter["text"]])
-                except (SourceError, PyPdfError):
-                    row["url"] = row["directory_url"]
-                    lines.append("The linked letter could not be read. The fields above come from Washington ESD's directory.")
-            return {"kind": "record", "source": "warn", "native_id": native_id, "url": row["url"],
-                    "published": None, "text": "\n".join(lines), "data": row}
-        page = batch["next_page"]
-    raise SourceError("This notice no longer appears in Washington's WARN directory.")
-
-
-def read(source, native_id):
-    try:
-        if source == "warn" and native_id.startswith("entry:"):
-            return _read_wa(native_id)
-        if source == "local_agendas":
-            client, event_id = native_id.split(":")
-            client = _client(client)
-            if not event_id.isdecimal():
-                raise SourceError("Invalid Legistar event ID.")
-            event = _legistar(client, f"events/{event_id}")
-            data = _meeting(client, event)
-            data["agenda_items"] = _items(client, event_id)
-            published = data["agenda_last_published"]
-            fields = {k: v for k, v in data.items() if k not in {"record_id", "agenda_items"}}
-            lines = [f"{k}: {v}" for k, v in fields.items() if v is not None]
-            for item in data["agenda_items"]:
-                lines.append("")
-                lines.extend(f"{k}: {v}" for k, v in item.items() if v is not None)
-        elif source == "warn" and native_id.startswith("index:"):
-            row_id = native_id.removeprefix("index:")
-            if not re.fullmatch(r"[a-f0-9]{32}", row_id):
-                raise SourceError("Invalid WARN Index notice ID.")
-            row = http_json(f"{WARN_INDEX}/api/notices/{row_id}")
-            data = _index_row(row)
-            published = None
-            lines = [data["publisher"], data["url"]]
-            lines.extend(f"{k}: {v}" for k, v in row.items() if v is not None)
-        else:
-            state, row_id = native_id.split(":")
-            if not re.fullmatch(r"[A-Z]{2}", state) or not re.fullmatch(r"[a-fA-F0-9]+", row_id):
-                raise SourceError("Invalid WARN archive record ID.")
-            row = next((r for r in _archive_rows(state) if r["id"] == row_id), None)
-            if row is None:
-                raise SourceError("This notice no longer appears in the WARN archive.")
-            directory = http_json(f"{ARCHIVE}/source_formats.json")["states"]
-            data = {**_warn_row(row, directory), "archive_row": row}
-            published = None
-            lines = [data["publisher"], data["url"]]
-            lines.extend(f"{key}: {value}" for key, value in row.items() if value)
-        return {"kind": "record", "source": source, "native_id": native_id, "url": data["url"],
-                "published": published, "text": "\n".join(lines),
-                "data": data}
-    except (requests.RequestException, ValueError, TypeError, KeyError) as e:
-        raise SourceError(f"Could not read {source} record ({type(e).__name__}).") from None
+SERIES = [
+    Series(
+        id="warn_notices", title="WARN notices",
+        record="an employer's notice of a plant closing or mass layoff, given to its state under the WARN Act",
+        creator="state dislocated worker units", publisher="WARN Index (warnindex.com), which compiles the states' postings",
+        jurisdiction="the states", jurisdictions=_notice_states, coverage=_notice_span,
+        fields=(F("employer", "name"), F("state", "place"), F("location", "place"), F("category", "text"),
+                F("notice_type", "text"), F("notice_date", "date"), F("layoff_date", "date"),
+                F("affected_employees", "number")),
+        search=_search_notices, read=_read_notice),
+    Series(
+        id="local_legislation", title="city and county legislation",
+        record="a matter before a city or county legislative body: an ordinance, resolution, contract approval or other "
+               "file, with the dates it was introduced, placed on an agenda and passed",
+        creator="city and county legislative bodies", publisher="Granicus (Legistar)",
+        jurisdiction="; ".join(j for _, j in _clients()),
+        fields=(F("jurisdiction", "place"), F("body", "name"), F("file_number", "identifier"), F("type", "text"),
+                F("status", "text"), F("title", "text"), F("name", "text"), F("introduced", "date"), F("agenda_date", "date"),
+                F("passed_date", "date"), F("enactment_number", "identifier"), F("last_modified", "date")),
+        search=_search_matters, read=_read_matter),
+]

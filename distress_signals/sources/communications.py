@@ -1,8 +1,18 @@
-"""FCC public docket filings and auction reports; NRC ADAMS document search and retrieval."""
+"""Four series: filings in FCC proceedings (ECFS), the announcements and bidder status of FCC spectrum auctions,
+and documents in the NRC's ADAMS library.
+
+  fcc_ecfs_filings            ECFS applies the words, a proceeding, a filer and a range of received dates. It
+                              reads no further than 10,000 records into one query, so a search continues from
+                              the last record's received time, which has no such limit. It takes an api.data.gov
+                              key (API_DATA_GOV_KEY); the shared demo key allows ten requests a day.
+  fcc_auction_announcements,  the FCC's public reporting system publishes each auction's reports as one file,
+  fcc_auction_bidder_status   read for one auction at a time.
+  nrc_adams_documents         the ADAMS public search API, which needs a subscription key (NRC_ADAMS_API_KEY).
+"""
 
 import base64
 import csv
-import datetime as dt
+import functools
 import io
 import os
 import re
@@ -10,18 +20,13 @@ from urllib.parse import urlencode
 
 import requests
 
-from ..util import SourceError, http_json, session, stable_id
-from . import federal_register, web
+from ..util import SourceError, http_json, session, stable_id, to_float
+from . import F, Series, page
 
 ECFS = "https://publicapi.fcc.gov/ecfs/filings"
 PRS = "https://auctiondata.fcc.gov/public/projects"
 ADAMS = "https://adams-api.nrc.gov/aps/api/search"
-AUCTION_REPORTS = {"announcements", "bidder_status"}
-
-FILTERS = {
-    "fcc": {"docket", "filer", "auction_number", "report", "limit", "offset"},
-    "nrc_adams": {"collection", "docket", "document_type", "organization", "since", "until", "limit", "offset"},
-}
+ECFS_PER, ECFS_LAST = 250, 9750  # the most ECFS returns at once, and the last offset it reads
 
 
 def _json(label, url, **options):
@@ -35,58 +40,75 @@ def _json(label, url, **options):
 
 
 def _fcc_json(url, **options):
-    key = os.getenv("FCC_API_KEY") or "DEMO_KEY"
-    return _json("FCC ECFS (set FCC_API_KEY for your own quota)", url, headers={"X-Api-Key": key}, **options)
+    return _json("FCC ECFS", url, headers={"X-Api-Key": os.environ["API_DATA_GOV_KEY"]}, **options)
 
 
-def _adams_json(url, **options):
-    key = os.getenv("NRC_ADAMS_API_KEY")
-    if not key:
-        raise SourceError("Set NRC_ADAMS_API_KEY from https://adams-api-developer.nrc.gov/ for the ADAMS library, "
-                          "or search nrc_adams with collection=notices for keyless NRC Federal Register notices.")
-    return _json("NRC ADAMS", url, headers={"Ocp-Apim-Subscription-Key": key}, **options)
+# ---------- ECFS filings ----------
 
-
-def _ecfs_row(record):
+def _ecfs(record):
     sid = str(record["id_submission"])
     documents = [d for d in (record.get("documents") or []) if d.get("src")]
-    proceedings = [{"number": p.get("name"), "description": p.get("description")}
-                   for p in record.get("proceedings") or []]
-    return {
-        "record_id": f"fcc:{sid}", "url": f"https://www.fcc.gov/ecfs/search/search-filings/filing/{sid}",
-        "title": (documents and documents[0].get("filename")) or
-                 (proceedings and proceedings[0]["description"]) or f"ECFS filing {sid}",
-        "filers": [f["name"] for f in record.get("filers") or [] if f.get("name")],
-        "proceedings": proceedings, "submission_type": (record.get("submissiontype") or {}).get("description"),
-        "published": record.get("date_disseminated"), "received": record.get("date_received"),
-        "comment_due": record.get("date_comment_period"), "reply_comment_due": record.get("date_reply_comment"),
-        "documents": [{"text": d.get("description") or d.get("filename") or "Document", "url": d["src"]}
-                      for d in documents],
-    }
+    return {"id": sid, "url": f"https://www.fcc.gov/ecfs/search/search-filings/filing/{sid}", "submission_id": sid,
+            "filer": [f["name"] for f in record.get("filers") or [] if f.get("name")],
+            "law_firm": [f["name"] for f in record.get("lawfirms") or [] if f.get("name")],
+            "proceeding": [p["name"] for p in record.get("proceedings") or [] if p.get("name")],
+            "proceeding_description": [p["description"] for p in record.get("proceedings") or [] if p.get("description")],
+            "submission_type": (record.get("submissiontype") or {}).get("description"),
+            "received_date": (record.get("date_received") or "")[:10] or None,
+            "disseminated_date": (record.get("date_disseminated") or "")[:10] or None,
+            "file_name": [d.get("filename") for d in documents if d.get("filename")],
+            "_documents": [{"text": d.get("description") or d.get("filename") or "Document", "url": d["src"]} for d in documents],
+            "_received": record.get("date_received")}
 
 
-def _ecfs(query, limit, offset, docket=None, filer=None, auction_number=None):
-    def phrase(value):
-        return '"' + str(value).replace('\\', '\\\\').replace('"', '\\"') + '"'
-
-    terms = [f"({query})"] if query else []
-    if docket:
-        terms.append(f"proceedings.name:({phrase(docket)})")
-    if filer:
-        terms.append(f"filers.name:({phrase(filer)})")
-    if auction_number:
-        terms.append(phrase(f"Auction {auction_number}"))
-    params = {"limit": limit + 1, "offset": offset, "sort": "date_disseminated,DESC"}
-    if terms:
-        params["q"] = " AND ".join(terms)
+def _search_ecfs(s):
+    ids = s.any("submission_id")
+    if ids:
+        found = []
+        for i in ids:
+            doc = _fcc_json(f"{ECFS}/{i}")
+            doc = doc.get("filing") if isinstance(doc.get("filing"), dict) else doc
+            found.append({k: v for k, v in _ecfs(doc).items() if not k.startswith("_")})
+        return page(found)
+    lo, hi = s.between("received_date")
+    at = s.cursor or {"until": None, "skip": 0}
+    params = {"sort": "date_received,DESC", "limit": max(1, min(s.size, ECFS_PER)), "offset": at["skip"]}
+    for key, value in (("q", s.query()), ("proceedings.name", s.one("proceeding")), ("filers.name", s.one("filer"))):
+        if value:
+            params[key] = value
+    upper = at["until"] or (hi + "T23:59:59.999Z" if hi else None)
+    if lo or upper:
+        params["date_received"] = (f"[gte]{lo}" if lo else "") + (f"[lte]{upper}" if upper else "")
     data = _fcc_json(ECFS, params=params)
     if not isinstance(data.get("filing"), list):
         raise SourceError("FCC ECFS response is missing its filing list")
-    records = data["filing"]
-    rows = [_ecfs_row(r) for r in records[:limit]]
-    more = len(records) > limit
-    return {"results": rows, "complete": not more, "next_offset": offset + limit if more else None}
+    rows = [_ecfs(r) for r in data["filing"]]
+    nxt = None
+    if len(rows) == params["limit"]:
+        last = rows[-1]["_received"]
+        same = sum(1 for r in rows if r["_received"] == last)
+        nxt = {"until": last, "skip": same + (at["skip"] if last == at["until"] else 0)}
+        if nxt["skip"] > ECFS_LAST:
+            raise SourceError("More than 10,000 ECFS filings share one received time; narrow the search.")
+    return page([{k: v for k, v in r.items() if not k.startswith("_")} for r in rows], nxt, order="latest received first")
 
+
+def _read_ecfs(sid):
+    doc = _fcc_json(f"{ECFS}/{sid}")
+    doc = doc.get("filing") if isinstance(doc.get("filing"), dict) else doc
+    if str(doc.get("id_submission")) != str(sid):
+        raise SourceError("FCC ECFS returned no matching filing")
+    row = _ecfs(doc)
+    return {**{k: v for k, v in row.items() if not k.startswith("_")}, "document": doc.get("text_data") or "",
+            "links": row["_documents"], "published": row["disseminated_date"]}
+
+
+def _ecfs_newest(series):
+    rows = _fcc_json(ECFS, params={"sort": "date_received,DESC", "limit": 1}).get("filing") or [{}]
+    return series.since, (rows[0].get("date_received") or "")[:10] or None
+
+
+# ---------- auction reports ----------
 
 def _auction_csv(auction, report):
     url = f"{PRS}/auction{auction}/reports/{report}/download"
@@ -108,195 +130,134 @@ def _auction_csv(auction, report):
         for record in records:
             if not all(record.get(k) for k in identifiers):
                 raise SourceError(f"FCC auction {auction} returned a row without its identifiers")
-            native = f"auction/{auction}/{report}/" + stable_id(*(record[k] for k in identifiers))
-            title = record.get("subject") or f"{record.get('bidder') or record['frn']}, round {record['round']}"
-            yield {"record_id": f"fcc:{native}", "url": url, "title": title,
-                   "published": record.get("announcement_time"), "fields": record}
+            yield {"id": f"{auction}:" + stable_id(*(record[k] for k in identifiers)), "url": url, "fields": record}
     except (UnicodeError, csv.Error) as exc:
         raise SourceError(f"FCC auction {auction} returned an unreadable {report} CSV") from exc
 
 
-def _adams_row(doc):
+@functools.lru_cache(maxsize=8)
+def _report(auction, report):
+    if not re.fullmatch(r"[1-9][0-9]{0,5}", str(auction)):
+        raise SourceError("auction_number is the FCC's number for the auction, such as 108")
+    return list(_auction_csv(auction, report))
+
+
+def _announcement(row):
+    f = row["fields"]
+    return {"id": row["id"], "url": row["url"], "auction_number": f.get("auction_id"),
+            "announcement_time": (f.get("announcement_time") or "")[:19].replace(" ", "T") or None,
+            "subject": f.get("subject"), "announcement": f.get("announcement")}
+
+
+def _bidder(row):
+    f = row["fields"]
+    return {"id": row["id"], "url": row["url"], "auction_number": f.get("auction_id"), "round": to_float(f.get("round")),
+            "bidder": f.get("bidder"), "frn": f.get("frn"), "bidding_credit_type": f.get("bidding_credit_type") or None,
+            "eligibility": to_float(f.get("eligibility")), "activity": to_float(f.get("activity")),
+            "requested_commitment": to_float(f.get("requested_commitment")), "commitment": to_float(f.get("commitment")),
+            "_fields": f}
+
+
+def _auction_series(report, shape):
+    def search(s):
+        rows = [shape(r) for a in s.any("auction_number") for r in _report(str(a), report)]
+        return page([{k: v for k, v in r.items() if not k.startswith("_")} for r in rows])
+
+    def read(key):
+        for r in _report(key.split(":", 1)[0], report):
+            if r["id"] == key:
+                got = shape(r)
+                return {**{k: v for k, v in got.items() if not k.startswith("_")},
+                        "document": "\n".join(f"{k}: {v}" for k, v in r["fields"].items() if v)}
+        raise SourceError("The row is not in the auction's current report")
+    return search, read
+
+
+# ---------- NRC ADAMS ----------
+
+def _adams_json(url, **options):
+    return _json("NRC ADAMS", url, headers={"Ocp-Apim-Subscription-Key": os.environ["NRC_ADAMS_API_KEY"]}, **options)
+
+
+def _adams(doc):
     accession = doc["AccessionNumber"]
-    permalink = "https://adamswebsearch2.nrc.gov/webSearch2/main.jsp?" + urlencode({"AccessionNumber": accession})
-    return {
-        "record_id": f"nrc_adams:{accession}", "url": doc.get("Url") or permalink,
-        "title": doc.get("DocumentTitle") or doc.get("Name") or accession,
-        "published": doc.get("DateAddedTimestamp") or doc.get("DateAdded"),
-        "document_date": doc.get("DocumentDate"), "document_types": doc.get("DocumentType"),
-        "author_organizations": doc.get("AuthorAffiliation"), "addressee_organizations": doc.get("AddresseeAffiliation"),
-        "docket_numbers": doc.get("DocketNumber"), "license_numbers": doc.get("LicenseNumber"),
-    }
+    many = lambda v: v if isinstance(v, list) else [x.strip() for x in str(v).split(",") if x.strip()] if v else []  # noqa: E731
+    return {"id": accession, "accession_number": accession,
+            "url": doc.get("Url") or "https://adamswebsearch2.nrc.gov/webSearch2/main.jsp?" + urlencode({"AccessionNumber": accession}),
+            "title": doc.get("DocumentTitle") or doc.get("Name"), "document_type": many(doc.get("DocumentType")),
+            "author_affiliation": many(doc.get("AuthorAffiliation")), "addressee_affiliation": many(doc.get("AddresseeAffiliation")),
+            "docket_number": many(doc.get("DocketNumber")), "license_number": many(doc.get("LicenseNumber")),
+            "document_date": (doc.get("DocumentDate") or "")[:10] or None,
+            "date_added": (doc.get("DateAddedTimestamp") or doc.get("DateAdded") or "")[:10] or None}
 
 
-def _adams(query, limit, offset, docket=None, document_type=None, organization=None, since=None, until=None):
+def _search_adams(s):
     filters = [{"field": field, "value": value, "operator": "equals"}
-               for field, value in (("DocketNumber", docket), ("DocumentType", document_type)) if value]
-    for operator, value in (("ge", since), ("le", until)):
-        if value:
-            try:
-                date = dt.date.fromisoformat(value).isoformat()
-            except (TypeError, ValueError) as exc:
-                raise SourceError("ADAMS dates use YYYY-MM-DD") from exc
-            filters.append({"field": "DateAddedTimestamp", "value": f"(DateAddedTimestamp {operator} '{date}')"})
-    any_filters = [{"field": field, "value": organization, "operator": "contains"}
-                   for field in ("AddresseeAffiliation", "AuthorAffiliation")] if organization else []
-    body = {"q": query, "filters": filters, "anyFilters": any_filters, "mainLibFilter": True,
-            "legacyLibFilter": True, "content": True, "skip": offset, "sort": "DateAddedTimestamp", "sortDirection": 1}
-    data = _adams_json(ADAMS, method="POST", json_body=body)
+               for field, value in (("DocketNumber", s.one("docket_number")), ("DocumentType", s.one("document_type"))) if value]
+    lo, hi = s.between("date_added")
+    filters += [{"field": "DateAddedTimestamp", "value": f"(DateAddedTimestamp {op} '{v}')"} for op, v in (("ge", lo), ("le", hi)) if v]
+    skip = s.cursor or 0
+    data = _adams_json(ADAMS, method="POST", json_body={
+        "q": s.query(), "filters": filters, "anyFilters": [], "mainLibFilter": True, "legacyLibFilter": True, "content": True,
+        "skip": skip, "sort": "DateAddedTimestamp", "sortDirection": 1})
     if not isinstance(data.get("results"), list) or not isinstance(data.get("count"), int):
         raise SourceError("NRC ADAMS response is missing its results or count")
-    rows = [_adams_row(r["document"]) for r in data["results"][:limit]]
-    next_offset = offset + len(rows)
-    if not rows and next_offset < data["count"]:
-        raise SourceError("NRC ADAMS returned an empty page before its reported end")
-    more = next_offset < data["count"]
-    return {"results": rows, "total_matches": data["count"], "complete": not more,
-            "next_offset": next_offset if more else None}
+    rows = [_adams(r["document"]) for r in data["results"]]
+    return page(rows, skip + len(rows) if rows and skip + len(rows) < data["count"] else None, data["count"], "latest added first")
 
 
-def _notice_row(doc):
-    number, published = doc["document_number"], doc["publication_date"]
-    return {"record_id": f"nrc_adams:notice/{number}", "title": doc["title"],
-            "url": f"https://www.govinfo.gov/content/pkg/FR-{published}/html/{number}.htm",
-            "collection": "NRC Federal Register notices", "published": published, "action": doc.get("action"),
-            "dates": doc.get("dates"), "docket_ids": doc.get("docket_ids"), "comments_close": doc.get("comments_close_on")}
-
-
-def _notices(query, limit, offset, since=None, until=None, **other):
-    if other:
-        raise SourceError("For collection=notices search by words in query and publication dates in since/until")
-    if offset >= federal_register.CAP:
-        raise SourceError("Federal Register result windows end at 10,000; narrow the query or publication dates")
-    params = {"conditions[agencies][]": "nuclear-regulatory-commission", "conditions[type][]": "NOTICE",
-              "per_page": 100, "order": "newest",
-              "fields[]": ["document_number", "publication_date", "title", "action", "dates", "docket_ids", "comments_close_on"]}
-    if query:
-        params["conditions[term]"] = query
-    for side, value in (("gte", since), ("lte", until)):
-        if value:
-            try:
-                params[f"conditions[publication_date][{side}]"] = dt.date.fromisoformat(value).isoformat()
-            except (TypeError, ValueError) as exc:
-                raise SourceError("Notice publication dates use YYYY-MM-DD") from exc
-    if since and until and since > until:
-        raise SourceError("since must be on or before until")
-    page, skip = divmod(offset, 100)
-    data = _json("NRC Federal Register notices", federal_register.API, params={**params, "page": page + 1})
-    count = data["count"]
-    docs = data["results"][skip:skip + limit]
-    if len(docs) < limit and offset + len(docs) < min(count, federal_register.CAP):
-        extra = _json("NRC Federal Register notices", federal_register.API, params={**params, "page": page + 2})
-        docs += extra["results"][:limit - len(docs)]
-    end = offset + len(docs)
-    result = {"results": [_notice_row(doc) for doc in docs], "total_matches": count,
-              "complete": end >= count and count < federal_register.CAP,
-              "next_offset": end if docs and end < min(count, federal_register.CAP) else None}
-    if count >= federal_register.CAP:
-        result["note"] = "The Federal Register caps a search at 10,000 matches. Narrow the publication dates for the rest."
-    return result
-
-
-def _read_notice(number):
-    if not re.fullmatch(r"[A-Za-z0-9-]+", number):
-        raise SourceError("Invalid Federal Register document number")
-    doc = _json("NRC Federal Register notice", f"{federal_register.BASE}/documents/{number}.json")
-    if (doc.get("document_number") != number or doc.get("type") != "Notice"
-            or not any(a.get("slug") == "nuclear-regulatory-commission" for a in doc.get("agencies", []))):
-        raise SourceError("The document is not an NRC Federal Register notice")
-    row = _notice_row(doc)
-    notice = web.read(row["url"])
-    # Accessions identify cited material; the notice supplies the surrounding text and dates.
-    accessions = list(dict.fromkeys(re.findall(r"\bML[0-9]{5}[A-Z0-9][0-9]{3}\b", notice["text"])))
-    row["links"] = [{"text": f"ADAMS {acc}", "url": "https://adamswebsearch2.nrc.gov/webSearch2/main.jsp?"
-                     + urlencode({"AccessionNumber": acc})} for acc in accessions]
-    row["adams_accessions"] = accessions
-    return {"source": "nrc_adams", "kind": "nrc_notice", "native_id": "notice/" + number, "url": row["url"],
-            "published": row["published"], "data": row, "text": notice["text"]}
-
-
-def search(source, query, limit=25, offset=0, **filters):
-    if type(limit) is not int or not 1 <= limit <= 99 or type(offset) is not int or offset < 0:
-        raise SourceError("limit must be an integer from 1 to 99 and offset a nonnegative integer")
-    if source == "nrc_adams":
-        collection = filters.pop("collection", "adams")
-        if collection == "notices":
-            return _notices(query or "", limit, offset, **filters)
-        if collection != "adams":
-            raise SourceError("NRC collection is adams or notices")
-        return _adams(query or "", limit, offset, **filters)
-    report = filters.pop("report", "filings")
-    auction = filters.get("auction_number")
-    if auction is not None and not re.fullmatch(r"[1-9][0-9]{0,5}", str(auction)):
-        raise SourceError("auction_number must be a positive FCC auction number")
-    if report == "filings":
-        return _ecfs(query, limit, offset, **filters)
-    if report not in AUCTION_REPORTS or auction is None or filters.get("docket") or filters.get("filer"):
-        raise SourceError("For announcements or bidder_status, give auction_number and use query to search report rows")
-    terms = (query or "").casefold().split()
-    results, total = [], 0
-    for row in _auction_csv(auction, report):
-        fields = " ".join(row["fields"].values()).casefold()
-        if all(term in fields for term in terms):
-            if offset <= total < offset + limit:
-                results.append(row)
-            total += 1
-    more = offset + limit < total
-    return {"results": results, "total_matches": total, "complete": not more,
-            "next_offset": offset + limit if more else None}
-
-
-def _adams_text(content):
-    if not isinstance(content, str) or not content:
-        return ""
+def _read_adams(accession):
+    data = _adams_json(f"{ADAMS}/{accession}")
+    doc = data.get("document") or {}
+    if doc.get("AccessionNumber") != accession:
+        raise SourceError("NRC ADAMS returned no matching document")
+    content = doc.get("content") or ""
     try:
         decoded = base64.b64decode(content, validate=True).decode("utf-8")
+        content = decoded if decoded and all(c.isprintable() or c.isspace() for c in decoded) else content
     except ValueError:
-        return content
-    return decoded if decoded and all(c.isprintable() or c.isspace() for c in decoded) else content
+        pass
+    record = _adams(doc)
+    return {**record, "document": content, "published": record["date_added"]}
 
 
-def read(source, native_id):
-    if source == "nrc_adams" and native_id.startswith("notice/"):
-        return _read_notice(native_id.removeprefix("notice/"))
-    if source == "nrc_adams":
-        if not re.fullmatch(r"[A-Za-z0-9-]+", native_id):
-            raise SourceError("Invalid ADAMS accession number")
-        data = _adams_json(f"{ADAMS}/{native_id}")
-        doc = data.get("document") or {}
-        if doc.get("AccessionNumber") != native_id:
-            raise SourceError("NRC ADAMS returned no matching document")
-        row = _adams_row(doc)
-        body = _adams_text(doc.get("content"))
-        kind = "nrc_document"
-    elif native_id.isascii() and native_id.isdigit():
-        doc = _fcc_json(f"{ECFS}/{native_id}")
-        if str(doc.get("id_submission")) != native_id:
-            raise SourceError("FCC ECFS returned no matching filing")
-        row = _ecfs_row(doc)
-        row["links"] = row["documents"]
-        kind, body = "fcc_filing", doc.get("text_data") or ""
-    else:
-        match = re.fullmatch(r"auction/([1-9][0-9]{0,5})/(announcements|bidder_status)/([0-9a-f]{20})", native_id)
-        if not match:
-            raise SourceError("Invalid FCC record ID")
-        row = next((r for r in _auction_csv(match[1], match[2]) if r["record_id"] == f"fcc:{native_id}"), None)
-        if row is None:
-            raise SourceError("The row is absent from the current FCC auction report")
-        kind, body = "fcc_auction_record", ""
-
-    fields = row.get("fields", row)
-    lines = []
-    for key, value in fields.items():
-        if key in ("record_id", "links", "url") or value is None or value == []:
-            continue
-        if isinstance(value, list):
-            for item in value:
-                words = " | ".join(str(v) for v in item.values() if v) if isinstance(item, dict) else str(item)
-                lines.append(f"{key}: {words}")
-        else:
-            lines.append(f"{key}: {value}")
-    if body:
-        lines.extend(("", body))
-    return {"kind": kind, "source": source, "native_id": native_id, "url": row["url"],
-            "published": row.get("published"), "text": "\n".join(lines), "data": row}
+FCC = "Federal Communications Commission"
+_announcements, _bidders = _auction_series("announcements", _announcement), _auction_series("bidder_status", _bidder)
+SERIES = [
+    Series(
+        id="fcc_ecfs_filings", title="FCC filings",
+        record="a filing in an FCC proceeding: a comment, reply, ex parte notice, petition or other submission",
+        creator="parties to FCC proceedings and the Commission", publisher=f"{FCC} (Electronic Comment Filing System)",
+        jurisdiction="federal", since="1992", coverage=_ecfs_newest, requires=("API_DATA_GOV_KEY",),
+        fields=(F("submission_id", "identifier"), F("filer", "name", many=True), F("law_firm", "name", many=True),
+                F("proceeding", "identifier", many=True), F("proceeding_description", "text", many=True),
+                F("submission_type", "text"), F("received_date", "date"), F("disseminated_date", "date"),
+                F("file_name", "text", many=True), F("full_text", "full text")),
+        search=_search_ecfs, read=_read_ecfs),
+    Series(
+        id="fcc_auction_announcements", title="FCC auction announcements",
+        record="an announcement the FCC made to bidders during a spectrum auction",
+        creator=FCC, jurisdiction="federal",
+        fields=(F("auction_number", "identifier", required=True), F("announcement_time", "date"), F("subject", "text"),
+                F("announcement", "text")),
+        search=_announcements[0], read=_announcements[1]),
+    Series(
+        id="fcc_auction_bidder_status", title="FCC auction bidder status",
+        record="a bidder's eligibility, activity and commitments in one round of an FCC spectrum auction",
+        creator=FCC, jurisdiction="federal",
+        fields=(F("auction_number", "identifier", required=True), F("round", "number"), F("bidder", "name"),
+                F("frn", "identifier"), F("bidding_credit_type", "text"), F("eligibility", "number"), F("activity", "number"),
+                F("requested_commitment", "amount"), F("commitment", "amount")),
+        search=_bidders[0], read=_bidders[1]),
+    Series(
+        id="nrc_adams_documents", title="the NRC's ADAMS library",
+        record="a document in the Nuclear Regulatory Commission's public library: a licensing application, inspection "
+               "report, order, letter or other record of a licensee's docket",
+        creator="the NRC and its licensees and applicants", publisher="U.S. Nuclear Regulatory Commission",
+        jurisdiction="federal", since="1999", requires=("NRC_ADAMS_API_KEY",),
+        fields=(F("accession_number", "identifier"), F("title", "text"), F("document_type", "text", many=True),
+                F("author_affiliation", "name", many=True), F("addressee_affiliation", "name", many=True),
+                F("docket_number", "identifier", many=True), F("license_number", "identifier", many=True),
+                F("document_date", "date"), F("date_added", "date"), F("full_text", "full text")),
+        search=_search_adams, read=_read_adams),
+]

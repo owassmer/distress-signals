@@ -4,15 +4,15 @@ The researcher searches *series* of public records with `search_records` and rea
 series is one kind of record (every Federal Register document, every WARN notice, every federal award), described
 to the researcher by one entry in a catalog: what a record is, who creates and publishes it, its jurisdiction,
 the dates it covers and its fields. [The specification](../SPEC.md#6-sources) describes the design. This page
-lists the 63 series, how each is reached, and the keys some of them need.
+lists the 67 series, how each is reached, and the keys some of them need.
 
-A series that needs a key is in a run's catalog only when the key is set in `.env`. 50 series need none.
+A series that needs a key is in a run's catalog only when the key is set in `.env`. 52 series need none.
 
 ## Keys
 
 | `.env` | What it is | Series it adds |
 |---|---|---|
-| `DATA_GOV_API_KEY` | An [api.data.gov](https://api.data.gov/signup/) key, free; one key serves Regulations.gov and the FCC's ECFS. The shared `DEMO_KEY` allows 10 requests an hour | `fcc_ecfs_filings`, `regulatory_dockets`, `regulatory_documents`, `public_comments` |
+| `DATA_GOV_API_KEY` | An [api.data.gov](https://api.data.gov/signup/) key, free; one key serves Regulations.gov, the FCC's ECFS and the Federal Audit Clearinghouse. The shared `DEMO_KEY` allows 10 requests an hour | `fcc_ecfs_filings`, `regulatory_dockets`, `regulatory_documents`, `public_comments`, `fac_single_audits`, `fac_federal_awards` |
 | `USPTO_API_KEY` | A [USPTO Open Data Portal](https://data.uspto.gov/) key, free | `ptab_proceedings`, `ptab_documents` |
 | `NRC_ADAMS_API_KEY` | A subscription key from the [NRC's developer portal](https://adams-api-developer.nrc.gov/) | `nrc_adams_documents` |
 | `GOVCON_API_KEY` | A [GovCon API](https://govconapi.com/api-guide/protests) key (a third party's index of GAO's docket) | `gao_bid_protests` |
@@ -28,7 +28,8 @@ membership](https://free.law/membership) may make 5 requests a minute and 125 a 
 `EDIS_API_TOKEN`
 adds the text of attachments to `usitc_filings`. `LEGISTAR_TOKEN_<CLIENT>` adds a council whose Legistar asks for a
 token (`config/legistar.yaml`) to `local_legislation`. `SOCRATA_APP_TOKEN` raises the request limits of the payment
-ledgers' portals. `SEC_USER_AGENT`, a name and contact email, is required by the SEC for every request.
+ledgers' portals. `SEC_USER_AGENT`, a name and contact email, is required by the SEC for every request. The FAA's
+airport reports are read in headless Chromium, which `python -m playwright install chromium --only-shell` installs.
 
 An MSRB delivery is zip files of XML transactions ("Index Data") and the PDFs they describe ("Doc"). It is read where
 it lies, zipped or unpacked, and the latest transaction for a submission stands. To see the format, MSRB publishes a
@@ -476,6 +477,52 @@ sedar_filings                 A catalog of SEDAR+ documents from the Canadian Se
 cse_sedar_filings             The SEDAR+ filings the Canadian Securities Exchange republishes for each company it
                               lists, read by listing. The Exchange's terms ask permission for commercial reuse;
                               CSE_SEDAR_LICENSED says the deployment has it.
+```
+
+### Single Audits
+
+`sources/fac.py`
+
+| Series | One record is | Creator; publisher | Needs |
+|---|---|---|---|
+| `fac_single_audits` | A Single Audit of a state or local government, tribe, university or nonprofit that spent $1 million or more of federal awards in a fiscal year, with its audited financial statements | Non-federal entities that expend federal awards, and their auditors; General Services Administration (Federal Audit Clearinghouse) | `DATA_GOV_API_KEY` |
+| `fac_federal_awards` | A federal award a Single Audit reports the auditee expended in the fiscal year: one line of its Schedule of Expenditures of Federal Awards | Non-federal entities that expend federal awards; General Services Administration (Federal Audit Clearinghouse) | `DATA_GOV_API_KEY` |
+
+How it is reached:
+
+```
+Two series from the Federal Audit Clearinghouse: Single Audits and the federal awards each one reports.
+
+A non-federal entity that spends $1,000,000 or more of federal awards in a fiscal year ($750,000 before fiscal
+years beginning in October 2024) has a Single Audit under 2 CFR 200 Subpart F and files it with the FAC: states,
+cities, counties, airports and transit authorities, school districts, universities, hospitals and other
+nonprofits. The FAC's API (api.data.gov key) applies identifiers, listed values and dates, and matches a word in
+a name; the registry applies the rest. A Single Audit's reporting package (the audited financial statements,
+the schedule of expenditures of federal awards and the auditor's reports) is read from the FAC's address for it,
+which redirects to a copy signed for the moment.
+```
+
+### Airport financial reports
+
+`sources/faa_cats.py`
+
+| Series | One record is | Creator; publisher | Needs |
+|---|---|---|---|
+| `faa_form_127_line_items` | A line item a commercial service airport reported for one fiscal year on FAA Form 5100-127, its Operating and Financial Summary: a revenue, expense, debt or capital figure, or a count such as enplanements | Airport sponsors; Federal Aviation Administration (CATS) |  |
+| `faa_form_126_payments` | A payment a commercial service airport reported making to a government entity in one fiscal year, by type of payment, on FAA Form 5100-126, its Financial Government Payment Report | Airport sponsors; Federal Aviation Administration (CATS) |  |
+
+How it is reached:
+
+```
+Two series from the FAA's Certification Activity Tracking System (CATS), where commercial service airports file
+their annual financial reports under the FAA Authorization Act of 1994: the line items of FAA Form 5100-127,
+the Operating and Financial Summary, and the payments to government entities reported on FAA Form 5100-126.
+
+CATS is a Blazor application: its pages are drawn over a websocket, with no API behind them. Its public export
+gives one CSV for each FAA region and year, holding every airport's filing for that year, so a year is nine
+downloads, made in headless Chromium and kept in out/sources/faa_cats/: the two latest years are fetched again
+after a day, earlier years after a month, since sponsors amend their filings. A search reads the years it needs,
+newest first; the registry applies the filters.
 ```
 
 ### EMMA

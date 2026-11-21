@@ -333,14 +333,15 @@ The researcher has all of it from the start, and nothing about a series is held 
   runs.
 - **Length.** Claude Code cuts an MCP tool's description at 4,096 characters unless
   `CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH` says otherwise, so the launcher sets it (`pipeline.claude_env`).
-  A captured request showed the description arriving whole with it set, and cut without it. With the 50
-  series that need no key, the catalog is about 26,000 characters, and with every key set about 33,000.
+  A captured request showed the description arriving whole with it set, and cut without it. With the 52
+  series that need no key, the catalog is about 27,000 characters.
 
 **Kept copies.** Where a publisher gives a bulk file, or one page per record, the adapter keeps what it read
 under `out/sources/`, and asks the publisher again when its copy has changed or the kept one has aged: SAM.gov's daily file of active
 notices and the current Congress's bill status files (each indexed with SQLite full-text search), GovInfo's
 descriptive metadata, OIRA's review files and meeting pages, the House's meeting pages, the Supreme Court's
-dockets, and the Department of War's releases.
+dockets, the Department of War's releases, and the FAA's yearly exports of airports' financial reports, which
+are downloaded in headless Chromium because CATS has no API.
 
 **Any address.** `sources/web.py` reads HTML or a PDF as text, with the page's links, for `read_record`.
 WebSearch and WebFetch reach everything else.

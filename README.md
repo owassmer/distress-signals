@@ -19,6 +19,7 @@ line tool signed in to a Claude account, and a HubSpot account with a private ap
 
    ```bash
    python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+   .venv/bin/python -m playwright install chromium --only-shell
    cp .env.example .env
    ```
 

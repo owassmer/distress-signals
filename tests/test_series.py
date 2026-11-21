@@ -225,6 +225,58 @@ class FailedReads(unittest.TestCase):
         self.assertEqual(self.stored(), 1)
 
 
+class AirportFilings(unittest.TestCase):
+    """FAA CATS exports, as the FAA writes them: a title and a date stamp, then the header and a row per filing."""
+
+    def export(self, folder, name, header, *rows):
+        path = Path(folder) / name
+        lines = ['"Operating and Financial Summary"', '"As of November 21, 2026 2:08:09 PM EST"', ""]
+        lines += [",".join(f'"{c}"' for c in r) for r in (header,) + rows]
+        path.write_text("\n".join(lines))
+        return ((path, 1.0),)
+
+    def test_a_hyphen_is_no_value_and_a_dollar_sign_makes_an_amount(self):
+        from distress_signals.sources import faa_cats
+        with tempfile.TemporaryDirectory() as folder:
+            files = self.export(folder, "127.csv", list(faa_cats.IDENT) + ["Passenger airline landing fees", "Operating Income (Loss)",
+                                                                           "Enplanements", "Parking", "Hotel"],
+                                ["2025", "OH", "Medium", "CLEVELAND-HOPKINS INTL", "CLE", "12/31/2025", "07/08/2026",
+                                 "$1,000", "($75,815)", "4,883,878", "-", "$0"])
+            faa_cats._lines.cache_clear()
+            with patch.object(faa_cats, "_exports", return_value=files):
+                got = {r["line_item"]: (r.get("amount"), r.get("quantity")) for r in
+                       sources.search("faa_form_127_line_items", filters={"fiscal_year_min": 2025, "fiscal_year_max": 2025,
+                                                                          "hub_size": "Medium"})["records"]}
+        self.assertEqual(got, {"Passenger airline landing fees": (1000.0, None), "Operating Income (Loss)": (-75815.0, None),
+                               "Enplanements": (None, 4883878.0), "Hotel": (0.0, None)})
+
+    def test_a_payment_reported_as_zero_is_no_payment(self):
+        from distress_signals.sources import faa_cats
+        with tempfile.TemporaryDirectory() as folder:
+            files = self.export(folder, "126.csv", list(faa_cats.PAYEE) + ["Utilities", "Law Enforcement", "Other"],
+                                ["2025", "OH", "RICKENBACKER INTERNATIONAL", "LCK", "City of Columbus", "City", "$137,134", "$0", "-"])
+            faa_cats._payments.cache_clear()
+            with patch.object(faa_cats, "_exports", return_value=files):
+                got = sources.search("faa_form_126_payments", filters={"fiscal_year_min": 2025, "fiscal_year_max": 2025})["records"]
+        self.assertEqual([(r["payment_type"], r["amount"]) for r in got], [("Utilities", 137134.0)])
+
+
+class SingleAudits(unittest.TestCase):
+    def test_the_api_is_sent_each_table_s_own_forms(self):
+        from distress_signals.sources import fac
+        with patch.dict(os.environ, DATA_GOV_API_KEY="k"), patch.object(fac, "_api", return_value=[]) as api:
+            sources.search("fac_single_audits", filters={"going_concern": "yes", "entity_type": "local", "audit_year_min": 2025})
+            general = api.call_args.args[1]
+            sources.search("fac_federal_awards", filters={"assistance_listing": ["20.106", "20.006"], "major_program": "yes"})
+            awards = api.call_args.args[1]
+        self.assertEqual((general["is_going_concern_included"], general["entity_type"], general["is_public"]),
+                         ("eq.Yes", "eq.local", "eq.true"))
+        self.assertIn("audit_year.gte.2025", general["and"])
+        self.assertEqual(awards["is_major"], "eq.Y")
+        self.assertEqual(awards["or"], "(and(federal_agency_prefix.eq.20,federal_award_extension.eq.106),"
+                                       "and(federal_agency_prefix.eq.20,federal_award_extension.eq.006))")
+
+
 class Citations(unittest.TestCase):
     def test_a_url_citation_resolves_to_the_record_holding_the_passage(self):
         url = "https://example.org/ratings.zip"

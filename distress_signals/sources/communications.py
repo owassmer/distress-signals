@@ -4,7 +4,7 @@ and documents in the NRC's ADAMS library.
   fcc_ecfs_filings            ECFS applies the words, a proceeding, a filer and a range of received dates. It
                               reads no further than 10,000 records into one query, so a search continues from
                               the last record's received time, which has no such limit. It takes an api.data.gov
-                              key (API_DATA_GOV_KEY); the shared demo key allows ten requests a day.
+                              key (DATA_GOV_API_KEY); the shared demo key allows ten requests a day.
   fcc_auction_announcements,  the FCC's public reporting system publishes each auction's reports as one file,
   fcc_auction_bidder_status   read for one auction at a time.
   nrc_adams_documents         the ADAMS public search API, which needs a subscription key (NRC_ADAMS_API_KEY).
@@ -40,7 +40,7 @@ def _json(label, url, **options):
 
 
 def _fcc_json(url, **options):
-    return _json("FCC ECFS", url, headers={"X-Api-Key": os.environ["API_DATA_GOV_KEY"]}, **options)
+    return _json("FCC ECFS", url, headers={"X-Api-Key": os.environ["DATA_GOV_API_KEY"]}, **options)
 
 
 # ---------- ECFS filings ----------
@@ -228,7 +228,7 @@ SERIES = [
         id="fcc_ecfs_filings", title="FCC filings",
         record="a filing in an FCC proceeding: a comment, reply, ex parte notice, petition or other submission",
         creator="parties to FCC proceedings and the Commission", publisher=f"{FCC} (Electronic Comment Filing System)",
-        jurisdiction="federal", since="1992", coverage=_ecfs_newest, requires=("API_DATA_GOV_KEY",),
+        jurisdiction="federal", since="1992", coverage=_ecfs_newest, requires=("DATA_GOV_API_KEY",),
         fields=(F("submission_id", "identifier"), F("filer", "name", many=True), F("law_firm", "name", many=True),
                 F("proceeding", "identifier", many=True), F("proceeding_description", "text", many=True),
                 F("submission_type", "text"), F("received_date", "date"), F("disseminated_date", "date"),

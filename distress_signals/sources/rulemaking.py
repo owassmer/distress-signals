@@ -150,7 +150,10 @@ def _files(d, included=()):
     return links
 
 
-SKIP = ("highlightedContent", "displayProperties", "fileFormats", "objectId")
+# left out of a record's document: what its fields already state (the API's times are UTC, the fields' dates Eastern)
+SKIP = ("highlightedContent", "displayProperties", "fileFormats", "objectId", "commentOn", "commentEndDate", "commentStartDate",
+        "postedDate", "lastModifiedDate", "modifyDate", "docketId", "agencyId", "title", "documentType", "frDocNum", "withdrawn",
+        "commentOnDocumentId")
 
 
 def _read_document(key):

@@ -332,8 +332,9 @@ def _search_packages(collection):
         if given:
             return page([_package(p) for p in given])
         terms = [f"collection:({collection})"] + (_asked(s.query()) if s.words() else [])
-        congress = s.one("congress")
-        terms += [f"congress:{int(float(congress))}"] if congress else []
+        number = s.peek("congress")
+        if number.get("lo") is not None and number.get("lo") == number.get("hi"):
+            terms.append(f"congress:{int(s.between('congress')[0])}")
         lo, hi = s.between("date_issued")
         first, last = dt.date.fromisoformat(lo or "1789-01-01"), dt.date.fromisoformat(hi) if hi else today() + dt.timedelta(days=1)
         at = s.cursor or {"hi": last.isoformat(), "span": (last - first).days + 1, "o": 0}

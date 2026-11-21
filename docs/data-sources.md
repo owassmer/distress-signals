@@ -4,9 +4,9 @@ The researcher searches *series* of public records with `search_records` and rea
 series is one kind of record (every Federal Register document, every WARN notice, every federal award), described
 to the researcher by one entry in a catalog: what a record is, who creates and publishes it, its jurisdiction,
 the dates it covers and its fields. [The specification](../SPEC.md#6-sources) describes the design. This page
-lists the 60 series, how each is reached, and the keys some of them need.
+lists the 63 series, how each is reached, and the keys some of them need.
 
-A series that needs a key is in a run's catalog only when the key is set in `.env`. 49 series need none.
+A series that needs a key is in a run's catalog only when the key is set in `.env`. 50 series need none.
 
 ## Keys
 
@@ -16,18 +16,24 @@ A series that needs a key is in a run's catalog only when the key is set in `.en
 | `USPTO_API_KEY` | A [USPTO Open Data Portal](https://data.uspto.gov/) key, free | `ptab_proceedings`, `ptab_documents` |
 | `NRC_ADAMS_API_KEY` | A subscription key from the [NRC's developer portal](https://adams-api-developer.nrc.gov/) | `nrc_adams_documents` |
 | `GOVCON_API_KEY` | A [GovCon API](https://govconapi.com/api-guide/protests) key (a third party's index of GAO's docket) | `gao_bid_protests` |
-| `EMMA_DISCLOSURE_DIR` | The directory holding an unpacked [MSRB continuing-disclosure subscription](https://www.msrb.org/Market-Data-and-Research/Continuing-Disclosure-Subscription) delivery | `emma_continuing_disclosures` |
+| `MSRB_CONTINUING_DISCLOSURE_DIR` | The directory a [Continuing Disclosure subscription](https://www.msrb.org/Market-Data-and-Research/Continuing-Disclosure-Subscription) is delivered to | `emma_continuing_disclosures` |
+| `MSRB_PRIMARY_MARKET_DIR` | The directory a [Primary Market subscription](https://www.msrb.org/Market-Data-and-Research/Primary-Market-Subscription) is delivered to | `emma_official_statements`, `emma_advance_refunding_documents` |
 | `SEDAR_DDS_INDEX` | The catalog CSV of a [CSA Data Distribution Services](https://www.securities-administrators.ca/national-systems/data-distribution-services/) delivery | `sedar_filings` |
 | `CSE_SEDAR_LICENSED` | `1` where the deployment has the Canadian Securities Exchange's permission for commercial reuse ([site terms](https://thecse.com/site-terms/)) | `cse_sedar_filings` |
 
 Four more settings change how a series is reached without adding one. `COURTLISTENER_TOKEN` reads the RECAP archive
-live through CourtListener, which also searches by docket number, filing date and the text of filings. `EDIS_API_TOKEN`
+live through CourtListener, which also searches by docket number, filing date and the text of filings. Since May
+2026 a CourtListener account without a [Free Law Project membership](https://free.law/membership) may make 5 requests
+a minute and 125 a day; at those limits the Internet Archive's copy of the archive serves a run better. `EDIS_API_TOKEN`
 adds the text of attachments to `usitc_filings`. `LEGISTAR_TOKEN_<CLIENT>` adds a council whose Legistar asks for a
 token (`config/legistar.yaml`) to `local_legislation`. `SOCRATA_APP_TOKEN` raises the request limits of the payment
 ledgers' portals. `SEC_USER_AGENT`, a name and contact email, is required by the SEC for every request.
 
-The MSRB delivery is the subscription's XML transactions with their PDFs, unpacked in one directory; the latest transaction
-for a submission stands. The SEDAR+ catalog is a UTF-8 CSV with the columns `document_id,issuer,title,published,url,file`:
+An MSRB delivery is zip files of XML transactions ("Index Data") and the PDFs they describe ("Doc"). It is read where
+it lies, zipped or unpacked, and the latest transaction for a submission stands. To see the format, MSRB publishes a
+sample of each subscription: **Historical Data Sample** on the Continuing Disclosure page, and **Historical Data Sample
+(Primary Market)** on the Primary Market page. Put one in its directory and the series read it; the samples date from
+2009 and 2018 and are the format, not the market. The SEDAR+ catalog is a UTF-8 CSV with the columns `document_id,issuer,title,published,url,file`:
 the publisher's document identifier, the filing date, the document's public address, and the PDF's path beside the CSV.
 
 ## The series
@@ -441,32 +447,55 @@ local_legislation   Legistar's web API, one client per council (config/legistar.
                     each was last modified.
 ```
 
-### Issuers outside the SEC
+### Issuers outside the SEC and EMMA
 
 `sources/issuers.py`
 
 | Series | One record is | Creator; publisher | Needs |
 |---|---|---|---|
-| `california_debt_issues` | A debt issue a California state or local public agency reported to the California Debt and Investment Advisory Commission, proposed or sold, with the official statement and other documents filed for it | California public agencies that issue debt; California Debt and Investment Advisory Commission |  |
-| `emma_continuing_disclosures` | A file of a continuing disclosure an issuer or obligated person submitted to the MSRB's EMMA: annual financial information, audited statements, or notice of an event affecting the bonds | Issuers of municipal securities and the obligated persons behind them; Municipal Securities Rulemaking Board | `EMMA_DISCLOSURE_DIR` |
+| `california_debt_issues` | A debt issue a California state or local public agency reported to the California Debt and Investment Advisory Commission, proposed or sold | California public agencies that issue debt; California Debt and Investment Advisory Commission |  |
+| `california_debt_documents` | A document filed with the California Debt and Investment Advisory Commission for a public agency's debt issue: its official statement, indenture, resolution, lease or another of the issue's documents | California public agencies that issue debt; California Debt and Investment Advisory Commission |  |
 | `sedar_filings` | A document an issuer filed with Canadian securities regulators on SEDAR+ | Issuers of securities in Canada; Canadian Securities Administrators | `SEDAR_DDS_INDEX` |
 | `cse_sedar_filings` | A document a company listed on the Canadian Securities Exchange filed on SEDAR+, as the Exchange republishes it | Companies listed on the Canadian Securities Exchange; Canadian Securities Exchange | `CSE_SEDAR_LICENSED` |
 
 How it is reached:
 
 ```
-Four series of what issuers of securities file outside the SEC.
+Four series of what issuers of securities file outside the SEC and EMMA.
 
-california_debt_issues        The California Debt and Investment Advisory Commission's DebtWatch: every debt issue a
-                              California public agency reported, with the documents filed for it. Its API applies
-                              date and amount ranges and finds one word or phrase; the registry applies the rest.
-emma_continuing_disclosures   The MSRB's continuing-disclosure subscription delivery, unpacked in EMMA_DISCLOSURE_DIR:
-                              its XML transactions, of which the latest for a submission stands, and the PDFs.
+california_debt_issues,       The California Debt and Investment Advisory Commission's DebtWatch: every debt issue a
+california_debt_documents     California public agency reported, and the documents filed for each (official
+                              statements, indentures, resolutions and others). Its API applies identifiers, the values
+                              a column lists, and the ranges a column accepts, all read from its own column metadata,
+                              and finds one word or phrase; the registry applies the rest.
 sedar_filings                 A catalog of SEDAR+ documents from the Canadian Securities Administrators' data
                               distribution service: the CSV at SEDAR_DDS_INDEX, with the PDFs beside it.
 cse_sedar_filings             The SEDAR+ filings the Canadian Securities Exchange republishes for each company it
                               lists, read by listing. The Exchange's terms ask permission for commercial reuse;
                               CSE_SEDAR_LICENSED says the deployment has it.
+```
+
+### EMMA
+
+`sources/msrb.py`
+
+| Series | One record is | Creator; publisher | Needs |
+|---|---|---|---|
+| `emma_continuing_disclosures` | A file of a continuing disclosure an issuer or obligated person submitted to EMMA: annual financial information, audited statements, or notice of an event affecting the bonds | Issuers of municipal securities and the obligated persons behind them; Municipal Securities Rulemaking Board (EMMA) | `MSRB_CONTINUING_DISCLOSURE_DIR` |
+| `emma_official_statements` | An official statement for a new issue of municipal securities, as submitted to EMMA, with the issue's securities and their maturities | Issuers of municipal securities and their underwriters; Municipal Securities Rulemaking Board (EMMA) | `MSRB_PRIMARY_MARKET_DIR` |
+| `emma_advance_refunding_documents` | A document submitted to EMMA for an advance refunding: the escrow for outstanding municipal securities to be paid off before they can be called, with the securities refunded | Issuers of municipal securities and their agents; Municipal Securities Rulemaking Board (EMMA) | `MSRB_PRIMARY_MARKET_DIR` |
+
+How it is reached:
+
+```
+Three series from the MSRB's EMMA subscriptions: continuing disclosures, and the official statements and advance
+refunding documents of the primary market.
+
+The MSRB delivers each subscription as zip files of XML transactions ("Index Data") and the PDFs they describe
+("Doc"). MSRB_CONTINUING_DISCLOSURE_DIR and MSRB_PRIMARY_MARKET_DIR are the directories the deliveries are put
+in, zipped as delivered or unpacked; they are read where they lie, and read again when a file in them changes.
+Each transaction replaces its submission whole, so the latest transaction for a submission stands: a withdrawn
+submission, or a document or file no longer current in it, is no longer a record.
 ```
 
 ## Payment ledgers

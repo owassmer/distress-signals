@@ -133,8 +133,6 @@ def _document(d):
 def _search_documents(s):
     filters = {"agencyId": s.one("agency"), "docketId": s.one("docket_id"), "documentType": s.one("document_type"),
                "frDocNum": s.one("fr_document_number"), "searchTerm": s.query() if s.words() else None}
-    withdrawn = s.one("withdrawn")
-    filters |= {"withdrawn": {"yes": "true", "no": "false"}[withdrawn]} if withdrawn else {}
     _range(s, "posted_date", "postedDate", filters)
     _range(s, "comment_end_date", "commentEndDate", filters)
     return _regs_search(s, "documents", filters, _document)

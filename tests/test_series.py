@@ -135,6 +135,57 @@ class Catalog(unittest.TestCase):
             self.assertEqual(sorted(sources.order("run_a")), sorted(sources.available()))
 
 
+class MsrbDeliveries(unittest.TestCase):
+    """A delivery as the MSRB sends it: zip files of XML transactions and PDFs, the latest transaction standing."""
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        p = patch.dict(os.environ, MSRB_PRIMARY_MARKET_DIR=self.folder.name)
+        p.start()
+        self.addCleanup(p.stop)
+        self.n = 0
+
+    def deliver(self, day, status="Publish", file_status="Current", kind="PrimaryMarketDisclosure"):
+        import zipfile
+        from distress_signals.sources import msrb
+        xml = f"""<SubscriptionDataMessage xmlns="http://emma.msrb.org/schemas/subscriptionV3messages/types">
+          <Submission SubmissionIdentifier="EP1" SubmissionType="{kind}" SubmissionStatus="{status}"
+            SubmissionTransactionDateTime="2026-01-{day:02d}T12:00:00-05:00">
+            <Offering><Issue IssuerName="AIRPORT  AUTHORITY" IssuerState="CA" IssueDescription="REVENUE BONDS" IssueClosingDate="2026-02-01">
+              <UnderlyingSecurities><Security CUSIP9="111111AA1" MaturityDate="2046-07-01" MaturityPrincipalAmount="5000000"/>
+              <Security CUSIP9="111111AB9" MaturityDate="2036-07-01" MaturityPrincipalAmount="2500000"/></UnderlyingSecurities></Issue></Offering>
+            <Document DocumentIdentifier="D1" DocumentType="OfficialStatement" DocumentStatus="Current" DocumentPostingDate="2026-01-{day:02d}">
+              <UnderlyingFiles><File FileIdentifier="F1" FileStatus="{file_status}" FilePostingDate="2026-01-{day:02d}"/></UnderlyingFiles></Document>
+          </Submission></SubscriptionDataMessage>"""
+        self.n += 1
+        with zipfile.ZipFile(Path(self.folder.name) / f"PM_{self.n}.zip", "w") as z:
+            z.writestr(f"PM_DATA/2026/01/{day:02d}/Index Data/EP{self.n}.xml", xml)
+            z.writestr(f"PM_DATA/2026/01/{day:02d}/Doc/F1.pdf", b"%PDF-1.4 statement")
+        msrb._rows.cache_clear()
+
+    def test_the_latest_transaction_stands_and_a_withdrawal_removes_the_record(self):
+        from distress_signals.sources import msrb
+        with patch.object(msrb.web, "_pdf", return_value=("[page 1]\nThe airport's revenues", "")):
+            self.deliver(1)
+            got = sources.search("emma_official_statements", filters={"cusip": "111111AB9"})["records"]
+            self.assertEqual(len(got), 1)
+            self.assertEqual((got[0]["issuer"], got[0]["principal_amount"], got[0]["final_maturity_date"]),
+                             (["AIRPORT AUTHORITY"], 7500000.0, "2046-07-01"))
+            self.assertIn("The airport's revenues", sources.read(got[0]["record_id"])["text"])
+            self.assertEqual(sources.search("emma_advance_refunding_documents")["records"], [])
+            self.deliver(3, status="Withdrawn")
+            self.deliver(2)  # an earlier transaction delivered later does not bring it back
+            self.assertEqual(sources.search("emma_official_statements")["records"], [])
+            with self.assertRaises(SourceError):
+                sources.read(got[0]["record_id"])
+
+    def test_a_file_no_longer_current_is_no_longer_a_record(self):
+        self.deliver(1)
+        self.deliver(2, file_status="Archived")
+        self.assertEqual(sources.search("emma_official_statements")["records"], [])
+
+
 class Citations(unittest.TestCase):
     def test_a_url_citation_resolves_to_the_record_holding_the_passage(self):
         url = "https://example.org/ratings.zip"

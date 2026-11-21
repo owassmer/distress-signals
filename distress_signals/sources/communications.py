@@ -73,12 +73,13 @@ def _search_ecfs(s):
     lo, hi = s.between("received_date")
     at = s.cursor or {"until": None, "skip": 0}
     params = {"sort": "date_received,DESC", "limit": max(1, min(s.size, ECFS_PER)), "offset": at["skip"]}
-    for key, value in (("q", s.query()), ("proceedings.name", s.one("proceeding")), ("filers.name", s.one("filer"))):
+    for key, value in (("q", s.query()), ("proceedings.name", s.one("proceeding")), ("filers.name", s.one("filer")),
+                       ("lawfirms.name", s.one("law_firm"))):
         if value:
             params[key] = value
-    upper = at["until"] or (hi + "T23:59:59.999Z" if hi else None)
-    if lo or upper:
-        params["date_received"] = (f"[gte]{lo}" if lo else "") + (f"[lte]{upper}" if upper else "")
+    # ECFS takes a range of received dates only with both ends
+    upper = at["until"] or (hi + "T23:59:59.999Z" if hi else "9999-12-31T23:59:59.999Z")
+    params["date_received"] = f"[gte]{lo or '1900-01-01'}[lte]{upper}"
     data = _fcc_json(ECFS, params=params)
     if not isinstance(data.get("filing"), list):
         raise SourceError("FCC ECFS response is missing its filing list")

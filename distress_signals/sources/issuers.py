@@ -1,10 +1,10 @@
-"""Four series of what issuers of securities file outside the SEC.
+"""Four series of what issuers of securities file outside the SEC and EMMA.
 
-  california_debt_issues        The California Debt and Investment Advisory Commission's DebtWatch: every debt issue a
-                                California public agency reported, with the documents filed for it. Its API applies
-                                date and amount ranges and finds one word or phrase; the registry applies the rest.
-  emma_continuing_disclosures   The MSRB's continuing-disclosure subscription delivery, unpacked in EMMA_DISCLOSURE_DIR:
-                                its XML transactions, of which the latest for a submission stands, and the PDFs.
+  california_debt_issues,       The California Debt and Investment Advisory Commission's DebtWatch: every debt issue a
+  california_debt_documents     California public agency reported, and the documents filed for each (official
+                                statements, indentures, resolutions and others). Its API applies identifiers, the values
+                                a column lists, and the ranges a column accepts, all read from its own column metadata,
+                                and finds one word or phrase; the registry applies the rest.
   sedar_filings                 A catalog of SEDAR+ documents from the Canadian Securities Administrators' data
                                 distribution service: the CSV at SEDAR_DDS_INDEX, with the PDFs beside it.
   cse_sedar_filings             The SEDAR+ filings the Canadian Securities Exchange republishes for each company it
@@ -22,7 +22,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import parse_qsl, quote, urlsplit
-from xml.etree import ElementTree as ET
 
 import requests
 
@@ -32,18 +31,20 @@ from . import F, Series, outline, page, web
 
 DEBTWATCH = "https://debtwatch.treasurer.ca.gov"
 CDIAC = "California Debt and Investment Advisory Commission"
-STEP = 500  # issues asked of DebtWatch at once
+STEP = 500  # records asked of DebtWatch at once
 
 
 # ---------- California debt issues ----------
 
-# field: (DebtWatch's column, whether it is a date)
 ISSUE = {"cdiac_number": "CDIACNumber", "issuer": "Issuer", "issuer_type": "IssuerType", "county": "IssuerCounty",
          "issue_name": "IssueName", "project": "ProjectSeriesOrName", "sold_status": "SoldStatus", "debt_type": "DebtType",
          "purpose": "PrimaryPurpose", "source_of_repayment": "SourceofRepayment", "sale_date": "SaleDate",
          "closing_date": "ClosingOrSettlementDate", "first_optional_call_date": "FirstOptionalCallDate",
          "final_maturity_date": "FinalMaturityDate", "principal_amount": "PrincipalAmount", "lead_underwriter": "LeadUnderwriter",
          "purchaser": "PurchaserOrLender"}
+DOCUMENT = {"cdiac_number": "CDIACNumber", "issuer": "Issuer", "document_type": "DocumentType", "project": "ProjectSeriesOrName",
+            "sale_date": "SaleDate", "principal_amount": "PrincipalAmount", "file_name": "DocumentFileName"}
+NAMED = {"issues": ("issuer", "lead_underwriter", "purchaser", "issue_name"), "documents": ("issuer", "file_name")}
 
 
 def _debtwatch(dataset, body):
@@ -56,62 +57,116 @@ def _debtwatch(dataset, body):
     return data
 
 
-def _issue(row):
-    number = row["CDIACNumber"]
-    out = {"id": number, "url": f"{DEBTWATCH}/issue-level-detail/issues?cdiacNumber={number}"}
-    for field, column in ISSUE.items():
-        value = row.get(column)
-        out[field] = (value or "")[:10] or None if field.endswith("_date") else None if value in ("(none)", "N/A", "") else value
+@functools.lru_cache(maxsize=4)
+def _columns(dataset, day):
+    """{column: its metadata}: its type, the filters it accepts, its values where it lists them, its range."""
+    return {c["columnId"]: c for c in http_json(f"{DEBTWATCH}/api/dataset/{dataset}", tries=3, timeout=60)["columns"]}
+
+
+def _meta(dataset):
+    return _columns(dataset, dt.date.today().isoformat())
+
+
+def _filters(s, dataset, columns):
+    """DebtWatch's filters for a search: each field whose column accepts what was given."""
+    meta, out = _meta(dataset), {}
+    for f in s.series.fields:
+        column, given = columns.get(f.name), s.peek(f.name)
+        if not column or not given:
+            continue
+        accepts = set(meta.get(column, {}).get("availableFilters") or [])
+        if f.ranged:
+            kind = "Date" if f.type == "date" else "Number"
+            lo, hi = given.get("lo"), given.get("hi")
+            if lo is not None and hi is not None and f"{kind}Between" in accepts:
+                out[column] = {"type": f"{kind}Between", "minimum": lo, "maximum": hi}
+            elif lo is not None and hi is None and {"Date": "DateOnOrAfter", "Number": "NumberGreaterThanOrEqualTo"}[kind] in accepts:
+                out[column] = {"type": {"Date": "DateOnOrAfter", "Number": "NumberGreaterThanOrEqualTo"}[kind], "minimum": lo}
+            elif hi is not None and lo is None and {"Date": "DateOnOrBefore", "Number": "NumberLessThanOrEqualTo"}[kind] in accepts:
+                out[column] = {"type": {"Date": "DateOnOrBefore", "Number": "NumberLessThanOrEqualTo"}[kind], "maximum": hi}
+            else:
+                continue
+            s.between(f.name)
+        elif "StringOneOf" in accepts:
+            listed = {v["id"].casefold(): v["id"] for v in (((meta[column].get("filter") or {}).get("values") or {}).get("all") or [])}
+            values = given.get("is") or []
+            if f.type == "identifier":
+                out[column] = {"type": "StringOneOf", "options": s.any(f.name)}
+            elif listed and all(v.casefold() in listed for v in values):
+                s.any(f.name)
+                out[column] = {"type": "StringOneOf", "options": [listed[v.casefold()] for v in values]}
     return out
 
 
-def _search_issues(s):
-    filters = {}
-    numbers = s.any("cdiac_number")
-    if numbers:
-        filters["CDIACNumber"] = {"type": "StringOneOf", "options": numbers}
-    for f in s.series.fields:
-        if not f.ranged or not s.peek(f.name):
-            continue
-        lo, hi = s.between(f.name)
-        kind = "Date" if f.type == "date" else "Number"
-        filters[ISSUE[f.name]] = ({"type": f"{kind}Between", "minimum": lo, "maximum": hi} if lo is not None and hi is not None
-                                  else {"type": "DateOnOrAfter" if kind == "Date" else "NumberGreaterThanOrEqualTo", "minimum": lo} if lo is not None
-                                  else {"type": "DateOnOrBefore" if kind == "Date" else "NumberLessThanOrEqualTo", "maximum": hi})
-    # DebtWatch finds one word or phrase, anywhere in an issue. A query that is one is the publisher's to apply;
-    # of a longer query, or a name asked for, it is given the rarest word, and the registry applies the whole.
+def _term(s, dataset, filters):
+    """DebtWatch finds one word or phrase, anywhere in a record. A query that is one is the publisher's to apply; of a
+    longer query, or a name asked for, it is given the rarest word, and the registry applies the whole."""
     query = s.words()
     phrase = re.fullmatch(r'"([^"]+)"', query)
     if phrase or (query and len(names.tokens(query)) == 1):
-        term = phrase[1] if phrase else s.query()
         s.query()
-    else:
-        asked = names.tokens(query) or [w for f in ("issuer", "lead_underwriter", "purchaser", "issue_name")
-                                        for v in s.peek(f).get("is", [])[:1] for w in names.core_tokens(v)]
-        term = _rarest(tuple(sorted(set(asked), key=len, reverse=True)[:5]), json.dumps(filters, sort_keys=True)) if asked else None
-    at = s.cursor or 0
-    data = _debtwatch("issues", {"filters": filters, "pagination": {"pageNumber": at // STEP + 1, "pageSize": STEP},
-                                 "sorting": {"columnId": "SaleDate", "ascending": False}, "searchTerm": term})
-    rows, total = data["records"], data["totalMatchingRecords"]
-    part = rows[at % STEP:at % STEP + s.size]
-    return page([_issue(r) for r in part], at + len(part) if at + len(part) < total and part else None, total if s.cursor is None else None,
-                "latest sale date first")
+        return phrase[1] if phrase else query
+    asked = names.tokens(query) or [w for f in NAMED[dataset] for v in s.peek(f).get("is", [])[:1] for w in names.core_tokens(v)]
+    asked = [w for w in asked if len(w) >= 3 and any(ch.isalpha() for ch in w)]  # what DebtWatch indexes as a word
+    return _rarest(dataset, tuple(sorted(set(asked), key=len, reverse=True)[:5]), json.dumps(filters, sort_keys=True)) if asked else None
 
 
 @functools.lru_cache(maxsize=256)
-def _rarest(words, filters):
-    """The word DebtWatch finds in the fewest issues."""
+def _rarest(dataset, words, filters):
+    """The word DebtWatch finds in the fewest records."""
     if len(words) == 1:
         return words[0]
-    count = lambda w: _debtwatch("issues", {"filters": json.loads(filters), "pagination": {"pageNumber": 1, "pageSize": 1},  # noqa: E731
-                                            "sorting": {"columnId": "CDIACNumber", "ascending": False}, "searchTerm": w})["totalMatchingRecords"]
+    count = lambda w: _debtwatch(dataset, {"filters": json.loads(filters), "pagination": {"pageNumber": 1, "pageSize": 1},  # noqa: E731
+                                           "sorting": {"columnId": "CDIACNumber", "ascending": False}, "searchTerm": w})["totalMatchingRecords"]
     with ThreadPoolExecutor(5) as ex:
         return min(zip(ex.map(count, words), words))[1]
 
 
-@functools.lru_cache(maxsize=1)
-def _issue_columns(day):
-    return {c["columnId"]: c for c in http_json(f"{DEBTWATCH}/api/dataset/issues", tries=3, timeout=60)["columns"]}
+def _value(field, value):
+    if field.endswith("_date"):
+        return (value or "")[:10] or None
+    return None if value in ("(none)", "N/A", "") else value
+
+
+def _issue(row):
+    number = row["CDIACNumber"]
+    return {"id": number, "url": _issue_page(number), **{field: _value(field, row.get(column)) for field, column in ISSUE.items()}}
+
+
+def _issue_page(number):
+    return f"{DEBTWATCH}/issue-level-detail/issues?cdiacNumber={number}"
+
+
+def _document(row):
+    number, doc = row["CDIACNumber"], row["DocumentId"]
+    return {"id": f"{number}/{doc}", "url": _issue_page(number), "document_id": str(doc),
+            **{field: _value(field, row.get(column)) for field, column in DOCUMENT.items()}}
+
+
+def _search(dataset, columns, make):
+    def search(s):
+        filters = _filters(s, dataset, columns)
+        term = _term(s, dataset, filters)
+        at = s.cursor or 0
+        data = _debtwatch(dataset, {"filters": filters, "pagination": {"pageNumber": at // STEP + 1, "pageSize": STEP},
+                                    "sorting": {"columnId": "SaleDate", "ascending": False}, "searchTerm": term})
+        rows, total = data["records"], data["totalMatchingRecords"]
+        part = rows[at % STEP:at % STEP + s.size]
+        return page([make(r) for r in part], at + len(part) if at + len(part) < total and part else None,
+                    total if s.cursor is None else None, "latest sale date first")
+    return search
+
+
+def _documents_of(number):
+    out, at = [], 1
+    while True:
+        got = _debtwatch("documents", {"filters": {"CDIACNumber": {"type": "StringOneOf", "options": [number]}},
+                                       "pagination": {"pageNumber": at, "pageSize": STEP},
+                                       "sorting": {"columnId": "DocumentId", "ascending": True}, "searchTerm": None})
+        out += [d for d in got["records"] if d.get("DocumentId")]
+        if at * STEP >= got["totalMatchingRecords"] or not got["records"]:
+            return out
+        at += 1
 
 
 def _read_issue(key):
@@ -122,133 +177,65 @@ def _read_issue(key):
                                  "searchTerm": None})["records"]
     if not rows or rows[0].get("CDIACNumber") != key:
         raise SourceError(f"California DebtWatch has no issue {key}")
-    labels = {i: c["name"] for i, c in _issue_columns(dt.date.today().isoformat()).items()}
+    labels = {i: c["name"] for i, c in _meta("issues").items()}
     stated = {labels.get(k, k): (v[:10] if isinstance(v, str) and re.fullmatch(r"\d{4}-\d\d-\d\dT00:00:00", v) else v)
               for k, v in rows[0].items() if v not in (None, "", "(none)", "N/A", [])}
-    documents, at = [], 1
-    while True:
-        got = _debtwatch("documents", {"filters": {"CDIACNumber": {"type": "StringOneOf", "options": [key]}},
-                                       "pagination": {"pageNumber": at, "pageSize": STEP},
-                                       "sorting": {"columnId": "CDIACNumber", "ascending": False}, "searchTerm": None})
-        documents += [d for d in got["records"] if d.get("DocumentId")]
-        if at * STEP >= got["totalMatchingRecords"] or not got["records"]:
-            break
-        at += 1
-    links = [{"text": f"{d.get('DocumentType')}: {d.get('DocumentFileName')}", "url": f"{DEBTWATCH}/api/document/{d['DocumentId']}/download?inline=true"}
-             for d in documents]
-    lines = outline(stated) + (["", "Documents filed:"] + [f"- {x['text']}" for x in links] if links else [])
-    return {**_issue(rows[0]), "document": "\n".join(lines), "links": links}
+    documents = [_document(d) for d in _documents_of(key)]
+    lines = outline(stated)
+    if documents:
+        lines += ["", "Documents filed (each a record of california_debt_documents):"]
+        lines += [f"- california_debt_documents:{d['id']}  {d['document_type']}: {d['file_name']}" for d in documents]
+    return {**_issue(rows[0]), "document": "\n".join(lines)}
 
 
-def _issues_span(series):
-    held = _issue_columns(dt.date.today().isoformat())["SaleDate"]["filter"]["values"]
-    return held["minimum"][:10], held["maximum"][:10]
+def _file(doc):
+    """A document's file. DebtWatch serves each file from an address it signs on request and that expires within the
+    hour, so the address is asked for at each read and not kept."""
+    try:
+        urls = http_json(f"{DEBTWATCH}/api/document-url/{int(doc)}", tries=3, timeout=60)
+    except requests.RequestException as e:
+        raise SourceError(f"California DebtWatch did not give the file of document {doc} ({type(e).__name__})")
+    if not isinstance(urls, list) or len(urls) != 1 or not str(urls[0]).startswith("https://stafunccdiaccofiprod.blob.core.windows.net/"):
+        raise SourceError(f"California DebtWatch did not give the file of document {doc}")
+    return urls[0]
 
 
-# ---------- EMMA continuing disclosures ----------
+def _read_document(key):
+    number, _, doc = key.partition("/")
+    row = next((d for d in _documents_of(number) if str(d["DocumentId"]) == doc), None) if re.fullmatch(r"\d{4}-\d{4}", number) else None
+    if not row:
+        raise SourceError(f"California DebtWatch has no document {key}")
+    try:
+        text = web.read(_file(doc))["text"]
+    except SourceError:  # a scanned file, or one past the size a read takes
+        text = "The file's text could not be extracted."
+    return {**_document(row), "document": text}
+
+
+def _span(dataset):
+    def span(series):
+        held = _meta(dataset)["SaleDate"]["filter"]["values"]
+        return held["minimum"][:10], held["maximum"][:10]
+    return span
+
+
+# ---------- SEDAR+ documents from the data distribution service ----------
 
 def _inside(path, root):
     path = path.resolve()
     if not path.is_relative_to(root):
-        raise SourceError("The delivery names a file outside its directory")
+        raise SourceError("The catalog names a file outside its directory")
     return path
 
 
 def _pdf_text(path):
     if not path.is_file():
-        raise SourceError("The document's file is not in the delivery")
+        raise SourceError("The document's file is not beside the catalog")
     content = path.read_bytes()[:web.MAX_BYTES + 1]
     if len(content) > web.MAX_BYTES or not content.startswith(b"%PDF-"):
         raise SourceError("The document's file is not a PDF within the size a read takes")
-    text, _ = web._pdf(content)
-    return text
+    return web._pdf(content)[0]
 
-
-def _emma():
-    """(the disclosure files that stand, {file ID: its PDF}) in the delivery."""
-    root = Path(os.environ["EMMA_DISCLOSURE_DIR"]).resolve()
-    if not root.is_dir():
-        raise SourceError("EMMA_DISCLOSURE_DIR is not a directory")
-    indexes, files = [], {}
-    for path in root.rglob("*"):
-        suffix = path.suffix.casefold()
-        if suffix == ".xml":
-            stat = _inside(path, root).stat()
-            indexes.append((path.resolve(), stat.st_mtime_ns, stat.st_size))
-        elif suffix == ".pdf":
-            files[path.stem] = _inside(path, root)
-    return _emma_index(tuple(sorted(indexes))), files
-
-
-@functools.lru_cache(maxsize=1)
-def _emma_index(indexes):
-    latest = {}
-    for path, _, _ in indexes:
-        try:
-            for sub in ET.parse(path).getroot().iter():
-                if sub.tag.rsplit("}", 1)[-1] != "ContinuingDisclosureSubmission":
-                    continue
-                sid = sub.attrib["SubmissionIdentifier"]
-                stamp = dt.datetime.fromisoformat(sub.attrib["SubmissionTransactionDateTime"])
-                if sid not in latest or stamp > latest[sid][0]:
-                    latest[sid] = stamp, sub
-        except (OSError, ET.ParseError, KeyError, TypeError, ValueError) as e:
-            raise SourceError(f"The MSRB transaction file {path.name} could not be read: {e}")
-    rows = []
-    for sid, (_, sub) in latest.items():
-        # each transaction replaces the submission whole, removals and archived files included
-        if sub.get("SubmissionStatus") != "Publish":
-            continue
-        securities = [x.attrib for x in sub.findall(".//{*}Security")]
-        contacts = [c.attrib for c in sub.findall("{*}ContactInformation")]
-        issuers = {x["IssuerName"] for x in securities if x.get("IssuerName")}
-        issuers |= {c["ContactOrganizationName"] for c in contacts if c.get("ContactType") == "Issuer" and c.get("ContactOrganizationName")}
-        obligors = {c["ContactOrganizationName"] for c in contacts if c.get("ContactType") == "Obligor" and c.get("ContactOrganizationName")}
-        disclosures = [{**d.attrib, "periods": [p.attrib for p in d.findall("{*}DisclosurePeriod")],
-                        "subcategories": [c.get("Name") for c in d.findall("{*}DisclosureSubCategory")]}
-                       for d in sub.findall(".//{*}Disclosure")]
-        categories = list(dict.fromkeys(v for d in disclosures for k, v in d.items() if k.endswith("Category")))
-        for doc in sub.findall("{*}Document"):
-            if doc.get("DocumentStatus") != "Current":
-                continue
-            for file in doc.findall(".//{*}File"):
-                if file.get("FileStatus") != "Current":
-                    continue
-                fid, did = file.attrib["FileIdentifier"], doc.attrib["DocumentIdentifier"]
-                rows.append({"id": f"{sid}/{did}/{fid}", "url": f"https://emma.msrb.org/MarketActivity/ContinuingDisclosureDetails/{quote(sid, safe='')}",
-                             "submission_id": sid, "issuer": sorted(issuers), "obligor": sorted(obligors), "category": categories,
-                             "cusip": sorted({x["CUSIP9"] for x in securities if x.get("CUSIP9")}),
-                             "posting_date": (file.get("FilePostingDate") or doc.get("DocumentPostingDate") or "")[:10] or None,
-                             "_file": fid, "_stated": {"disclosures": disclosures, "securities": securities,
-                                                       "transaction": sub.get("SubmissionTransactionDateTime")}})
-    return sorted(rows, key=lambda r: (r["posting_date"] or "", r["id"]), reverse=True)
-
-
-def _plain(row):
-    return {k: v for k, v in row.items() if not k.startswith("_")}
-
-
-def _search_emma(s):
-    return page([_plain(r) for r in _emma()[0]], order="latest posted first")
-
-
-def _read_emma(key):
-    rows, files = _emma()
-    row = next((r for r in rows if r["id"] == key), None)
-    if not row:
-        raise SourceError("This file is not in the latest submission that stands in the delivery")
-    lines = outline(row["_stated"])
-    if row["_file"] in files:
-        lines += ["", _pdf_text(files[row["_file"]])]
-    return {**_plain(row), "document": "\n".join(lines), "published": row["posting_date"]}
-
-
-def _emma_span(series):
-    dates = [r["posting_date"] for r in _emma()[0] if r["posting_date"]]
-    return (min(dates), max(dates)) if dates else (None, None)
-
-
-# ---------- SEDAR+ documents from the data distribution service ----------
 
 DDS_COLUMNS = {"document_id", "issuer", "title", "published", "url", "file"}
 # what names a public document, a version or a rendering of it in an address; any other parameter may be a credential
@@ -371,23 +358,22 @@ SERIES = [
     Series(
         id="california_debt_issues", title="California public debt issues",
         record="a debt issue a California state or local public agency reported to the California Debt and Investment Advisory "
-               "Commission, proposed or sold, with the official statement and other documents filed for it",
-        creator="California public agencies that issue debt", publisher=CDIAC, jurisdiction="California", coverage=_issues_span,
+               "Commission, proposed or sold",
+        creator="California public agencies that issue debt", publisher=CDIAC, jurisdiction="California", coverage=_span("issues"),
         fields=(F("cdiac_number", "identifier"), F("issuer", "name"), F("issuer_type", "text"), F("county", "place"),
                 F("issue_name", "text"), F("project", "text"), F("sold_status", "text"), F("debt_type", "text"), F("purpose", "text"),
                 F("source_of_repayment", "text"), F("sale_date", "date"), F("closing_date", "date"),
                 F("first_optional_call_date", "date"), F("final_maturity_date", "date"), F("principal_amount", "amount"),
                 F("lead_underwriter", "name"), F("purchaser", "name")),
-        search=_search_issues, read=_read_issue),
+        search=_search("issues", ISSUE, _issue), read=_read_issue),
     Series(
-        id="emma_continuing_disclosures", title="EMMA continuing disclosures",
-        record="a file of a continuing disclosure an issuer or obligated person submitted to the MSRB's EMMA: annual financial "
-               "information, audited statements, or notice of an event affecting the bonds",
-        creator="issuers of municipal securities and the obligated persons behind them", publisher="Municipal Securities Rulemaking Board",
-        jurisdiction="U.S. states and local governments", coverage=_emma_span, requires=("EMMA_DISCLOSURE_DIR",),
-        fields=(F("submission_id", "identifier"), F("issuer", "name", many=True), F("obligor", "name", many=True),
-                F("category", "text", many=True), F("cusip", "identifier", many=True), F("posting_date", "date")),
-        search=_search_emma, read=_read_emma),
+        id="california_debt_documents", title="California public debt documents",
+        record="a document filed with the California Debt and Investment Advisory Commission for a public agency's debt issue: "
+               "its official statement, indenture, resolution, lease or another of the issue's documents",
+        creator="California public agencies that issue debt", publisher=CDIAC, jurisdiction="California", coverage=_span("documents"),
+        fields=(F("document_id", "identifier"), F("cdiac_number", "identifier"), F("issuer", "name"), F("document_type", "text"),
+                F("project", "text"), F("sale_date", "date"), F("principal_amount", "amount"), F("file_name", "text")),
+        search=_search("documents", DOCUMENT, _document), read=_read_document),
     Series(
         id="sedar_filings", title="SEDAR+ filings",
         record="a document an issuer filed with Canadian securities regulators on SEDAR+",

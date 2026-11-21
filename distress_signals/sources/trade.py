@@ -1,4 +1,12 @@
-"""USITC investigation schedules, participants and EDIS filings; OFAC's selected general licenses."""
+"""Three series: USITC investigations, the public documents filed in them (EDIS), and OFAC's general licenses.
+
+  usitc_investigations     the Commission's daily export of every investigation, read whole and filtered here.
+  usitc_filings            EDIS lists public filings newest first, 20 at a time, by investigation, document type
+                           and firm. An attachment's text needs an EDIS account token (EDIS_API_TOKEN); without
+                           one a read returns the filing's details and lists its attachments.
+  ofac_general_licenses    Treasury's File Finder, restricted to general licenses: every version it has posted,
+                           searched in full text.
+"""
 
 import datetime as dt
 import json
@@ -12,14 +20,12 @@ from xml.etree import ElementTree
 import requests
 
 from ..util import SourceError, session
-from . import web
+from . import F, Series, outline, page, web
 
 IDS = "https://ids.usitc.gov/investigations.json"
 EDIS = "https://edis.usitc.gov/data"
 LICENSES = "https://ofac.treasury.gov/selected-general-licenses-issued-ofac"
 FILE_FINDER = "https://ofac.treasury.gov/file-finder"
-FILTERS = {"usitc": {"target_from", "target_until", "filing_page", "offset", "limit"},
-           "ofac": {"offset", "limit", "file_page"}}
 
 
 def _get(url, **kwargs):
@@ -65,69 +71,6 @@ def _date_field(value):
     return None
 
 
-def _iso_date(value):
-    if value is None:
-        return None
-    try:
-        return dt.date.fromisoformat(value).isoformat()
-    except (TypeError, ValueError) as exc:
-        raise SourceError("USITC target date filters use YYYY-MM-DD") from exc
-
-
-def _investigation_row(record):
-    native = record["Investigation ID"]
-    participants = [{"name": (p.get("Participant") or {}).get("Name"),
-                     "role": (p.get("Participant Type") or {}).get("name")}
-                    for p in record.get("Participants", [])]
-    return {"record_id": f"usitc:{native}", "title": record["Full Title"],
-            "url": f"https://ids.usitc.gov/case/{record['Case ID']}/investigation/{native}",
-            "investigation_number": record.get("Investigation Number"),
-            "status": (record.get("Investigation Status") or {}).get("Name"), "participants": participants,
-            "notice_of_institution_published": _date_field(record.get("Date of Publication of FR Notice (NOI)")),
-            "target_date_order_issued": _date_field(record.get("Date ALJ Issued Target Date Order")),
-            "target_date": _date_field(record.get("Target Date"))}
-
-
-class _LicenseIndex(HTMLParser):
-    """Keep the program heading and entire list item (the license subject often follows the anchor)."""
-    def __init__(self):
-        super().__init__()
-        self.main = False
-        self.heading = self.item = None
-        self.program = self.url = ""
-        self.rows = []
-
-    def handle_starttag(self, tag, attrs):
-        if tag == "main":
-            self.main = True
-        elif self.main and tag == "h3":
-            self.heading = []
-        elif self.main and self.program and tag == "li":
-            self.item, self.url = [], ""
-        elif self.item is not None and tag == "a":
-            url = urljoin(LICENSES, dict(attrs).get("href", ""))
-            if re.fullmatch(r"https://ofac\.treasury\.gov/media/\d+/download(?:\?.*)?", url):
-                self.url = url
-
-    def handle_data(self, text):
-        if self.heading is not None:
-            self.heading.append(text)
-        if self.item is not None:
-            self.item.append(text)
-
-    def handle_endtag(self, tag):
-        if tag == "main":
-            self.main = False
-        elif tag == "h3" and self.heading is not None:
-            self.program = " ".join("".join(self.heading).split())
-            self.heading = None
-        elif tag == "li" and self.item is not None:
-            if self.url:
-                self.rows.append({"title": " ".join("".join(self.item).split()), "program": self.program,
-                                  "url": self.url, "record_id": self.url})
-            self.item = None
-
-
 class _LicenseFiles(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -158,20 +101,6 @@ class _LicenseFiles(HTMLParser):
             self.in_title = False
 
 
-def _license_files(query, page):
-    if type(page) is not int or page < 1:
-        raise SourceError("OFAC file_page starts at 1")
-    params = {"search_api_fulltext": query, "field_tags": "14811", "page": page - 1}
-    response = _get(FILE_FINDER, params=params)
-    view = _LicenseFiles()
-    view.feed(response.text)
-    if not view.rows and not view.empty:
-        raise SourceError("OFAC File Finder did not return the general license results page")
-    return {"results": view.rows, "page": page, "next_page": page + 1 if view.has_next else None,
-            "complete": not view.has_next, "index_url": response.url,
-            "coverage": "Treasury File Finder, General Licenses; includes earlier versions."}
-
-
 def _edis_rows(path, collection, params=None):
     response = _get(f"{EDIS}/{path}", params=params)
     try:
@@ -183,101 +112,167 @@ def _edis_rows(path, collection, params=None):
         raise SourceError(f"EDIS did not return {collection} for {path}") from exc
 
 
-def _filings(number, page):
-    if not re.fullmatch(r"[\w-]+", number) or not isinstance(page, int) or isinstance(page, bool) or page < 1:
-        raise SourceError("EDIS filing_page needs a positive page number and an investigation number as query")
-    rows = _edis_rows("document", "documents", {"investigationNumber": number, "securityLevel": "Public", "pageNumber": page})
-    results = [{"record_id": f"usitc:document/{d['id']}", "title": d["documentTitle"], "url": f"{EDIS}/document/{d['id']}",
-                "investigation_number": d["investigationNumber"], "phase": d["investigationPhase"],
-                "filed_on_behalf_of": d.get("onBehalfOf"), "received": d.get("officialReceivedDate")}
-               for d in rows if d.get("securityLevel") == "Public"]
-    # EDIS does not report a total. A subsequent empty page establishes the end.
-    return {"results": results, "page": page, "next_page": page + 1 if rows else None, "complete": not rows}
 
 
-def search(source, query, *, limit=50, offset=0, target_from=None, target_until=None, filing_page=None, file_page=None):
-    if file_page is not None:
-        if offset or limit != 50:
-            raise SourceError("file_page selects an OFAC File Finder page; use offset and limit for the selected index")
-        return _license_files(query, file_page)
-    if filing_page is not None:
-        if target_from or target_until or offset or limit != 50:
-            raise SourceError("filing_page selects an EDIS page; use target dates, offset and limit for IDS searches")
-        return _filings(query.strip(), filing_page)
-    if type(limit) is not int or not 1 <= limit <= 250 or type(offset) is not int or offset < 0:
-        raise SourceError("limit must be an integer from 1 to 250 and offset a nonnegative integer")
-    words = query.casefold().split()
-    if source == "ofac":
-        index = _LicenseIndex()
-        index.feed(_get(LICENSES).text)
-        if not index.rows:
-            raise SourceError(f"OFAC returned no license documents at {LICENSES}")
-        rows = [row for row in index.rows if all(w in (row['program'] + ' ' + row['title']).casefold() for w in words)]
-    else:
-        start, end = _iso_date(target_from), _iso_date(target_until)
-        if start and end and start > end:
-            raise SourceError("target_from must be on or before target_until")
-        rows = []
-        for record in _investigations().values():
-            row = _investigation_row(record)
-            target = row["target_date"]
-            if (start and (not target or target < start)) or (end and (not target or target > end)):
-                continue
-            searchable = " ".join([row["title"], row["investigation_number"] or "",
-                                   *(p['name'] or '' for p in row['participants'])]).casefold()
-            if all(word in searchable for word in words):
-                rows.append(row)
-        rows.sort(key=lambda r: (r["target_date"] or "9999", r["record_id"]))
-    next_offset = offset + limit if offset + limit < len(rows) else None
-    return {"results": rows[offset:offset + limit], "total_matches": len(rows), "next_offset": next_offset,
-            "complete": next_offset is None, "index_url": LICENSES if source == "ofac" else IDS}
+# ---------- investigations ----------
+
+STATUS = ("Active", "Pending before the ALJ", "Pending before the Commission", "Completed", "Terminated", "Inactive",
+          "Not Instituted", "Complaint/Request Withdrawn")
+MOVING = ("Complainant", "Petitioner", "Non-Party Petitioner")
 
 
-def read(source, native_id):
-    if source != "usitc":
-        raise SourceError("Read an OFAC license with the URL from its search result")
-    if native_id.isdigit():
-        record = _investigations().get(native_id)
-        if not record:
-            raise SourceError(f"USITC investigation {native_id} is absent from the current IDS export")
-        row = _investigation_row(record)
-        # Retain the source's labels and values, including superseded/cancelled events and participant roles.
-        text = json.dumps(record, ensure_ascii=False, indent=2)
-        links = [{"text": d.get("Document Title") or "Investigation document", "url": d["Document Link"]}
-                 for d in record.get("Investigation Documents", []) if d.get("Document Link")]
-        return {"kind": "investigation", "source": source, "native_id": native_id, "url": row["url"],
-                "published": None, "text": text, "data": {**row, "links": links, "export": IDS}}
-    document = re.fullmatch(r"document/(\d+)", native_id)
-    attachment = re.fullmatch(r"attachment/(\d+)/(\d+)", native_id)
-    if not document and not attachment:
-        raise SourceError("Use the USITC record_id returned by search_records or the filing's attachment reference")
-    did = (document or attachment)[1]
+def _name(value):
+    return (value or {}).get("Name") or (value or {}).get("name") if isinstance(value, dict) else value
+
+
+def _investigation(record):
+    native = record["Investigation ID"]
+    party = lambda roles, others=False: [  # noqa: E731
+        (p.get("Participant") or {}).get("Name") for p in record.get("Participants") or []
+        if (p.get("Participant") or {}).get("Name") and (((p.get("Participant Type") or {}).get("name") in roles) != others)]
+    return {"id": str(native), "url": f"https://ids.usitc.gov/case/{record.get('Case ID')}/investigation/{native}",
+            "investigation_number": record.get("Investigation Number"), "title": record.get("Full Title"),
+            "investigation_type": _name(record.get("Investigation Type")), "phase": _name(record.get("Investigation Phase")),
+            "status": _name(record.get("Investigation Status")),
+            "country": [c.get("name") for c in record.get("Countries") or [] if c.get("name")],
+            "complainant": party(MOVING), "respondent": party(("Respondent",)), "other_party": party(MOVING + ("Respondent",), True),
+            "start_date": _date_field(record.get("Start Date")),
+            "institution_notice": _date_field(record.get("Date of Publication of FR Notice (NOI)")),
+            "target_date": _date_field(record.get("Target Date")), "vote_date": _date_field(record.get("Vote Date")),
+            "commerce_final_determination": _date_field(record.get("Commerce Final Determination Date"))}
+
+
+def _search_investigations(s):
+    rows = [_investigation(r) for r in _investigations().values()]
+    rows.sort(key=lambda r: r["start_date"] or r["institution_notice"] or "", reverse=True)
+    return page(rows, order="latest start date first")
+
+
+def _read_investigation(native):
+    record = _investigations().get(str(native))
+    if not record:
+        raise SourceError(f"USITC investigation {native} is not in the current export")
+    links = [{"text": d.get("Document Title") or "Investigation document", "url": d["Document Link"]}
+             for d in record.get("Investigation Documents") or [] if d.get("Document Link")]
+    return {**_investigation(record), "document": "\n".join(outline(record)), "links": links}
+
+
+def _investigations_span(series):
+    dates = [d for r in _investigations().values() for d in [_date_field(r.get("Start Date"))] if d]
+    return (min(dates), max(dates)) if dates else (None, None)
+
+
+# ---------- filings (EDIS) ----------
+
+def _filing(d):
+    stamp = lambda v: (v or "")[:10].replace("/", "-") or None  # noqa: E731
+    return {"id": d["id"], "url": f"https://edis.usitc.gov/external/search/document/{d['id']}", "document_id": d["id"],
+            "document_type": d.get("documentType"), "title": d.get("documentTitle"),
+            "investigation_number": d.get("investigationNumber"), "investigation_title": d.get("investigationTitle"),
+            "investigation_type": d.get("investigationType"), "investigation_phase": d.get("investigationPhase"),
+            "firm": d.get("firmOrganization"), "filed_by": d.get("filedBy"), "on_behalf_of": d.get("onBehalfOf"),
+            "document_date": stamp(d.get("documentDate")), "received_date": stamp(d.get("officialReceivedDate"))}
+
+
+def _search_filings(s):
+    ids = s.any("document_id")
+    if ids:
+        found = [d for i in ids for d in _edis_rows(f"document/{i}", "documents") if d.get("securityLevel") == "Public"]
+        return page([_filing(d) for d in found])
+    params = {"securityLevel": "Public", "pageNumber": s.cursor or 1}
+    number, kind = s.one("investigation_number"), s.one("document_type")
+    phase = s.one("investigation_phase")
+    params |= {"investigationPhase": phase} if phase else {}
+    firm = (s.peek("firm").get("is") or [None])[0]  # EDIS narrows by firm; the registry checks the words
+    lo, hi = s.between("received_date")
+    for key, value in (("investigationNumber", number), ("documentType", kind), ("firmOrg", firm),
+                       ("officialReceivedDate", lo if lo and lo == hi else None)):
+        if value:
+            params[key] = value
+    rows = [_filing(d) for d in _edis_rows("document", "documents", params) if d.get("securityLevel") == "Public"]
+    done = not rows or bool(lo and rows[-1]["received_date"] and rows[-1]["received_date"] < lo)  # newest first: past the range
+    kept = [r for r in rows if (not lo or (r["received_date"] or "") >= lo) and (not hi or (r["received_date"] or "9") <= hi)]
+    return page(kept, None if done else params["pageNumber"] + 1, order="latest received first")
+
+
+def _read_filing(did):
     docs = _edis_rows(f"document/{did}", "documents")
-    if not docs or docs[0].get("id") != did or docs[0].get("securityLevel") != "Public":
+    if not docs or docs[0].get("id") != str(did) or docs[0].get("securityLevel") != "Public":
         raise SourceError(f"EDIS document {did} is unavailable as a public filing")
-    doc = docs[0]
-    files = _edis_rows(f"attachment/{did}", "attachments")
-    url = f"{EDIS}/document/{did}"
-    title, kind = doc["documentTitle"], "filing"
-    if attachment:
-        aid = attachment[2]
-        if not any(f.get("id") == aid and f.get("documentId") == did for f in files):
-            raise SourceError(f"EDIS document {did} does not list attachment {aid}")
-        token = os.getenv("EDIS_API_TOKEN")
-        if not token:
-            raise SourceError("Reading EDIS attachment PDFs requires EDIS_API_TOKEN from the EDIS account menu")
-        url = f"{EDIS}/download/{did}/{aid}"
-        with _get(url, headers={"Authorization": f"Bearer {token}"}, stream=True) as response:
-            content = response.raw.read(web.MAX_BYTES + 1, decode_content=True)
-        if not content.startswith(b"%PDF-") or len(content) > web.MAX_BYTES:
-            raise SourceError("EDIS did not return a readable PDF within the document size limit")
-        text, pdf_title = web._pdf(content)
-        if len(text.strip()) < 40:
-            raise SourceError("The EDIS attachment has no extractable text")
-        title = pdf_title or title
-    else:
-        for f in files:
-            f["record_id"] = f"usitc:attachment/{did}/{f['id']}"
-        text = json.dumps({"document": doc, "attachments": files}, ensure_ascii=False, indent=2)
-    return {"kind": kind, "source": source, "native_id": native_id, "url": url, "published": None,
-            "text": text, "data": {"title": title, "received": doc.get("officialReceivedDate")}}
+    files = [f for f in _edis_rows(f"attachment/{did}", "attachments")]
+    lines = [f"Attachments ({len(files)}):"] + [f"  {f.get('id')}: {f.get('title') or f.get('originalFileName') or ''} "
+                                                 f"({f.get('fileSize') or '?'} bytes)" for f in files]
+    token = os.getenv("EDIS_API_TOKEN")
+    for f in files[:8] if token else []:
+        url = f"{EDIS}/download/{did}/{f['id']}"
+        try:
+            with _get(url, headers={"Authorization": f"Bearer {token}"}, stream=True) as response:
+                content = response.raw.read(web.MAX_BYTES + 1, decode_content=True)
+            if content.startswith(b"%PDF-") and len(content) <= web.MAX_BYTES:
+                lines += ["", f"Attachment {f['id']}: {f.get('title') or f.get('originalFileName') or ''}", web._pdf(content)[0]]
+        except SourceError:
+            continue
+    return {**_filing(docs[0]), "document": "\n".join(lines), "published": _filing(docs[0])["received_date"]}
+
+
+def _newest_filing(series):
+    rows = _edis_rows("document", "documents", {"securityLevel": "Public", "pageNumber": 1})
+    return series.since, _filing(rows[0])["received_date"] if rows else None
+
+
+# ---------- OFAC general licenses ----------
+
+def _search_licenses(s):
+    at = s.cursor or 0
+    response = _get(FILE_FINDER, params={"search_api_fulltext": s.query(), "field_tags": "14811", "page": at})
+    view = _LicenseFiles()
+    view.feed(response.text)
+    if not view.rows and not view.empty:
+        raise SourceError("OFAC File Finder did not return the general license results page")
+    rows = [{"id": r["url"].split("/system/files/", 1)[1], "url": r["url"], "title": r["title"], "file_name": r["filename"]}
+            for r in view.rows]
+    return page(rows, at + 1 if view.has_next else None)
+
+
+def _read_license(path):
+    url = f"https://ofac.treasury.gov/system/files/{path}"
+    got = web.read(url)
+    name = path.rsplit("/", 1)[-1]
+    view = _LicenseFiles()  # the title is the File Finder's, as a search returns it
+    view.feed(_get(FILE_FINDER, params={"search_api_fulltext": name.rsplit(".", 1)[0], "field_tags": "14811", "page": 0}).text)
+    title = next((r["title"] for r in view.rows if r["url"] == url), None) or name
+    return {"id": path, "url": url, "title": title, "file_name": name, "document": got["text"],
+            "links": got["data"].get("links") or []}
+
+
+USITC = "U.S. International Trade Commission"
+SERIES = [
+    Series(
+        id="usitc_investigations", title="USITC investigations",
+        record="a U.S. International Trade Commission investigation in one phase: an import-injury (antidumping or "
+               "countervailing duty) case, a Section 337 unfair-import case, or a fact-finding study",
+        creator=USITC, jurisdiction="federal", coverage=_investigations_span,
+        fields=(F("investigation_number", "identifier"), F("title", "text"), F("investigation_type", "text"), F("phase", "text"),
+                F("status", STATUS), F("country", "place", many=True), F("complainant", "name", many=True),
+                F("respondent", "name", many=True), F("other_party", "name", many=True), F("start_date", "date"),
+                F("institution_notice", "date"), F("target_date", "date"), F("vote_date", "date"),
+                F("commerce_final_determination", "date")),
+        search=_search_investigations, read=_read_investigation),
+    Series(
+        id="usitc_filings", title="USITC filings",
+        record="a public document filed in a USITC investigation, in the Commission's docket system (EDIS)",
+        creator="parties to USITC investigations and the Commission", publisher=USITC, jurisdiction="federal",
+        since="1996", coverage=_newest_filing,
+        fields=(F("document_id", "identifier"), F("document_type", "identifier"), F("title", "text"),
+                F("investigation_number", "identifier"), F("investigation_title", "text"), F("investigation_type", "text"),
+                F("investigation_phase", "text"), F("firm", "name"), F("filed_by", "name"), F("on_behalf_of", "name"),
+                F("document_date", "date"), F("received_date", "date")),
+        search=_search_filings, read=_read_filing),
+    Series(
+        id="ofac_general_licenses", title="OFAC general licenses",
+        record="a general license issued by the Office of Foreign Assets Control under a sanctions program, in each "
+               "version posted, with related notices",
+        creator="U.S. Department of the Treasury, Office of Foreign Assets Control", jurisdiction="federal",
+        fields=(F("title", "text"), F("file_name", "identifier"), F("full_text", "full text")),
+        search=_search_licenses, read=_read_license),
+]

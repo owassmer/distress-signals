@@ -76,8 +76,7 @@ def _where(ref):
     """What a read's subject is called: the page's site, or the source's own word for one of its records."""
     if ref.startswith("http"):
         return _domain(ref)
-    hit = sources.locate(ref)
-    return hit[1].noun if hit else "the source record"
+    return sources.noun(ref) or "the source record"
 
 
 def describe(name, i):

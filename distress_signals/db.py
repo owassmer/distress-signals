@@ -60,30 +60,9 @@ CREATE TABLE IF NOT EXISTS deliveries (
   hash TEXT, delivered_at TEXT NOT NULL, PRIMARY KEY (destination, entity_type, entity_id));
 """
 
-# Records the workspace queries: the rows behind each observation, at the source's own grain. A
-# re-read replaces an observation's rows.
-RECORD_TABLES = {
-    "awards": ["award_id", "generated_id", "award_type", "recipient", "recipient_uei", "parent_recipient",
-               "awarding_agency", "awarding_sub_agency", "funding_agency", "funding_sub_agency", "start_date",
-               "current_end_date", "potential_end_date", "date_signed", "total_obligation", "base_exercised_options",
-               "base_and_all_options", "total_outlays", "parent_award", "description"],
-    "award_funding": ["award_id", "federal_account", "account_title", "funding_agency", "program_activity_code",
-                      "program_activity_name", "object_class", "object_class_name", "disaster_code", "fiscal_year",
-                      "fiscal_period", "obligated", "outlays_fytd"],
-    "award_modifications": ["award_id", "action_date", "modification", "action", "obligation", "description"],
-    "payments": ["government", "payee", "paid_date", "department", "amount", "invoice_date", "invoice_id", "description"],
-    "revenue": ["company", "cik", "concept", "start_date", "end_date", "period_days", "period_type", "value", "form",
-                "filed", "accession"],
-    "filings": ["company", "cik", "form", "filed", "report_date", "items", "document", "index_url", "description"],
-    "register_documents": ["document_number", "type", "title", "agencies", "action", "publication_date", "effective_on",
-                           "comments_close_on", "significant", "rins", "docket_ids", "cfr", "dates", "abstract", "url"],
-}
-DDL += "".join(f"CREATE TABLE IF NOT EXISTS {t} (observation_id TEXT NOT NULL, {', '.join(cols)});\n"
-               f"CREATE INDEX IF NOT EXISTS {t}_obs ON {t}(observation_id);\n" for t, cols in RECORD_TABLES.items())
-
 # Columns added after a table was first created: (table, column, type).
 ADDED = [("runs", "principal", "TEXT"), ("runs", "system", "TEXT"), ("runs", "prompt", "TEXT"),
-         ("runs", "source_order", "TEXT"),
+         ("runs", "series_order", "TEXT"),
          ("opportunities", "status", "TEXT NOT NULL DEFAULT 'active'")]
 
 
@@ -116,7 +95,28 @@ def connect(p=None):
             with write(con):
                 if col not in {r[1] for r in con.execute(f"PRAGMA table_info({table})")}:
                     con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+    _series_tables(con, p or path())
     return con
+
+
+_ready = set()
+
+
+def _series_tables(con, where):
+    """A table for each series of records (sources.tables), a column for each of its fields. Rows are the
+    records behind an observation; a field added to a series later is added to its table. Once per process."""
+    if str(where) in _ready:
+        return
+    from . import sources
+    for table, cols in sources.tables().items():
+        con.execute(f'CREATE TABLE IF NOT EXISTS "{table}" (observation_id TEXT NOT NULL, record_id TEXT, url TEXT, '
+                    + ", ".join(f'"{c}" {typ}' for c, typ in cols) + ")")
+        con.execute(f'CREATE INDEX IF NOT EXISTS "{table}_obs" ON "{table}"(observation_id)')
+        have = {r[1] for r in con.execute(f'PRAGMA table_info("{table}")')}
+        for c, typ in cols:
+            if c not in have:
+                con.execute(f'ALTER TABLE "{table}" ADD COLUMN "{c}" {typ}')
+    _ready.add(str(where))
 
 
 @contextmanager
@@ -250,12 +250,14 @@ def get_observation(con, oid):
 
 def put_observation(con, obs):
     """obs: id, kind, source, retrieved_at, and optionally native_id, url, published, text, data, and rows
-    ({record table: [row dicts]}) for the workspace. A re-read updates the record in place and replaces
+    ({series: [row dicts]}) for the series' tables. A re-read updates the record in place and replaces
     its rows; revisions keep the passages their figures used."""
+    from . import sources
     for table, rows in (obs.get("rows") or {}).items():
-        cols = RECORD_TABLES[table]
-        con.execute(f"DELETE FROM {table} WHERE observation_id=?", (obs["id"],))
-        con.executemany(f"INSERT INTO {table} (observation_id, {', '.join(cols)}) VALUES ({', '.join('?' * (len(cols) + 1))})",
+        cols = ["record_id", "url"] + [c for c, _ in sources.tables()[table]]
+        con.execute(f'DELETE FROM "{table}" WHERE observation_id=?', (obs["id"],))
+        con.executemany(f'INSERT INTO "{table}" (observation_id, {", ".join(chr(34) + c + chr(34) for c in cols)}) '
+                        f'VALUES ({", ".join("?" * (len(cols) + 1))})',
                         [(obs["id"], *[r.get(c) for c in cols]) for r in rows])
     con.execute("INSERT INTO observations VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
                 "kind=excluded.kind, source=excluded.source, native_id=excluded.native_id, url=excluded.url, "
@@ -280,14 +282,14 @@ def cited(con, oid):
 
 # ---------- runs and leads ----------
 
-def start_run(con, rid, seed_kind, seed, question, model, log, principal=None, system=None, prompt=None, source_order=None):
+def start_run(con, rid, seed_kind, seed, question, model, log, principal=None, system=None, prompt=None, series_order=None):
     """Records the assignment as given: the system prompt, the prompt, and the order its catalog listed the
-    sources in."""
+    series in."""
     with write(con):
         con.execute("INSERT INTO runs (id, seed_kind, seed, question, model, started, log, principal, system, prompt, "
-                    "source_order) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    "series_order) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (rid, seed_kind, seed, question, model, now_iso(), log, principal, system, prompt,
-                     dumps(source_order) if source_order else None))
+                     dumps(series_order) if series_order else None))
 
 
 def finish_run(con, rid, opportunity_ids=(), summary=None, error=None, stats=None):

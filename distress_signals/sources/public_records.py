@@ -4,7 +4,6 @@ performance, option value, recipient, funding accounts and modifications."""
 import datetime as dt
 import re
 from ..util import SourceError, http_json, money, today
-from . import Source
 
 API = "https://api.usaspending.gov/api/v2"
 AWARD_TYPES = {"contracts": ["A", "B", "C", "D"],
@@ -217,32 +216,3 @@ def award(gid):
                                     for m in mods]}
     return {"kind": "award", "source": "usaspending", "native_id": gid, "url": f"https://www.usaspending.gov/award/{gid}",
             "published": d.get("date_signed"), "text": "\n".join(lines), "data": data, "rows": rows}
-
-
-def _locate(ref):
-    m = re.match(r"^usaspending:award:(.+)$", ref)
-    return (("usaspending", m[1]), lambda: award(m[1])) if m else None
-
-
-SOURCE = Source(
-    id="usaspending",
-    publisher="U.S. Department of the Treasury (USAspending.gov)",
-    record="one federal award: a contract, grant, loan or direct payment.",
-    names="the recipient, its parent, and the awarding and funding agencies.",
-    dates="its period of performance (start, current end, potential end) and each modification.",
-    search="query is the recipient's name. Filters: agency (the awarding agency's top-level name as USAspending lists it), "
-           "keyword (words in the award), since and until (award action dates, YYYY-MM-DD; the default is the last three "
-           "years), award_types (contracts, idvs, grants, loans, direct_payments or other; the default is contracts), "
-           "active_on (only awards whose current end date is on or after this date; all of them are read, back to 2007, "
-           "and the largest returned with a count), max_results (the default is 300).",
-    read="its period of performance, values, funding accounts and modifications; fills awards, award_funding, "
-         "award_modifications.",
-    coverage="awards since October 2007.",
-    filters=frozenset({"agency", "since", "until", "award_types", "keyword", "active_on", "max_results"}),
-    find=lambda query, filters: search_awards(query or None, **filters),
-    label=lambda q, f: f"Searched federal awards to “{q}”",
-    locate=_locate,
-    again=lambda obs: f"usaspending:award:{obs['native_id']}" if obs["source"] == "usaspending" and obs.get("native_id") else None,
-    noun="a federal award",
-    kind="award", tables=("awards", "award_funding", "award_modifications"),
-)

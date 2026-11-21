@@ -69,13 +69,16 @@ def research(seed_kind="mandate", seed=None, brief=None, question=None, opportun
         model = model or llm.MODEL
         principal = case["company"]["name"] if case else (seed if seed_kind == "company" else None)
         system, text = agent.system(), agent.prompt(seed_kind, seed, _brief_text(brief), question, case, lead)
+        failed = sources.observe()  # coverage and jurisdictions, read from the data once a day
+        if failed:
+            print(f"{rid}: coverage not read for {', '.join(sorted(failed))}; the catalog keeps the last reading", flush=True)
         order = sources.order(rid)  # the MCP server draws the same order from the same run ID
         db.start_run(con, rid, seed_kind, seed or "", question, f"{model} ({llm.EFFORT})", str(log), principal, system, text,
-                     source_order=order)
+                     series_order=order)
         assignment = log.with_suffix(".assignment.md")
         assignment.write_text(f"# {rid}: {seed_kind} {seed or ''}\n\nModel `{model}`, effort `{llm.EFFORT}`. Cases limited to: "
                               f"{principal or 'no company'}.\n\n"
-                              f"Sources, in the order its catalog lists them: {', '.join(order)}.\n\n"
+                              f"Series, in the order its catalog lists them: {', '.join(order)}.\n\n"
                               f"## System prompt\n\n{system}\n\n## Prompt\n\n{text}\n")
         print(f"{rid}: {seed_kind}{' ' + repr(seed) if seed else ''}; transcript in {events.relative_to(ROOT)} "
               f"(readable: python -m distress_signals transcript {rid})", flush=True)

@@ -25,26 +25,21 @@ def _esc(text):
 
 # Names used in the live HubSpot feed and the exported research log.
 def _search_label(args):
-    source = args.get("source") or ""
-    query = args.get("query") or ""
-    known = sources.all().get(source)
-    if known:
-        return known.label(query, args.get("filters") or {})
-    name = source.replace("_", " ") or "public records"
-    return f"Searched {name}" + (f" for “{query}”" if query else "")
+    """A search in plain words. A run made before the series were named gave its source under "source"."""
+    return sources.label(args.get("series") or args.get("source") or "public records", args.get("query") or "",
+                         args.get("filters") or {})
 
 
 def _search_result(out):
-    count = out.get("count", len(out.get("results") or []))
-    summary = f"{count} result{'s' if count != 1 else ''} returned"
-    total = out.get("total_matches")
+    count = out.get("count", len(out.get("records") or out.get("results") or []))
+    summary = f"{count} record{'s' if count != 1 else ''} returned"
+    total = out.get("total", out.get("total_matches"))
     if isinstance(total, int) and total > count:
-        summary += f" of {total} matches"
-    errors = out.get("source_errors") or out.get("errors")
-    if errors:
-        summary += f" · {len(errors)} source{'s' if len(errors) != 1 else ''} unavailable"
-    elif out.get("complete") is False and not (isinstance(total, int) and total > count):
-        summary += " · search incomplete"
+        summary += f" of {total:,} matching"
+    elif out.get("cursor"):
+        summary += ", with more to read"
+    if out.get("examined"):
+        summary += f" · {out['examined']:,} checked"
     return summary
 
 

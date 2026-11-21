@@ -471,29 +471,37 @@ QUERY_SECONDS = 15
 
 
 def _workspace():
-    """An in-memory database holding what the current run has read (its observations and their record
-    rows) and what it has recorded (its findings and workspace results). Saved cases, companies, events
-    and earlier runs' research aren't in it."""
+    """An in-memory database holding what the current run has read and recorded: its observations, a table
+    for each series with one row for each record read (the latest read of it), the views that cross series,
+    and its findings and workspace results. Saved cases, companies, events and earlier runs' research
+    aren't in it."""
     src, mem = db.connect(), sqlite3.connect(":memory:")
     run = os.environ.get("DISTRESS_RUN_ID")
+    q = lambda name: '"' + name + '"'  # noqa: E731
+
+    def chunks(sql, keys):
+        for i in range(0, len(keys), 500):
+            part = keys[i:i + 500]
+            yield from src.execute(sql.format(",".join("?" * len(part))), part)
     try:
         ids = db.run_observations(src)
-        tables = {t: ("observation_id", "observation_id") for t in db.RECORD_TABLES}
-        tables |= {"observations": ("id", "observation_id"), "findings": ("run_id", "run"),
-                   "workspace_results": ("run_id", "run")}
-        for t, (col, by) in tables.items():
+        for t, (col, own) in {"observations": ("id", False), "findings": ("run_id", True),
+                              "workspace_results": ("run_id", True)}.items():
             cols = [r[1] for r in src.execute(f"PRAGMA table_info({t})")]
             mem.execute(f"CREATE TABLE {t} ({', '.join(cols)})")
-            keys = ids if by == "observation_id" else ([run] if run else None)
-            if keys is None:
-                rows = src.execute(f"SELECT {', '.join(cols)} FROM {t}").fetchall()
-            else:
-                rows = []
-                for i in range(0, len(keys), 500):
-                    chunk = keys[i:i + 500]
-                    rows += src.execute(f"SELECT {', '.join(cols)} FROM {t} WHERE {col} IN ({','.join('?' * len(chunk))})",
-                                        chunk).fetchall()
+            keys = ([run] if run else None) if own else ids
+            rows = src.execute(f"SELECT {', '.join(cols)} FROM {t}") if keys is None else \
+                chunks(f"SELECT {', '.join(cols)} FROM {t} WHERE {col} IN ({{}})", keys)
             mem.executemany(f"INSERT INTO {t} VALUES ({','.join('?' * len(cols))})", [tuple(r) for r in rows])
+        read_at = dict(mem.execute("SELECT id, retrieved_at FROM observations"))
+        for t in sources.tables():
+            cols = [r[1] for r in src.execute(f"PRAGMA table_info({q(t)})")]
+            mem.execute(f"CREATE TABLE {q(t)} ({', '.join(q(c) + (' PRIMARY KEY' if c == 'record_id' else '') for c in cols)})")
+            rows = sorted(chunks(f"SELECT {', '.join(map(q, cols))} FROM {q(t)} WHERE observation_id IN ({{}})", ids),
+                          key=lambda r: read_at.get(r["observation_id"]) or "")
+            mem.executemany(f"INSERT OR REPLACE INTO {q(t)} VALUES ({','.join('?' * len(cols))})", [tuple(r) for r in rows])
+        for view, sql in sources.views().items():
+            mem.execute(f"CREATE VIEW {view} AS {sql}")
     finally:
         src.close()
     mem.execute("PRAGMA query_only=ON")
@@ -665,31 +673,27 @@ def lookup(id_or_query: str) -> dict:
 VIEW = 12000  # characters of text a read returns at once
 
 
-def search_records(source: str, query: str, filters: dict | None = None) -> dict:
-    filters = filters or {}
-    src = sources.all().get(source)
-    if not src:
-        raise ToolError(f"source is one of {sorted(sources.all())}")
-    bad = set(filters) - src.filters
-    if bad:
-        raise ToolError(f"{source} takes filters {sorted(src.filters) or 'none'}; not {sorted(bad)}")
+def search_records(series: str, query: str = "", filters: dict | None = None, limit: int = sources.LIMIT,
+                   cursor: str | None = None) -> dict:
     try:
-        got = src.find(query, filters)
+        return sources.search(series, query, filters, limit, cursor)
     except SourceError as e:
         raise ToolError(str(e))
-    rows = got.pop("results")
-    return {"source": source, "query": query, "count": len(rows), "results": rows, **got}
 
 
 def _locate(ref):
-    """(observation ID, fetch function) for a URL or a record ID a source issued."""
+    """(observation ID, fetch function) for a URL, a record_id or a result_set."""
     if re.match(r"^https?://", ref):
         return db.make_id("obs_", "page", ref), lambda: web.read(ref)
-    hit = sources.locate(ref)
-    if not hit:
-        raise ToolError("read_record takes a URL, an observation ID (obs_...), or a record_id that search_records returned")
-    (parts, fetch), _ = hit
-    return db.make_id("obs_", *parts), fetch
+    if not sources.parse(ref):
+        raise ToolError("read_record takes a record_id or a result_set that search_records returned, a URL, or an "
+                        "observation ID (obs_...)")
+
+    def fetch():
+        got = sources.read(ref)
+        return got
+    series, kind, rest = sources.parse(ref)
+    return db.make_id("obs_", series.id, kind, rest), fetch
 
 
 def _source_ref(obs):
@@ -702,9 +706,10 @@ def _view(obs, find=None, offset=0):
     out = {"observation_id": obs["id"], "kind": obs["kind"], "source": obs["source"], "url": obs.get("url"),
            "title": data.get("title"), "published": obs.get("published"), "retrieved_at": obs["retrieved_at"],
            "length": len(text)}
-    filled = sources.tables().get(obs["kind"])
-    if filled:
-        out["workspace_tables"] = f"{filled} (observation_id = '{obs['id']}')"
+    if obs["kind"] in ("record", "result_set"):
+        out["workspace_table"] = obs["source"]
+        if data.get("count") is not None:
+            out["records"] = data["count"]
     if not text and data.get("unchecked"):
         out["note"] = "Only quoted passages are stored for this page (read with WebFetch)."
         out["passages"] = data.get("passages", [])

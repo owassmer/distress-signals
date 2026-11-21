@@ -1,249 +1,160 @@
-"""The Federal Register (federalregister.gov): every federal rule, proposed rule, notice and presidential
-document, searched by words, type, agency and dates (publication, effective, comments close).
+"""The Federal Register (federalregister.gov): every rule, proposed rule, notice and presidential document
+since 1994.
 
-  search()    one page of results, the most relevant first, with each document's title, agencies, action,
-              dates and address; when more match than it returns, how they divide by type and by agency.
-              Its read_all is a record ID for the whole result set.
-  read_all()  every document a search matches, as one record that fills register_documents. The Register
-              returns at most CAP documents for one query, so a larger set is read in publication-date
-              windows small enough to come back whole.
+The Register returns, and counts, at most 10,000 documents for one query. A search by words comes back by
+relevance and stops there. A search without words, and any search read to its end, comes back newest first
+and continues by publication date, which has no such limit; its count then comes from the Register's count
+of documents by type, which is not capped.
 """
 
-import datetime as dt
+import functools
+import html
 import re
-from urllib.parse import parse_qsl, urlencode
 
-from ..util import SourceError, http_json, today
-from . import Source
+from .. import names
+from ..util import SourceError, http_json
+from . import F, Series, page, web
 
 BASE = "https://www.federalregister.gov/api/v1"
-API = f"{BASE}/documents.json"
-TYPES = {"rule": "RULE", "proposed_rule": "PRORULE", "notice": "NOTICE", "presidential_document": "PRESDOCU"}
-TYPE_NAMES = {"Rule": "rule", "Proposed Rule": "proposed rule", "Notice": "notice", "Presidential Document": "presidential document"}
+TYPES = {"Rule": "RULE", "Proposed Rule": "PRORULE", "Notice": "NOTICE", "Presidential Document": "PRESDOCU"}
 FIELDS = ["title", "type", "abstract", "agencies", "action", "dates", "publication_date", "effective_on",
-          "comments_close_on", "html_url", "document_number"]
-TABLE_FIELDS = FIELDS + ["significant", "regulation_id_numbers", "docket_ids", "cfr_references"]
-DATES = {"effective_from": ("effective_date", "gte"), "effective_until": ("effective_date", "lte"),
-         "comments_close_from": ("comment_date", "gte"), "comments_close_until": ("comment_date", "lte"),
-         "since": ("publication_date", "gte"), "until": ("publication_date", "lte")}
-PREFIX = "federal_register:search?"
+          "comments_close_on", "html_url", "document_number", "significant", "regulation_id_numbers", "docket_ids",
+          "cfr_references"]
 CAP = 10000  # the most documents the Register returns, or counts, for one query
-PAGE = 1000  # documents per request when reading a whole set
-MAX_DOCUMENTS = 25000  # the most one read_all keeps
-FIRST = "1994-01-01"  # the Register's documents online begin in 1994
+PER = 1000   # the most it returns at once
 
 
-def _list(x):
-    return [x] if isinstance(x, str) else list(x or [])
-
-
-def _slug(agency):
-    return re.sub(r"[^a-z0-9]+", "-", agency.lower()).strip("-")
-
-
-def type_name(e):
-    return e.__class__.__name__
-
-
-def _filters(query=None, type=None, agency=None, **dates):
-    """The search, in the form its record ID keeps. Without any date, it is the last year's documents, and
-    that start date is written into the filters so the record reads the same set later."""
-    f = {"q": (query or "").strip() or None, "type": _list(type), "agency": _list(agency)}
-    for t in f["type"]:
-        if t not in TYPES:
-            raise SourceError(f"federal_register: type is one of {sorted(TYPES)}")
-    f.update({k: dates.get(k) for k in DATES})
-    if not any(f[k] for k in DATES):
-        f["since"] = (today() - dt.timedelta(days=365)).isoformat()
-    return f
-
-
-def _conditions(f, since=None, until=None):
-    """The API's conditions for the filters; since and until replace the publication dates."""
-    p = [("conditions[term]", f["q"])] if f.get("q") else []
-    p += [("conditions[type][]", TYPES[t]) for t in f.get("type") or []]
-    p += [("conditions[agencies][]", _slug(a)) for a in f.get("agency") or []]
-    over = {"since": since, "until": until}
-    for k, (key, side) in DATES.items():
-        v = over[k] if k in over and over[k] else f.get(k)
-        if v:
-            p.append((f"conditions[{key}][{side}]", v))
-    return p
-
-
-def _get(url, params):
+def _get(path, params=None):
     try:
-        return http_json(url, params=params, timeout=90, tries=3)
+        return http_json(f"{BASE}/{path}", params=params, timeout=90, tries=3)
     except Exception as e:
-        raise SourceError(f"Federal Register: {type_name(e)}: {str(e)[:200]}")
+        raise SourceError(f"Federal Register: {type(e).__name__}: {str(e)[:200]}")
 
 
-def record_id(f):
-    """The record ID of a search's whole result set: its filters, as a query string."""
-    items = [(k, v) for k, v in f.items() if v and not isinstance(v, list)] + [(k, x) for k, v in f.items() if isinstance(v, list) for x in v]
-    return PREFIX + urlencode(sorted(items))
+@functools.lru_cache(maxsize=1)
+def _agencies():
+    """[(slug, the words of its name, its short name)] for every agency the Register lists."""
+    return [(a["slug"], set(names.tokens(a.get("name") or "")), (a.get("short_name") or "").casefold())
+            for a in _get("agencies") if a.get("slug")]
 
 
-def _parse(rid):
-    if not rid.startswith(PREFIX):
-        raise SourceError(f"not a Federal Register search: {rid[:80]}")
-    f = {"q": None, "type": [], "agency": [], **{k: None for k in DATES}}
-    for k, v in parse_qsl(rid[len(PREFIX):]):
-        if k in ("type", "agency"):
-            f[k].append(v)
-        elif k in f:
-            f[k] = v
-        else:
-            raise SourceError(f"federal_register search: unknown filter {k!r}")
-    for t in f["type"]:
-        if t not in TYPES:
-            raise SourceError(f"federal_register: type is one of {sorted(TYPES)}")
-    return f
+def _slugs(given):
+    """The agencies whose name holds every word given, or whose short name is what was given."""
+    want = set(names.tokens(given))
+    return [slug for slug, words, short in _agencies() if want and (want <= words or given.casefold() == short)]
 
 
-def describe(f):
-    """The search in words: 'rules matching “hemp”, from the Agriculture Department, effective ...'."""
-    kinds = " and ".join({"rule": "rules", "proposed_rule": "proposed rules", "notice": "notices",
-                          "presidential_document": "presidential documents"}[t] for t in f.get("type") or []) or "documents"
-    parts = [kinds + (f" matching “{f['q']}”" if f.get("q") else "")]
-    if f.get("agency"):
-        parts.append("from " + " or ".join(f["agency"]))
-    for label, lo, hi in (("effective", "effective_from", "effective_until"), ("comments closing", "comments_close_from",
-                          "comments_close_until"), ("published", "since", "until")):
-        if f.get(lo) or f.get(hi):
-            parts.append(f"{label} " + (f"{f[lo]} to {f[hi]}" if f.get(lo) and f.get(hi) else
-                                        f"from {f[lo]}" if f.get(lo) else f"through {f[hi]}"))
-    return ", ".join(parts)
+def _record(d):
+    return {"id": d.get("document_number"), "url": d.get("html_url"),
+            "agency": [a.get("name") or a.get("raw_name") for a in d.get("agencies") or [] if a.get("name") or a.get("raw_name")],
+            "type": d.get("type"), "publication_date": d.get("publication_date"), "effective_date": d.get("effective_on"),
+            "comments_close": d.get("comments_close_on"), "document_number": d.get("document_number"),
+            "docket_id": d.get("docket_ids") or [], "rin": d.get("regulation_id_numbers") or [],
+            "cfr": [f"{c['title']} CFR {c['part']}" for c in d.get("cfr_references") or [] if c.get("title") and c.get("part")],
+            "significant": None if d.get("significant") is None else "yes" if d["significant"] else "no",
+            "action": d.get("action"), "title": d.get("title"), "abstract": d.get("abstract"), "dates": d.get("dates")}
 
 
-def _facets(f):
-    """How the matches divide by document type and by agency (a document can name several agencies)."""
-    out = {}
-    for facet, key in (("type", "by_type"), ("agency", "by_agency")):
-        j = _get(f"{BASE}/documents/facets/{facet}", _conditions(f))
-        top = sorted(((v.get("name") or k, v.get("count") or 0) for k, v in (j or {}).items()), key=lambda x: -x[1])
-        out[key] = dict(top[:12])
-    return out
+def _search(s):
+    numbers = s.any("document_number")
+    if numbers:
+        got = _get(f"documents/{','.join(numbers)}.json", [("fields[]", x) for x in FIELDS])
+        return page([_record(d) for d in (got.get("results") if "results" in got else [got])])
+    cond = []
+    for kind in s.any("type"):
+        cond.append(("conditions[type][]", TYPES[kind]))
+    agencies = s.any("agency")
+    if agencies:
+        slugs = sorted({slug for a in agencies for slug in _slugs(a)})
+        if not slugs:
+            return page([], total=0)
+        cond += [("conditions[agencies][]", slug) for slug in slugs]
+    for field, key in (("effective_date", "effective_date"), ("comments_close", "comment_date")):
+        lo, hi = s.between(field)
+        cond += [(f"conditions[{key}][gte]", lo)] if lo else []
+        cond += [(f"conditions[{key}][lte]", hi)] if hi else []
+    docket, rin = s.one("docket_id"), s.one("rin")
+    cond += [("conditions[docket_id]", docket)] if docket else []
+    cond += [("conditions[regulation_id_number]", rin)] if rin else []
+    significant = s.one("significant")
+    cond += [("conditions[significant]", "1" if significant == "yes" else "0")] if significant else []
+    part = re.fullmatch(r"(\d+)\s*CFR\s*(\d+)", (s.peek("cfr").get("is") or [""])[0].strip(), re.I)
+    if part and len(s.peek("cfr")["is"]) == 1:
+        s.any("cfr")
+        cond += [("conditions[cfr][title]", part[1]), ("conditions[cfr][part]", part[2])]
+    # Words given for one text field narrow the Register's full-text search; the registry then checks the field.
+    words = s.query()
+    term = " ".join([words] + [w for f in ("action", "title", "abstract", "dates") for w in s.peek(f).get("is", [])[:1]]).strip()
+    cond += [("conditions[term]", term)] if term else []
+    lo, hi = s.between("publication_date")
+    cond += [("conditions[publication_date][gte]", lo)] if lo else []
+    fields = [("fields[]", x) for x in FIELDS]
+
+    if words and not s.everything:  # by relevance, page by page, as far as the Register goes
+        at = s.cursor or {"page": 1, "per": max(1, min(s.size, PER))}
+        got = _get("documents.json", [("per_page", at["per"]), ("page", at["page"]), ("order", "relevance")] + fields + cond
+                   + ([("conditions[publication_date][lte]", hi)] if hi else []))
+        docs = got.get("results") or []
+        more = len(docs) == at["per"] and (at["page"] + 1) * at["per"] <= CAP
+        return page([_record(d) for d in docs], {"page": at["page"] + 1, "per": at["per"]} if more else None,
+                    _total(got, cond, hi), "most relevant first")
+
+    # newest first, continuing from a date: the documents of that date already returned are skipped
+    at = s.cursor or {"until": hi, "skip": 0}
+    per = min(PER, at["skip"] + max(1, s.size))
+    got = _get("documents.json", [("per_page", per), ("page", 1), ("order", "newest")] + fields + cond
+               + ([("conditions[publication_date][lte]", at["until"])] if at["until"] else []))
+    docs = (got.get("results") or [])
+    fresh = docs[at["skip"]:]
+    if len(docs) < per or not fresh:
+        nxt = None
+    else:
+        last = fresh[-1]["publication_date"]
+        same = sum(1 for d in fresh if d["publication_date"] == last)
+        nxt = {"until": last, "skip": same + (at["skip"] if last == at["until"] else 0)}
+    return page([_record(d) for d in fresh], nxt, _total(got, cond, hi) if s.cursor is None else None, "newest first")
 
 
-def search(query=None, type=None, agency=None, effective_from=None, effective_until=None, comments_close_from=None,
-           comments_close_until=None, since=None, until=None, max_results=50):
-    f = _filters(query, type, agency, effective_from=effective_from, effective_until=effective_until,
-                 comments_close_from=comments_close_from, comments_close_until=comments_close_until, since=since, until=until)
-    params = [("per_page", min(int(max_results or 50), 200)), ("order", "relevance" if f["q"] else "newest")]
-    params += [("fields[]", x) for x in FIELDS] + _conditions(f)
-    j = _get(API, params)
-    rows = [{"record_id": d.get("html_url"), "title": d.get("title"), "type": d.get("type"),
-             "agencies": [a.get("name") or a.get("raw_name") for a in d.get("agencies") or []], "action": d.get("action"),
-             "published": d.get("publication_date"), "effective": d.get("effective_on"),
-             "comments_close": d.get("comments_close_on"), "dates": d.get("dates"),
-             "abstract": (d.get("abstract") or "")[:700] or None, "document_number": d.get("document_number")}
-            for d in j.get("results") or []]
-    count = j.get("count") or 0
-    out = {"results": rows, "total_matches": count, "read_all": record_id(f)}
-    if count >= CAP:
-        out["total_matches_note"] = (f"The Federal Register counts at most {CAP:,} matches for one search, so there may "
-                                     "be more; reading read_all counts and reads them all.")
-    if count > len(rows):
-        out.update(_facets(f))
-    return out
+def _total(got, cond, hi):
+    """The count of matching documents: the Register's own, or past its cap the sum of its counts by type."""
+    count = got.get("count") or 0
+    if count < CAP:
+        return count
+    by_type = _get("documents/facets/type", cond + ([("conditions[publication_date][lte]", hi)] if hi else []))
+    return sum(v.get("count") or 0 for v in (by_type or {}).values())
 
 
-def _count(f, since, until):
-    return (_get(API, [("per_page", 1), ("fields[]", "document_number")] + _conditions(f, since, until)).get("count") or 0)
+def _read(number):
+    d = _get(f"documents/{number}.json")
+    record = _record(d)
+    body, links = "", []
+    if d.get("body_html_url"):
+        got = web.read(d["body_html_url"])
+        body, links = got["text"], got["data"].get("links") or []
+    elif d.get("raw_text_url"):
+        body = html.unescape(web.read(d["raw_text_url"])["text"])
+    return {**record, "document": body, "links": links, "published": d.get("publication_date")}
 
 
-def _windows(f, since, until):
-    """Publication-date windows covering since..until, each with fewer than CAP matches: [(since, until, count)]."""
-    n = _count(f, since, until)
-    if n < CAP:
-        return [(since, until, n)] if n else []
-    a, b = dt.date.fromisoformat(since), dt.date.fromisoformat(until)
-    if a >= b:
-        raise SourceError(f"Federal Register: {n:,} documents on {since} alone; narrow the search")
-    mid = a + (b - a) // 2
-    return _windows(f, since, mid.isoformat()) + _windows(f, (mid + dt.timedelta(days=1)).isoformat(), until)
+def _coverage(series):
+    def edge(order):
+        got = _get("documents.json", [("per_page", 1), ("order", order), ("fields[]", "publication_date")])
+        return (got.get("results") or [{}])[0].get("publication_date")
+    return edge("oldest"), edge("newest")
 
 
-def _row(d):
-    return {"document_number": d.get("document_number"), "type": TYPE_NAMES.get(d.get("type"), d.get("type")),
-            "title": d.get("title"), "agencies": "; ".join(a.get("name") or a.get("raw_name") or "" for a in d.get("agencies") or []),
-            "action": d.get("action"), "publication_date": d.get("publication_date"), "effective_on": d.get("effective_on"),
-            "comments_close_on": d.get("comments_close_on"),
-            "significant": None if d.get("significant") is None else int(bool(d.get("significant"))),
-            "rins": ", ".join(d.get("regulation_id_numbers") or []) or None,
-            "docket_ids": ", ".join(d.get("docket_ids") or []) or None,
-            "cfr": "; ".join(f"{c.get('title')} CFR {c.get('part')}" for c in d.get("cfr_references") or [] if c.get("part")) or None,
-            "dates": d.get("dates"), "abstract": d.get("abstract"), "url": d.get("html_url")}
-
-
-def read_all(rid):
-    """The observation for a search's whole result set: every matching document, one line each in its text and
-    one row each in register_documents."""
-    f = _parse(rid)
-    lo, hi = f.get("since") or FIRST, f.get("until") or today().isoformat()
-    windows = _windows(f, lo, hi)
-    total = sum(n for _, _, n in windows)
-    if total > MAX_DOCUMENTS:
-        raise SourceError(f"This search matches {total:,} Federal Register documents ({describe(f)}); one read keeps "
-                          f"up to {MAX_DOCUMENTS:,}. Narrow it by type, agency, words or dates.")
-    rows, seen = [], set()
-    for a, b, n in windows:
-        for page in range(1, -(-n // PAGE) + 1):
-            j = _get(API, [("per_page", PAGE), ("page", page), ("order", "oldest")] + [("fields[]", x) for x in TABLE_FIELDS]
-                     + _conditions(f, a, b))
-            for d in j.get("results") or []:
-                if d.get("document_number") not in seen:
-                    seen.add(d.get("document_number"))
-                    rows.append(_row(d))
-    rows.sort(key=lambda r: (r["publication_date"] or "", r["document_number"] or ""))
-    what = describe(f)
-    kinds, agencies = {}, {}
-    for r in rows:
-        kinds[r["type"]] = kinds.get(r["type"], 0) + 1
-        for a in filter(None, (r["agencies"] or "").split("; ")):
-            agencies[a] = agencies.get(a, 0) + 1
-    top = sorted(agencies.items(), key=lambda x: -x[1])[:12]
-    lines = [f"Federal Register: {len(rows):,} documents, {what}.",
-             "By type: " + (", ".join(f"{k} {v:,}" for k, v in sorted(kinds.items(), key=lambda x: -x[1])) or "none") + ".",
-             "By agency (a document can name several): " + (", ".join(f"{k} {v:,}" for k, v in top) or "none") + ".", "",
-             "Each line: published | type | effective | comments close | agencies | title | address"]
-    lines += [f"{r['publication_date']} | {r['type']} | {r['effective_on'] or '-'} | {r['comments_close_on'] or '-'} | "
-              f"{r['agencies']} | {r['title']} | {r['url']}" for r in rows]
-    web = "https://www.federalregister.gov/documents/search?" + urlencode(_conditions(f))
-    return {"kind": "register_search", "source": "federal_register", "native_id": rid, "url": web, "published": None,
-            "text": "\n".join(lines), "rows": {"register_documents": rows},
-            "data": {"title": f"Federal Register search: {len(rows):,} {what}", "filters": f, "count": len(rows),
-                     "windows": [[a, b, n] for a, b, n in windows]}}
-
-
-def _label(q, f):
-    when = " taking effect " + " to ".join(x for x in (f.get("effective_from"), f.get("effective_until")) if x) \
-        if f.get("effective_from") or f.get("effective_until") else ""
-    kind = {"rule": "rules", "proposed_rule": "proposed rules", "notice": "notices"}.get(f.get("type"), "documents")
-    return f"Searched the Federal Register for {kind}{when}" + (f" matching “{q}”" if q else "")
-
-
-SOURCE = Source(
+SERIES = [Series(
     id="federal_register",
-    publisher="Office of the Federal Register (federalregister.gov)",
-    record="one rule, proposed rule, notice or presidential document; or, through read_all, every document a search matches.",
-    names="the issuing agencies.",
-    dates="publication, effective, comments close, and the document's own DATES section.",
-    search="query is words in the document. Filters: type (rule, proposed_rule, notice or presidential_document), agency "
-           "(its name), effective_from and effective_until, comments_close_from and comments_close_until, since and until "
-           "(publication dates; without any dates, the last year), max_results (the default is 50, at most 200). When more "
-           "match than are returned, the result gives how they divide by type and by agency. read_all is a record_id for "
-           "every match.",
-    read=f"a document's text. A read_all returns every match, up to {MAX_DOCUMENTS:,}, one line each, and fills register_documents.",
-    coverage="1994 to today.",
-    filters=frozenset({"type", "agency", "effective_from", "effective_until", "comments_close_from", "comments_close_until",
-                       "since", "until", "max_results"}),
-    find=lambda query, filters: search(query or None, **filters),
-    label=_label,
-    locate=lambda ref: (("federal_register", ref), lambda: read_all(ref)) if ref.startswith(PREFIX) else None,
-    again=lambda obs: obs["native_id"] if obs["source"] == "federal_register" and obs["kind"] == "register_search"
-    and obs.get("native_id") else None,
-    noun="every Federal Register document matching its search",
-    kind="register_search", tables=("register_documents",),
-)
+    title="the Federal Register",
+    record="a rule, proposed rule, notice or presidential document",
+    creator="federal agencies and the President",
+    publisher="Office of the Federal Register",
+    jurisdiction="federal",
+    since="1994",
+    coverage=_coverage,
+    fields=(F("agency", "name", many=True), F("type", tuple(TYPES)), F("publication_date", "date"),
+            F("effective_date", "date"), F("comments_close", "date"), F("document_number", "identifier"),
+            F("docket_id", "identifier", many=True), F("rin", "identifier", many=True), F("cfr", "identifier", many=True),
+            F("significant", ("yes", "no")), F("action", "text"), F("title", "text"), F("abstract", "text"),
+            F("dates", "text"), F("full_text", "full text")),
+    search=_search, read=_read)]

@@ -8,7 +8,6 @@ import re
 from urllib.parse import urlencode
 
 from ..util import SourceError, today
-from . import Source
 from .sec import _get
 
 EFTS = "https://efts.sec.gov/LATEST/search-index"
@@ -51,20 +50,3 @@ def search(query, forms=None, since=None, until=None, max_results=100):
         if start >= total:
             break
     return {"results": out, "total_matches": total, "since": since, "until": until}
-
-
-SOURCE = Source(
-    id="filings",
-    publisher="U.S. Securities and Exchange Commission (EDGAR full-text search)",
-    record="one document of a filing: the report itself, or an exhibit such as a press release.",
-    names="the filer, with its ticker where it has one.",
-    dates="the filing date, and the period the filing reports on.",
-    search="query is words, or a phrase in double quotes, in the document's text. Filters: forms (SEC form types: 10-K, "
-           "10-Q, 8-K and so on), since and until (filing dates, YYYY-MM-DD; the default is the last 120 days), "
-           "max_results (the default is 100, at most 500).",
-    read="the document's text; find returns the passages around given terms.",
-    coverage="every filing since 2001.",
-    filters=frozenset({"forms", "since", "until", "max_results"}),
-    find=lambda query, filters: search(query, **filters),
-    label=lambda q, f: f"Searched the full text of SEC filings for “{q}”",
-)

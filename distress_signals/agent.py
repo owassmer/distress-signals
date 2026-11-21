@@ -27,12 +27,12 @@ RESULT = {"type": "object", "required": ["opportunity_ids", "summary", "follow_o
 TOOLS_TEXT = """\
 ## Tools
 
-Today is {today}. Your knowledge of events ends at your training cutoff. Use the publication and update dates
-in the records to establish what was known and when.
+Today is {today}. What you know about events ends at your training cutoff, before today. The records these
+tools reach are current, and each carries its own dates.
 
-- `search_records` searches the public sources listed in the tool description. `read_record` reads and stores
-  a source record, web page or PDF so its passages can be cited. WebSearch searches the open web and WebFetch
-  reads a page.
+- `search_records` searches the series of public records listed in its description. `read_record` reads and
+  stores a record, every record a search matches, or any web page or PDF, so its passages can be cited.
+  WebSearch searches the web; WebFetch reads a page without storing it.
 - `compute` runs SQL over the records read with `read_record` and the findings and results recorded, for totals,
   intermediate figures and dates.
 - `record_finding` records facts, inferences, conclusions, open questions and dropped leads, and can withdraw a

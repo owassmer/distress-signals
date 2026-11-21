@@ -47,54 +47,69 @@ def _call(name, fn, *args, **kwargs):
         raise ToolError(f"{type(e).__name__}: {str(e)[:300]}. If it is a network error, the same call can be made again.")
 
 
-TABLES = "\n".join(f"    - {t}(observation_id, {', '.join(cols)})" for t, cols in db.RECORD_TABLES.items())
-
-
-# The catalog of sources is the whole of what the researcher is told about them: every source's card, in the
-# order drawn for this run (sources.order), which the launcher stores with the run.
+# The catalog is the whole of what the researcher is told about the series: each one's entry, in the order
+# drawn for this run (sources.order), which the launcher stores with the run.
 ORDER = sources.order(os.environ.get("DISTRESS_RUN_ID"))
-SEARCH = ("Search a public-record source. Each result carries a record_id for read_record; nothing is stored until it "
-          "is read. filters is an object of the source's filters.\n\nThe sources. Each entry gives who publishes the "
-          "record, what one record is, whom it names, the dates it carries, how it is searched, what reading it returns, "
-          "and what the source reaches:\n\n" + sources.catalog(ORDER))
+SEARCH = """Search a series of public records. A series is one kind of record. Each entry below gives what one
+record is, the body that creates the records, the publisher where another body makes them available, the
+jurisdiction, the dates covered, and the record's fields with their types.
+
+- query: words to find in a record's text, and in its whole document where the series has a full text field.
+  A phrase goes in double quotes.
+- filters: an object keyed by field. A name, place or text field takes words; an identifier takes its value; a
+  field with listed values takes one of them. Each of these also takes a list, and a record matches any item.
+  A date field takes FIELD_from and FIELD_until (YYYY-MM-DD). An amount or number field takes FIELD_min and
+  FIELD_max.
+- limit: how many records to return: 25 by default, at most 200.
+- cursor: the cursor a result returned, to continue that search. A result without one reached the end.
+
+A result gives each record's fields, its url and a record_id for read_record. total is the count of matching
+records where it is known. examined is how many records were checked where the publisher could not apply a
+filter itself. result_set is an ID for every record the search matches. Nothing is stored until it is read.
+
+The series:
+
+""" + sources.catalog(ORDER)
 
 
-def search_records(source: str, query: str, filters: dict | None = None) -> dict:
-    return _call("search_records", tools.search_records, source, query, filters)
+def search_records(series: str, query: str = "", filters: dict | None = None, limit: int = sources.LIMIT,
+                   cursor: str | None = None) -> dict:
+    return _call("search_records", tools.search_records, series, query, filters, limit, cursor)
 
 
-search_records.__annotations__["source"] = Literal[tuple(ORDER)]  # the same order as the catalog
+search_records.__annotations__["series"] = Literal[tuple(ORDER)]  # the same order as the catalog
 server.tool(description=SEARCH)(search_records)
 
 
 @server.tool()
 def read_record(id_or_url: str, find: str | None = None, offset: int = 0, fresh: bool = False) -> dict:
-    """Read a record and store it, so its passages can be cited. Takes a web address (HTML or PDF), a
-    record_id from search_records, or the observation_id of a record already read.
+    """Read a record and store it, so its passages can be cited. Takes a record_id or a result_set from
+    search_records, a web address (HTML or PDF), or the observation_id of a record already read.
 
-    Returns the text 12,000 characters at a time (next_offset continues it) and the page's links. find takes
-    terms separated by '|' and returns the passages around each match instead (plain text, any letter case).
-    What a source's record returns, and the workspace tables it fills, is in that source's entry under
-    search_records. A stored record is reused; fresh reads its source again and updates the same record."""
+    A record_id returns the record's fields and its document. A result_set returns every record the search
+    matches, one line each, up to 25,000 records. Both fill the series' table in the workspace. The text
+    comes 12,000 characters at a time (next_offset continues it), with the document's links. find takes terms
+    separated by '|' and returns the passages around each match instead (plain text, any letter case). A
+    stored record is reused; fresh reads its source again and updates the same record."""
     return _call("read_record", tools.read_record, id_or_url, find, offset, fresh)
 
 
 COMPUTE = """Run one read-only SQLite query over the records read with read_record and the findings and results
-recorded with record_finding and compute. Returns the columns and up to 200 rows. save_as stores the result (up to 2,000 rows) under a result_id; an input whose
-value comes from it cites it as derived, and saving checks the value is in it. SQLite's date functions
-(date, julianday, strftime) work on the date columns. A query stops after 15 seconds.
+recorded with record_finding and compute. Returns the columns and up to 200 rows. save_as stores the result (up
+to 2,000 rows) under a result_id; an input whose value comes from it cites it as derived, and saving checks the
+value is in it. SQLite's date functions (date, julianday, strftime) work on the date columns. A query stops
+after 15 seconds.
 
-Tables filled when a record is read:
-{tables}
-In award_funding, obligated is the amount obligated in that fiscal period; outlays_fytd is outlays from the
-start of the fiscal year to that period; one period can have several rows for the same account. In
-register_documents, significant is 1 where the document is a significant regulatory action, dates is the
-document's own DATES section, and cfr lists the parts of the Code of Federal Regulations it changes. Also in
-the workspace: observations(id, kind, source, native_id, url, published, retrieved_at, text, data), findings
-and workspace_results."""
+Each series is a table of the same name, with one row for each of its records read: a column for each field in
+its entry under search_records, and record_id, url and observation_id (the read that holds the record's
+text). A field that holds several values is a JSON array; json_each lists them. Three views cross the series:
+record_dates(series, record_id, field, date, observation_id), record_names(series, record_id, field, name,
+observation_id) and record_amounts(series, record_id, field, amount, observation_id). Also in the workspace:
+observations(id, kind, source, native_id, url, published, retrieved_at, text, data), findings and
+workspace_results."""
 
 
-@server.tool(description=COMPUTE.replace("{tables}", TABLES))
+@server.tool(description=COMPUTE)
 def compute(sql: str, save_as: str | None = None, note: str | None = None) -> dict:
     return _call("compute", tools.compute, sql, save_as, note)
 

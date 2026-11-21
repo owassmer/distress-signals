@@ -50,36 +50,40 @@ def _call(name, fn, *args, **kwargs):
 TABLES = "\n".join(f"    - {t}(observation_id, {', '.join(cols)})" for t, cols in db.RECORD_TABLES.items())
 
 
-@server.tool()
-def search_records(source: Literal["filings", "federal_register", "usaspending", "sec", "ledgers"], query: str,
-                   filters: dict | None = None) -> dict:
-    """Search a public-record source. Each result carries a record_id for read_record; nothing is stored
-    until it is read.
+SEARCH_RECORDS = """Search a public-record source. Each result carries a record_id for read_record; nothing is stored
+until it is read.
 
-    - filings: the full text of every SEC filing, searched by words or a phrase in double quotes. Each result
-      is one document of a filing (the report, or an exhibit such as a press release) with the company, form,
-      filing date and address; read_record reads it, and its find returns the passages. Filters: forms (SEC
-      form types: 10-K, 10-Q, 8-K and so on), since and until (filing dates, YYYY-MM-DD; the default is the
-      last 120 days), max_results (the default is 100).
-    - federal_register: every federal rule, proposed rule, notice and presidential document, searched by
-      words. Each result gives the title, agencies, action, publication date, effective date, comment
-      deadline and address. When more match than are returned, it gives how the matches divide by type and by
-      agency. read_all is a record_id for every match: read_record reads them all (up to 25,000) into
-      register_documents. Filters: type (rule, proposed_rule, notice or presidential_document), agency (its
-      name), effective_from and effective_until, comments_close_from and comments_close_until, since and until
-      (publication dates; without any dates, the last year), max_results (the default is 50, at most 200).
-    - usaspending: U.S. federal awards to a recipient (query is the recipient's name). Filters: agency (the
-      awarding agency's top-level name as USAspending lists it), keyword (words in the award), since and
-      until (dates of award actions, YYYY-MM-DD; the default is the last three years), award_types
-      (contracts, idvs, grants, loans, direct_payments or other; the default is contracts), active_on
-      (only awards whose current end date is on or after this date; every such award is read, back to 2007,
-      and the largest are returned with a count of how many qualified), max_results (the default is 300).
-    - sec: a ticker or company name, matched against every name EDGAR holds for every filer, current or former,
-      with a ticker or without one. Filers with a ticker come first; one without says what kind of filer it is,
-      its industry, when it last filed and which forms it files.
-    - ledgers: a company name, searched in 19 U.S. state and local government payment ledgers; returns each
-      payee spelling by paying department with payment counts, totals and dates. Takes one to two minutes.
-      Filters: since (YYYY-MM-DD; the record IDs it returns keep it), ledgers (ledger IDs)."""
+- filings: the full text of every SEC filing, searched by words or a phrase in double quotes. Each result
+  is one document of a filing (the report, or an exhibit such as a press release) with the company, form,
+  filing date and address; read_record reads it, and its find returns the passages. Filters: forms (SEC
+  form types: 10-K, 10-Q, 8-K and so on), since and until (filing dates, YYYY-MM-DD; the default is the
+  last 120 days), max_results (the default is 100).
+- federal_register: every federal rule, proposed rule, notice and presidential document, searched by
+  words. Each result gives the title, agencies, action, publication date, effective date, comment
+  deadline and address. When more match than are returned, it gives how the matches divide by type and by
+  agency. read_all is a record_id for every match: read_record reads them all (up to 25,000) into
+  register_documents. Filters: type (rule, proposed_rule, notice or presidential_document), agency (its
+  name), effective_from and effective_until, comments_close_from and comments_close_until, since and until
+  (publication dates; without any dates, the last year), max_results (the default is 50, at most 200).
+- usaspending: U.S. federal awards to a recipient (query is the recipient's name). Filters: agency (the
+  awarding agency's top-level name as USAspending lists it), keyword (words in the award), since and
+  until (dates of award actions, YYYY-MM-DD; the default is the last three years), award_types
+  (contracts, idvs, grants, loans, direct_payments or other; the default is contracts), active_on
+  (only awards whose current end date is on or after this date; every such award is read, back to 2007,
+  and the largest are returned with a count of how many qualified), max_results (the default is 300).
+- sec: a ticker or company name, matched against every name EDGAR holds for every filer, current or former,
+  with a ticker or without one. Filers with a ticker come first; one without says what kind of filer it is,
+  its industry, when it last filed and which forms it files.
+- ledgers: a company name, searched in 19 U.S. state and local government payment ledgers; returns each
+  payee spelling by paying department with payment counts, totals and dates. Takes one to two minutes.
+  Filters: since (YYYY-MM-DD; the record IDs it returns keep it), ledgers (ledger IDs)."""
+for source, module in tools.RECORD_SOURCES.items():
+    filters = ", ".join(sorted(module.FILTERS[source]))
+    SEARCH_RECORDS += f"\n- {source}: {module.SOURCES[source]} Filters: {filters or 'none'}."
+
+
+@server.tool(description=SEARCH_RECORDS)
+def search_records(source: Literal[*tools.SEARCH_FILTERS], query: str, filters: dict | None = None) -> dict:
     return _call("search_records", tools.search_records, source, query, filters)
 
 

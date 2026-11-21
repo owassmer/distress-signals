@@ -30,11 +30,9 @@ TOOLS_TEXT = """\
 Today is {today}. What you know about events ends at your training cutoff, before today; the records these tools
 reach are current.
 
-- `search_records` and `read_record` reach records about companies, public or private: U.S. federal awards and 19
-  state and local government payment ledgers, which cover any company paid by those governments; the full text of SEC
-  filings and the filings and reported revenue of any SEC filer; the Federal Register's rules and notices; and any
-  web page or PDF. WebSearch searches the web; WebFetch reads a page without storing it. A passage can be cited only
-  from a record read with `read_record`.
+- `search_records` searches the public sources listed in the tool description. `read_record` reads and stores
+  a source record, web page or PDF so its passages can be cited. WebSearch searches the open web and WebFetch
+  reads a page.
 - `compute` runs SQL over the records read with `read_record` and the findings and results recorded, for totals,
   intermediate figures and dates.
 - `record_finding` records facts, inferences, conclusions, open questions and dropped leads, and can withdraw a

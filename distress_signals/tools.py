@@ -25,7 +25,8 @@ from pydantic import ValidationError
 
 from . import db, exposure, forms, names
 from .models import Calculation, Event, Finding, Opportunity
-from .sources import federal_register, filings, ledgers, public_records, sec, web
+from .sources import communications, drug_patent, energy, federal_register, filings, healthcare
+from .sources import ledgers, local_notices, public_records, sec, trade, web
 from .util import SourceError, exclusions, now_iso
 
 
@@ -104,10 +105,19 @@ def _cite(con, cite, where, cited_ids):
     if cite.get("url"):
         url = cite["url"].strip()
         oid = db.make_id("obs_", "page", url)
+        # A bulk download can be the public URL of many distinct, independently stored rows.
         obs = db.get_observation(con, oid)
-        if obs is None:
-            row = con.execute("SELECT id FROM observations WHERE url=? AND text IS NOT NULL LIMIT 1", (url,)).fetchone()
-            obs = db.get_observation(con, row["id"]) if row else None
+        if not (obs and obs.get("text") and quoted(passage, obs["text"])):
+            matches = []
+            for row in con.execute("SELECT id, text FROM observations WHERE url=? AND text IS NOT NULL", (url,)):
+                if quoted(passage, row["text"]):
+                    matches.append(row["id"])
+                elif obs is None or not obs.get("text"):
+                    obs = db.get_observation(con, row["id"])
+            if len(matches) > 1:
+                raise ToolError(f"{where}: several records at {url} contain this passage. Cite its observation_id.")
+            if matches:
+                obs = db.get_observation(con, matches[0])
         if obs is None:
             db.put_observation(con, {"id": oid, "kind": "page", "source": "web", "url": url, "retrieved_at": now_iso(),
                                      "text": None, "data": {"unchecked": True, "passages": [passage]}})
@@ -652,7 +662,15 @@ def lookup(id_or_query: str) -> dict:
 
 # ---------- records ----------
 
+# Each adapter owns its search filters and the reader for its native record IDs.
+RECORD_SOURCES = {
+    source: module
+    for module in (drug_patent, healthcare, trade, energy, communications, local_notices)
+    for source in module.SOURCES
+}
+
 SEARCH_FILTERS = {
+    **{source: module.FILTERS[source] for source, module in RECORD_SOURCES.items()},
     "usaspending": {"agency", "since", "until", "award_types", "keyword", "active_on", "max_results"},
     "ledgers": {"since", "ledgers"},
     "sec": set(),
@@ -675,22 +693,19 @@ def search_records(source: str, query: str, filters: dict | None = None) -> dict
     try:
         if source == "usaspending":
             got = public_records.search_awards(query or None, **filters)
-            rows, extra = got.pop("results"), got
         elif source == "sec":
             got = sec.search(query)
-            rows, extra = got.pop("results"), got
         elif source == "filings":
             got = filings.search(query, **filters)
-            rows, extra = got.pop("results"), got
         elif source == "federal_register":
             got = federal_register.search(query or None, **filters)
-            rows, extra = got.pop("results"), got
+        elif source in RECORD_SOURCES:
+            got = RECORD_SOURCES[source].search(source, query, **filters)
         else:
             got = ledgers.search_payee(query, since=filters.get("since"), ledger_ids=filters.get("ledgers"))
-            rows, extra = got.pop("results"), got
     except SourceError as e:
         raise ToolError(str(e))
-    return {"source": source, "query": query, "count": len(rows), "results": rows, **extra}
+    return {"source": source, "query": query, "count": len(got["results"]), **got}
 
 
 def _locate(ref):
@@ -699,6 +714,9 @@ def _locate(ref):
         return db.make_id("obs_", "page", ref), lambda: web.read(ref)
     if ref.startswith(federal_register.PREFIX):
         return db.make_id("obs_", "federal_register", ref), lambda: federal_register.read_all(ref)
+    source, _, native_id = ref.partition(":")
+    if source in RECORD_SOURCES and native_id:
+        return db.make_id("obs_", source, native_id), lambda: RECORD_SOURCES[source].read(source, native_id)
     m = re.match(r"^usaspending:award:(.+)$", ref)
     if m:
         return db.make_id("obs_", "usaspending", m[1]), lambda: public_records.award(m[1])
@@ -710,12 +728,13 @@ def _locate(ref):
         lid, since, payee = m[1], m[2] or None, m[3]
         return (db.make_id("obs_", "ledger", lid, since or "default", payee),
                 lambda: ledgers.payee_lines(lid, payee, since))
-    raise ToolError("read_record takes a URL, an observation ID (obs_...), or a record_id from search_records "
-                    "(usaspending:award:..., sec:CIK, ledger:LEDGER:SINCE:PAYEE, federal_register:search?...)")
+    raise ToolError("read_record takes a URL, an observation ID (obs_...), or a record_id from search_records")
 
 
 def _source_ref(obs):
     """The reference that reads an observation's source again."""
+    if obs["source"] in RECORD_SOURCES and obs.get("native_id"):
+        return f"{obs['source']}:{obs['native_id']}"
     if obs["source"] == "usaspending" and obs.get("native_id"):
         return f"usaspending:award:{obs['native_id']}"
     if obs["source"] == "sec" and obs["kind"] == "financial_fact" and obs.get("native_id"):

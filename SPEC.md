@@ -270,6 +270,7 @@ launcher stores the leads, and a lead that names a company becomes that company 
 | SEC EDGAR | `sources/sec.py` | Finds filers by ticker, or by any name EDGAR holds for them, current or former, with or without a ticker. Names come from SEC's `company_tickers.json` (about 10,000 companies with a ticker) and `cik-lookup-data.txt` (every name of every filer, about a million), each kept for a day in `out/`; the second is indexed with SQLite full-text search in `out/sec_names.db`. Matching is by whole words. Companies with a ticker rank first. Up to 40 matches without one are looked up, and those with filings of their own rank above insiders and holders who file only ownership forms; each says what kind of filer it is, its industry, when it last filed and which forms it files. A filer's record: its former names, the forms in its recent filings (ownership forms by insiders and holders counted, not listed), its 40 most recent other filings with document and index links, and its reported revenue by quarter and year; a fourth quarter, reported only inside the year, is derived and labeled. Fills `revenue` and `filings`. Requires `SEC_USER_AGENT` |
 | USAspending | `sources/public_records.py` | Award search by recipient, keyword and agency; `active_on` reads every award still running on a date, back to 2007, and returns the largest with a count. Award detail: period of performance, values, parent, recipient, modifications, and every funding record, totaled at the source's grain (rows within a period add up; obligations are period amounts; outlays are fiscal-year-to-date, so each year takes each line's latest period). Fills `awards`, `award_funding`, `award_modifications` |
 | State and local payment ledgers | `sources/ledgers.py` | Payee search across 19 ledgers; a payee's payment lines for a period (the period is kept in the record ID). Fills `payments`. See `docs/data-sources.md` |
+| Additional public records | `sources/drug_patent.py`, `healthcare.py`, `trade.py`, `energy.py`, `communications.py`, `local_notices.py` | Patent trials, drug listings and advisory meetings, clinical trials, Medicare decisions and ratings, trade investigations and general licenses, energy proceedings, generator deactivations, FCC proceedings and auctions, nuclear licensing, layoff notices and local legislative agendas. [Sources and coverage](docs/data-sources.md#public-record-search) |
 | Any address | `sources/web.py` | HTML or PDF as text, with the page's links |
 | Everything else | WebSearch and WebFetch | |
 
@@ -506,7 +507,7 @@ python -m distress_signals ledgers [--verify]
 | `distress_signals/tools.py` | The seven tools' functions |
 | `distress_signals/mcp_server.py` | The tools over MCP, with their descriptions and the tool-call log |
 | `distress_signals/exposure.py` | The calculation |
-| `distress_signals/sources/` | `sec.py`, `public_records.py`, `ledgers.py`, `web.py` |
+| `distress_signals/sources/` | Public-record search and read adapters (section 6) |
 | `distress_signals/llm.py` | The Claude CLI call and the transcript |
 | `distress_signals/agent.py` | The system prompt and each run's assignment |
 | `distress_signals/pipeline.py` | Runs |
@@ -521,7 +522,7 @@ python -m distress_signals ledgers [--verify]
 | `distress_signals/showcase.py` | Public guide export and legacy URL forwarding |
 | `distress_signals/names.py`, `util.py` | Name normalization, HTTP, dates, exclusions |
 | `distress_signals/__main__.py` | The commands |
-| `docs/data-sources.md` | The payment ledgers and federal awards in detail |
+| `docs/data-sources.md` | Source coverage, access and record fields |
 
 ## 13. Build order
 

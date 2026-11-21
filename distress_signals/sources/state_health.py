@@ -1,5 +1,12 @@
-"""Public state Medicaid contract records and regulator-published insurance rate filings."""
+"""Three series from state health agencies' own pages: Medicaid managed-care contracts (Iowa), Medicaid
+managed-care procurements (Texas), and health insurers' rate filings (New York and Oregon).
 
+Each page is read whole and its records filtered here. Rate filings are published a year at a time; a search
+reads the years it needs, newest first.
+"""
+
+import datetime as dt
+import functools
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -8,15 +15,16 @@ from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
-from ..util import SourceError, session
-from . import web
+from ..util import SourceError, session, to_date, to_float
+from . import F, Series, page, web
 
 IOWA = "https://hhs.iowa.gov/medicaid/about-medicaid/policies-rules-regulations/contracts-rates"
 TEXAS = "https://www.hhs.texas.gov/business/contracting-hhs/procurement-opportunities"
 OREGON = "https://www4.cbs.state.or.us/exs/ins/rates2/index.cfm?fuseaction=home.show_table"
 NEW_YORK = "https://myportal.dfs.ny.gov/web/prior-approval/"
 NY_MARKETS = ("ind-and-sg-medical", "lg-hmo", "medsupp", "ltc")
-FILTERS = {"medicaid_contracts": {"state", "offset", "max_results"}, "serff": {"state", "year", "status", "offset", "max_results"}}
+NY_MARKET_NAMES = {"ind-and-sg-medical": "Individual and small group medical", "lg-hmo": "Large group HMO",
+                   "medsupp": "Medicare supplement", "ltc": "Long-term care"}
 
 
 def _get(url):
@@ -29,6 +37,7 @@ def _text(tag):
     return " ".join(tag.stripped_strings)
 
 
+@functools.lru_cache(maxsize=4)
 def _iowa():
     soup = BeautifulSoup(_get(IOWA).content, "html.parser")
     heading = soup.select_one("#managed-care-plan-contracts-amp-amendments")
@@ -53,6 +62,7 @@ def _iowa():
     return rows
 
 
+@functools.lru_cache(maxsize=4)
 def _texas():
     soup = BeautifulSoup(_get(TEXAS).content, "html.parser")
     heading = next((h for h in soup.select("h2,h3") if _text(h) == "Medicaid Managed Care Procurement Timelines"), None)
@@ -84,6 +94,7 @@ def _texas():
     return rows
 
 
+@functools.lru_cache(maxsize=1)
 def _oregon(year=None):
     # This is the JSON that Oregon publishes to render its public rate-request table.
     html = _get(OREGON).text
@@ -115,6 +126,7 @@ def _oregon(year=None):
     return sorted(records.values(), key=lambda r: str(r["year"]), reverse=True)
 
 
+@functools.lru_cache(maxsize=4)
 def _ny_index(market):
     url = NEW_YORK + market
     soup = BeautifulSoup(_get(url).content, "html.parser")
@@ -132,6 +144,7 @@ def _ny_index(market):
     return years
 
 
+@functools.lru_cache(maxsize=64)
 def _ny_rows(market, year=None):
     years = _ny_index(market)
     year = year or max(years)
@@ -189,85 +202,153 @@ def _ny_rows(market, year=None):
     return list(filings.values())
 
 
-def _load(source, state, year):
-    tasks = []
-    if source == "medicaid_contracts":
-        tasks = [("IA", _iowa, ()), ("TX", _texas, ())]
-    elif source == "serff":
-        tasks = [("OR", _oregon, (year,))] + [(f"NY {market}", _ny_rows, (market, year)) for market in NY_MARKETS]
-    else:
-        raise SourceError(f"Unknown state health source {source!r}")
-    if state:
-        tasks = [task for task in tasks if task[0].split()[0] == str(state).upper()]
-        if not tasks:
-            raise SourceError(f"{source} supports " + ("IA and TX" if source == "medicaid_contracts" else "NY and OR"))
-    rows, errors = [], {}
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        futures = [(name, pool.submit(fn, *args)) for name, fn, args in tasks]
-        for name, future in futures:
-            try:
-                rows.extend(future.result())
-            except (requests.RequestException, SourceError, ValueError, KeyError) as exc:
-                errors[name] = str(exc)
-    if len(errors) == len(tasks):
-        raise SourceError(f"{source}: {errors}")
-    return rows, errors
-
-
-def search(source, query="", state=None, year=None, status=None, offset=0, max_results=25):
-    if not str(offset).isdigit() or not str(max_results).isdigit() or not 1 <= int(max_results) <= 200:
-        raise SourceError("Give a nonnegative offset and max_results from 1 to 200.")
-    if year is not None and not re.fullmatch(r"\d{4}", str(year)):
-        raise SourceError("Give a four-digit year.")
-    rows, errors = _load(source, state, int(year) if year else None)
-    query = query.strip().casefold()
-    found = []
-    for row in rows:
-        if status and row.get("status", "").casefold() != str(status).casefold():
-            continue
-        terms = [row.get(k, "") for k in ("record_id", "title", "state", "plan", "serff_number", "status", "procurement_record")]
-        for fields in row.get("fields", []):
-            terms.extend(str(value) for value in fields.values())
-        if any(query in term.casefold() for term in terms):
-            found.append(row)
-    offset, end = int(offset), int(offset) + int(max_results)
-    return {"results": found[offset:end], "total_matches_in_retrieved_records": len(found),
-            "complete": not errors and end >= len(found), **({"next_offset": end} if end < len(found) else {}),
-            **({"source_errors": errors} if errors else {})}
-
-
-def read(source, native_id):
-    state, _, ident = native_id.partition(":")
+def _ask(fn, *args):
     try:
-        if source == "medicaid_contracts" and state == "ia" and ident.isdigit():
-            obs = web.read(f"https://hhs.iowa.gov/media/{ident}/download?inline")
-            if obs["data"].get("content_type") != "application/pdf":
-                raise SourceError(f"Iowa media record {ident} no longer returns a contract PDF.")
-            return {**obs, "kind": "public_record", "source": source, "native_id": native_id}
-        if source == "medicaid_contracts" and state == "tx":
-            rows = _texas()
-        elif source == "serff" and state == "or" and ident.isdigit():
-            rows = _oregon()
-        elif source == "serff" and state == "ny":
-            market, year, _tracking = ident.split(":", 2)
-            if market not in NY_MARKETS or not re.fullmatch(r"\d{4}", year):
-                raise SourceError("Use a NY SERFF record ID from search_records.")
-            rows = _ny_rows(market, int(year))
-        else:
-            raise SourceError(f"Unknown record {source}:{native_id}")
-        row = next((r for r in rows if r["record_id"] == f"{source}:{native_id}"), None)
-        if not row:
-            raise SourceError(f"The publisher no longer lists {source}:{native_id}.")
-        parts = [row["title"]]
-        if notes := row.get("publisher_notice"):
-            parts.append(notes)
-        if procurement := row.get("procurement_record"):
-            parts.append(procurement)
-        fields = row.get("fields", [])
-        for item in ([fields] if isinstance(fields, dict) else fields):
-            parts.extend(f"{key}: {value}" for key, value in item.items())
-        parts.extend(f"{a['text']}: {a['url']}" for a in row.get("links", []))
-        return {"kind": "public_record", "source": source, "native_id": native_id, "url": row["url"],
-                "published": None, "text": "\n".join(parts), "data": row}
-    except (requests.RequestException, ValueError, KeyError) as exc:
-        raise SourceError(f"Could not read {source}:{native_id}: {exc}") from exc
+        return fn(*args)
+    except (requests.RequestException, ValueError, KeyError) as e:
+        raise SourceError(f"{fn.__name__.strip('_').replace('_', ' ').title()}'s page could not be read: {type(e).__name__}: {str(e)[:150]}")
+
+
+def _date(value):
+    """Oregon writes 'May, 16 2025 00:00:00'; the others write month/day/year."""
+    if not value:
+        return None
+    try:
+        return dt.datetime.strptime(str(value), "%B, %d %Y %H:%M:%S").date().isoformat()
+    except ValueError:
+        d = to_date(value)
+        return d.isoformat() if d else None
+
+
+# ---------- Medicaid managed-care contracts (Iowa) ----------
+
+def _contracts():
+    return [{"id": r["record_id"].split(":", 1)[1], "url": r["url"], "state": "Iowa", "plan": r["plan"], "title": r["title"]}
+            for r in _ask(_iowa)]
+
+
+def _read_contract(key):
+    record = next((r for r in _contracts() if r["id"] == key), None)
+    if not record:
+        raise SourceError(f"Iowa no longer lists the contract {key!r}.")
+    got = web.read(record["url"])
+    return {**record, "document": got["text"], "links": got["data"].get("links") or []}
+
+
+# ---------- Medicaid managed-care procurements (Texas) ----------
+
+def _procurements():
+    out = []
+    for r in _ask(_texas):
+        posting = (r.get("fields") or [{}])[0]
+        out.append({"id": r["record_id"].split(":", 1)[1], "url": r["url"], "state": "Texas", "program": r["title"],
+                    "solicitation_id": posting.get("Solicitation ID"), "status": posting.get("Status"),
+                    "response_due_date": _date(posting.get("Response Due Date")),
+                    "_text": "\n".join([r["procurement_record"]] + [f"{k}: {v}" for k, v in posting.items()]), "_links": r["links"]})
+    return out
+
+
+def _read_procurement(key):
+    r = next((r for r in _procurements() if r["id"] == key), None)
+    if not r:
+        raise SourceError(f"Texas no longer lists the procurement {key!r}.")
+    return {**{k: v for k, v in r.items() if not k.startswith("_")}, "document": r["_text"], "links": r["_links"]}
+
+
+# ---------- health insurers' rate filings (New York, Oregon) ----------
+
+def _percent(value):
+    return to_float(str(value).replace("%", "").replace("+", "")) if value not in (None, "") else None
+
+
+def _filings(year):
+    """The rate filings with that effective year in both states."""
+    out = []
+    for r in _ask(_oregon):
+        if str(r["year"]) != str(year):
+            continue
+        f = r["fields"][0]
+        out.append({"id": r["record_id"].split(":", 1)[1], "url": r["url"], "state": "Oregon", "insurer": f.get("COMPANY_NAME"),
+                    "serff_number": f.get("FILING_NUMBER_DISP"), "product": f.get("PRODUCT_TYPE"), "status": f.get("STATUS"),
+                    "effective_year": int(year), "submission_date": _date(f.get("SUBMISSION_DATE")),
+                    "effective_date": _date(f.get("EFFECTIVE_DATE")), "decision_date": _date(f.get("DECISION_DATE")),
+                    "members_affected": f.get("AFFECTED_COUNT"), "percent_requested": f.get("PERCENT_CHANGE_REQUESTED"),
+                    "percent_approved": f.get("PERCENT_CHANGE_APPROVED"), "_rows": r["fields"], "_links": r["links"]})
+    for market in NY_MARKETS:
+        if int(year) not in _ask(_ny_index, market):
+            continue
+        for r in _ask(_ny_rows, market, int(year)):
+            f = r["fields"][0]
+            pick = lambda *words: next((v for k, v in f.items() if all(w in k for w in words)), None)  # noqa: E731
+            out.append({"id": r["record_id"].split(":", 1)[1], "url": r["url"], "state": "New York", "insurer": f.get("Insurer"),
+                        "serff_number": r["serff_number"], "product": f.get("Market Segment and Product") or NY_MARKET_NAMES[market],
+                        "status": r.get("status"), "effective_year": int(year), "submission_date": _date(f.get("Posting Date")),
+                        "effective_date": _date(f.get("Effective Date")), "public_comments_due": _date(f.get("Public Comments Due Date")),
+                        "members_affected": to_float(f.get("Number of Members")),
+                        "percent_requested": _percent(pick("Requested", "Weighted Average")),
+                        "percent_approved": _percent(pick("Approved", "Weighted Average")),
+                        "_rows": r["fields"], "_links": r["links"], "_notice": r.get("publisher_notice")})
+    return out
+
+
+def _years():
+    years = {int(r["year"]) for r in _ask(_oregon) if str(r["year"]).isdigit()}
+    for market in NY_MARKETS:
+        years |= set(_ask(_ny_index, market))
+    return sorted(years, reverse=True)
+
+
+def _search_filings(s):
+    span = s.peek("effective_year")
+    years = [y for y in _years() if (span.get("lo") is None or y >= span["lo"]) and (span.get("hi") is None or y <= span["hi"])]
+    at = s.cursor or 0
+    if at >= len(years):
+        return page([])
+    rows = [{k: v for k, v in r.items() if not k.startswith("_")} for r in _filings(years[at])]
+    return page(rows, at + 1 if at + 1 < len(years) else None, order="latest effective year first")
+
+
+def _read_filing(key):
+    state = key.split(":", 1)[0]
+    years = [int(key.split(":")[2])] if state == "ny" and len(key.split(":")) > 2 and key.split(":")[2].isdigit() else _years()
+    for year in years:
+        for r in _filings(year):
+            if r["id"] == key:
+                lines = [r["_notice"]] if r.get("_notice") else []
+                for i, row in enumerate(r["_rows"], 1):
+                    lines += ([f"Row {i} of {len(r['_rows'])}:"] if len(r["_rows"]) > 1 else []) + [f"{k}: {v}" for k, v in row.items()]
+                return {**{k: v for k, v in r.items() if not k.startswith("_")}, "document": "\n".join(lines), "links": r["_links"]}
+    raise SourceError(f"The regulator no longer lists the rate filing {key!r}.")
+
+
+def _span(series):
+    years = _years()
+    return (str(min(years)), str(max(years))) if years else (None, None)
+
+
+SERIES = [
+    Series(
+        id="medicaid_managed_care_contracts", title="Medicaid managed-care contracts",
+        record="a contract, or an amendment to one, between a state Medicaid agency and a managed-care plan",
+        creator="state Medicaid agencies", jurisdiction="Iowa",
+        fields=(F("state", "place"), F("plan", "name"), F("title", "text")),
+        search=lambda s: page(_contracts()), read=_read_contract),
+    Series(
+        id="medicaid_managed_care_procurements", title="Medicaid managed-care procurements",
+        record="a state's procurement of managed-care plans for one Medicaid program, with its timeline and solicitation",
+        creator="state Medicaid agencies", jurisdiction="Texas",
+        fields=(F("state", "place"), F("program", "text"), F("solicitation_id", "identifier"), F("status", "text"),
+                F("response_due_date", "date")),
+        search=lambda s: page([{k: v for k, v in r.items() if not k.startswith("_")} for r in _procurements()]),
+        read=_read_procurement),
+    Series(
+        id="insurance_rate_filings", title="health insurance rate filings",
+        record="a health insurer's rate filing with its state regulator, under its SERFF tracking number",
+        creator="state insurance regulators", jurisdiction="New York; Oregon", coverage=_span,
+        fields=(F("state", "place"), F("insurer", "name"), F("serff_number", "identifier"), F("product", "text"),
+                F("status", ("Approved", "Disapproved", "Withdrawn", "Pending", "Decision published")),
+                F("effective_year", "number"), F("submission_date", "date"), F("effective_date", "date"),
+                F("decision_date", "date"), F("public_comments_due", "date"), F("members_affected", "number"),
+                F("percent_requested", "number"), F("percent_approved", "number")),
+        search=_search_filings, read=_read_filing),
+]

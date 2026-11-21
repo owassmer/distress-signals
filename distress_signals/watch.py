@@ -20,8 +20,8 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import activityview, db, example_review, findingsview, hubspot
-from .feed import _result_text
+from . import activityview, db, example_review, findingsview, hubspot, sources
+from .feed import _result_text, _search_label, _search_result
 from .runpage import CHART_JS, FAVICON, FOUND_JS, ICONS, LEADS_HTML, PACE, PAGE, PAGE_STEPS, SHELL_STYLE, STYLE
 from .util import OUT, load_env
 
@@ -73,10 +73,11 @@ def _quoted(terms):
 
 
 def _where(ref):
-    return (_domain(ref) if ref.startswith("http") else "the company's SEC record" if ref.startswith("sec:")
-            else "a federal award" if ref.startswith("usaspending:") else "a payment ledger" if ref.startswith("ledger")
-            else "every Federal Register document matching its search" if ref.startswith("federal_register:search")
-            else "the source record")
+    """What a read's subject is called: the page's site, or the source's own word for one of its records."""
+    if ref.startswith("http"):
+        return _domain(ref)
+    hit = sources.locate(ref)
+    return hit[1].noun if hit else "the source record"
 
 
 def describe(name, i):
@@ -86,21 +87,7 @@ def describe(name, i):
     if name == "WebFetch":
         return {"label": f"Read a page on {_domain(i.get('url'))}", "link": i.get("url")}
     if name == "search_records":
-        src, q, f = i.get("source"), i.get("query"), i.get("filters") or {}
-        if src == "filings":
-            return {"label": f"Searched the full text of SEC filings for “{q}”"}
-        if src == "federal_register":
-            when = " taking effect " + " to ".join(x for x in (f.get("effective_from"), f.get("effective_until")) if x) \
-                if f.get("effective_from") or f.get("effective_until") else ""
-            kind = {"rule": "rules", "proposed_rule": "proposed rules", "notice": "notices"}.get(f.get("type"), "documents")
-            return {"label": f"Searched the Federal Register for {kind}{when}" + (f" matching “{q}”" if q else "")}
-        if src == "sec":
-            return {"label": f"Looked up “{q}” in SEC company records"}
-        if src == "usaspending":
-            return {"label": f"Searched federal awards to “{q}”"}
-        if src == "ledgers":
-            return {"label": f"Searched state and local government payments to “{q}”"}
-        return {"label": f"Searched {src} for “{q}”"}
+        return {"label": _search_label(i)}
     if name == "read_record":
         ref = str(i.get("id_or_url") or "")
         terms = [t.strip() for t in (i.get("find") or "").split("|") if t.strip()]
@@ -169,9 +156,7 @@ def outcome(name, i, text, is_error):
                 "label": f"Searched “{short}” for {_quoted(terms)}" if terms else f"Read “{short}”",
                 "meta": ", ".join(x for x in (site, f"{found} passage{'s' if found != 1 else ''}" if terms else None) if x)}
     if name == "search_records":
-        n = out.get("count", len(out.get("results") or []))
-        return {"status": "ok", "meta": f"{n} result{'s' if n != 1 else ''} returned"
-                + (f" of {out['total_matches']} matches" if out.get("total_matches") and out["total_matches"] > n else "")}
+        return {"status": "ok", "meta": _search_result(out)}
     if name == "record_finding":
         finding = i.get("finding") or {}
         if finding.get("withdraw_case"):

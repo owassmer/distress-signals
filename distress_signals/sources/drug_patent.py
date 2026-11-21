@@ -15,18 +15,6 @@ from . import web
 FDA = "https://api.fda.gov/drug"
 CALENDAR = "https://www.fda.gov/datatables-json/advisory-committee-calendar-json"
 PTAB = "https://api.uspto.gov/api/v1/patent/trials"
-SOURCES = {
-    "orange_book": "FDA Orange Book. Search by product, ingredient, applicant, application or patent number. "
-                   "expires_from and expires_until select products with a listed patent or exclusivity expiring in the window.",
-    "fda_advisory": "FDA advisory committee calendar. Search meeting titles and centers, filter meeting start dates "
-                    "with since/until, and read the announcement for its agenda and any named sponsor. "
-                    "Use record_type=approvals for Drugs@FDA applications and recorded actions by sponsor, drug or application.",
-    "ptab": "USPTO Patent Trial and Appeal Board proceedings and parties. Use record_type=documents for filings, "
-            "including orders that set or revise deadlines. query accepts USPTO search terms or field syntax; "
-            "trial_number limits the search to one trial. Proceedings and documents require USPTO_API_KEY. "
-            "Use record_type=hearings to search the current public hearing schedule by party, proceeding or hearing "
-            "date (since/until) without a key. The calendar covers both trials and appeals.",
-}
 FILTERS = {
     "orange_book": {"expires_from", "expires_until", "limit", "offset"},
     "fda_advisory": {"record_type", "since", "until", "limit", "offset"},

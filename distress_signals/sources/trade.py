@@ -18,13 +18,6 @@ IDS = "https://ids.usitc.gov/investigations.json"
 EDIS = "https://edis.usitc.gov/data"
 LICENSES = "https://ofac.treasury.gov/selected-general-licenses-issued-ofac"
 FILE_FINDER = "https://ofac.treasury.gov/file-finder"
-SOURCES = {
-    "usitc": "USITC investigations by title, number or participant, with target dates. To read EDIS filings, "
-             "give the investigation number as query and filing_page (starting at 1).",
-    "ofac": "OFAC selected general licenses by program, license number or words in the index description. "
-            "Use file_page (starting at 1) to search Treasury’s broader File Finder, including earlier versions. "
-            "Read the linked license for named parties, operative terms and expiration.",
-}
 FILTERS = {"usitc": {"target_from", "target_until", "filing_page", "offset", "limit"},
            "ofac": {"offset", "limit", "file_page"}}
 

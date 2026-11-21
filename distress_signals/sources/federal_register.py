@@ -14,6 +14,7 @@ import re
 from urllib.parse import parse_qsl, urlencode
 
 from ..util import SourceError, http_json, today
+from . import Source
 
 BASE = "https://www.federalregister.gov/api/v1"
 API = f"{BASE}/documents.json"
@@ -214,3 +215,35 @@ def read_all(rid):
             "text": "\n".join(lines), "rows": {"register_documents": rows},
             "data": {"title": f"Federal Register search: {len(rows):,} {what}", "filters": f, "count": len(rows),
                      "windows": [[a, b, n] for a, b, n in windows]}}
+
+
+def _label(q, f):
+    when = " taking effect " + " to ".join(x for x in (f.get("effective_from"), f.get("effective_until")) if x) \
+        if f.get("effective_from") or f.get("effective_until") else ""
+    kind = {"rule": "rules", "proposed_rule": "proposed rules", "notice": "notices"}.get(f.get("type"), "documents")
+    return f"Searched the Federal Register for {kind}{when}" + (f" matching “{q}”" if q else "")
+
+
+SOURCE = Source(
+    id="federal_register",
+    publisher="Office of the Federal Register (federalregister.gov)",
+    record="one rule, proposed rule, notice or presidential document; or, through read_all, every document a search matches.",
+    names="the issuing agencies.",
+    dates="publication, effective, comments close, and the document's own DATES section.",
+    search="query is words in the document. Filters: type (rule, proposed_rule, notice or presidential_document), agency "
+           "(its name), effective_from and effective_until, comments_close_from and comments_close_until, since and until "
+           "(publication dates; without any dates, the last year), max_results (the default is 50, at most 200). When more "
+           "match than are returned, the result gives how they divide by type and by agency. read_all is a record_id for "
+           "every match.",
+    read=f"a document's text. A read_all returns every match, up to {MAX_DOCUMENTS:,}, one line each, and fills register_documents.",
+    coverage="1994 to today.",
+    filters=frozenset({"type", "agency", "effective_from", "effective_until", "comments_close_from", "comments_close_until",
+                       "since", "until", "max_results"}),
+    find=lambda query, filters: search(query or None, **filters),
+    label=_label,
+    locate=lambda ref: (("federal_register", ref), lambda: read_all(ref)) if ref.startswith(PREFIX) else None,
+    again=lambda obs: obs["native_id"] if obs["source"] == "federal_register" and obs["kind"] == "register_search"
+    and obs.get("native_id") else None,
+    noun="every Federal Register document matching its search",
+    kind="register_search", tables=("register_documents",),
+)

@@ -19,14 +19,6 @@ COVERAGE = "https://api.coverage.cms.gov/v1"
 TRACKING = "https://www.cms.gov/medicare-coverage-database/view/ncacal-tracking-sheet.aspx"
 STARS = "https://www.cms.gov/medicare/health-drug-plans/part-c-d-performance-data"
 
-SOURCES = {
-    "clinical_trials": "ClinicalTrials.gov studies by topic, NCT ID or sponsor. completion_from/until "
-                       "apply to either primary or study completion; dates carry the publisher's actual/estimated status.",
-    "medicare_coverage": "CMS national coverage and lab coding analyses by title or CAG ID. "
-                         "Read a tracking sheet for requestors, expected and actual decision dates and comment periods.",
-    "medicare_stars": "CMS Medicare Advantage and Part D summary ratings by contract number, name, marketing name "
-                      "or parent. Uses the latest standalone annual table by default; year selects a published edition.",
-}
 FILTERS = {
     "clinical_trials": {"sponsor", "status", "completion_from", "completion_until", "max_results", "page_token"},
     "medicare_coverage": {"status", "document_type", "max_results", "offset"},

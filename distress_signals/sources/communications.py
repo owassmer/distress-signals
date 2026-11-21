@@ -18,13 +18,6 @@ PRS = "https://auctiondata.fcc.gov/public/projects"
 ADAMS = "https://adams-api.nrc.gov/aps/api/search"
 AUCTION_REPORTS = {"announcements", "bidder_status"}
 
-SOURCES = {
-    "fcc": "FCC docket filings by words, docket or filer. For an auction use auction_number, with report "
-           "filings (default), announcements or bidder_status. The latter two search the auction's published CSV.",
-    "nrc_adams": "ADAMS documents by text, docket, document_type or organization; since/until filter the date added. "
-                 "Requires NRC_ADAMS_API_KEY. For keyless search set collection=notices: NRC Federal Register notices "
-                 "by words and publication dates, with GPO text, agency deadlines and cited ADAMS accessions.",
-}
 FILTERS = {
     "fcc": {"docket", "filer", "auction_number", "report", "limit", "offset"},
     "nrc_adams": {"collection", "docket", "document_type", "organization", "since", "until", "limit", "offset"},

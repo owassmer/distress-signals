@@ -19,16 +19,6 @@ PJM_NOTICES = "https://www.pjm.com/planning/service-requests/gen-deactivations/g
 SD = "https://puc.sd.gov/dockets"
 IL = "https://icc.illinois.gov/meetings"
 
-SOURCES = {
-    "ferc_elibrary": "FERC filings and orders. Search full text or use docket, since/until (posted dates), "
-                     "page and limit. Read the accession and its individual public PDF, Word (.docx) and text attachments.",
-    "utility_dockets": "State commission dockets. state=SD (default): electric and gas cases by year "
-                       "(default current); read the docket for deadlines and orders. state=IL: hearings in the "
-                       "seven-day commission calendar from week_start (default today), searchable by case or party.",
-    "pjm_deactivations": "PJM generating-unit deactivation requests and outcomes. Search unit, state, zone or "
-                         "fuel; filter by status (PJM's exact label). Set records=notices for owner letters, "
-                         "PJM responses and revisions. Transmission owner zone identifies the grid zone.",
-}
 FILTERS = {
     "ferc_elibrary": {"docket", "since", "until", "page", "limit"},
     "utility_dockets": {"state", "year", "sector", "week_start", "page", "limit"},

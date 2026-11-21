@@ -5,7 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from distress_signals import db, tools
+from distress_signals import db, sources, tools
+from distress_signals.sources import healthcare
 from distress_signals.mcp_server import server
 
 
@@ -13,10 +14,13 @@ class PublicRecordToolsTest(unittest.TestCase):
     def test_every_searchable_source_is_exposed_over_mcp(self):
         definitions = asyncio.run(server.list_tools())
         search = next(tool for tool in definitions if tool.name == "search_records")
-        self.assertEqual(set(search.input_schema["properties"]["source"]["enum"]), set(tools.SEARCH_FILTERS))
-        for source, module in tools.RECORD_SOURCES.items():
+        names = search.input_schema["properties"]["source"]["enum"]
+        self.assertEqual(names, sources.order(os.getenv("DISTRESS_RUN_ID")))
+        self.assertEqual(len(names), len(set(names)))
+        for source, entry in sources.all().items():
             with self.subTest(source=source):
-                self.assertIn(module.SOURCES[source], search.description)
+                self.assertIn(entry.card(), search.description)
+                self.assertLessEqual(len(entry.card()), sources.CARD_CHARS)
                 with self.assertRaisesRegex(tools.ToolError, "takes filters"):
                     tools.search_records(source, "", {"unknown_filter": True})
 
@@ -31,7 +35,7 @@ class PublicRecordToolsTest(unittest.TestCase):
         record = {"source": source, "kind": "page", "native_id": native_id, "url": url,
                   "text": passage, "data": {"title": title}}
         updated = {**record, "text": "Estimated completion date: January 2028."}
-        module = tools.RECORD_SOURCES[source]
+        module = healthcare
         with (tempfile.TemporaryDirectory() as folder,
               patch.dict(os.environ, DISTRESS_DB=str(Path(folder) / "test.db"), DISTRESS_RUN_ID="test"),
               patch.object(module, "search", return_value=search_result),
@@ -70,3 +74,17 @@ class PublicRecordToolsTest(unittest.TestCase):
             self.assertTrue(matched["checked"])
             with self.assertRaisesRegex(tools.ToolError, "several records"):
                 cite("Overall contract rating: 4.")
+
+
+def test_concurrent_researchers_can_initialize_the_observation_store(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    start = Barrier(6)
+    def open_store(_):
+        start.wait()
+        with db.connect(tmp_path / "shared.db") as con:
+            return con.execute("SELECT COUNT(*) FROM opportunities WHERE status='active'").fetchone()[0]
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        assert list(pool.map(open_store, range(6))) == [0] * 6

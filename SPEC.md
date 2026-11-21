@@ -149,7 +149,7 @@ or lead set aside). It can concern a company, an event or a case, and can replac
 | `citations` | Which records each case cites |
 | `awards`, `award_funding`, `award_modifications`, `payments`, `revenue`, `filings` | The rows behind records read, at the source's grain, for the workspace |
 | `findings`, `workspace_results` | Findings; saved workspace queries and their rows |
-| `runs`, `run_reads`, `leads`, `deliveries` | Runs with their assignment as given; what each run read; follow-on leads; delivery state |
+| `runs`, `run_reads`, `leads`, `deliveries` | Runs with their assignment as given and the order their catalog listed the sources in; what each run read; follow-on leads; delivery state |
 
 Amounts keep their meaning: a payment, an obligation, an outlay, reported revenue and a modeled shortfall
 are different kinds.
@@ -229,7 +229,8 @@ end point (the structured final answer), and supplied a short length itself.
   effort reasoned little and stopped short. The model thinks adaptively. `--timeout` in minutes: 180 for
   `research`, 60 for `refresh`. The mandate tells the analyst there is time to research each company
   thoroughly. A run stopped at its limit loses its final answer, though its saved cases remain.
-  `MCP_TOOL_TIMEOUT` of 10 minutes.
+  `MCP_TOOL_TIMEOUT` of 10 minutes, and `CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH` so the catalog of sources
+  arrives whole (section 6).
 - Before the prompt, a `set_max_thinking_tokens` control request sets `thinking_display` to `summarized`,
   so reasoning summaries are returned.
 
@@ -263,6 +264,32 @@ launcher stores the leads, and a lead that names a company becomes that company 
 
 ## 6. Sources
 
+**The registry** (`sources/__init__.py`). Each source is one module that ends with a `SOURCE`: its card and
+the functions behind it. `search_records` and `read_record` dispatch through the registry, and the run page
+takes its wording for each source from it, so adding a source is its module and its name in `MODULES`.
+
+**The card** is everything the researcher is told about a source. It has the same fields for every source,
+and says what a record is, not what it is for:
+- who publishes the record, and what one record is;
+- whom a record names, and the dates it carries;
+- how it is searched: what the query is, and every filter with its default;
+- what reading a record returns, and the workspace tables it fills;
+- what the source reaches.
+
+A card is at most 1,000 characters, so no source is described at greater length than another; a longer one
+fails when the module loads.
+
+**The catalog** is the cards, one after another, in the `search_records` description. The researcher has
+all of it from the start, and nothing about a source is held back for a later call.
+- **Order.** The order is drawn for each run from its run ID (`sources.order`), so no source is always first,
+  and the same run always sees the same order. The `source` parameter lists its values in that order too.
+  The launcher stores the order with the run (`runs.source_order`) and writes it in the run's assignment
+  file. This is an experiment: whether position affects which sources a run uses is to be read from a few
+  runs.
+- **Length.** Claude Code cuts an MCP tool's description at 4,096 characters unless
+  `CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH` says otherwise, so the launcher sets it (`pipeline.claude_env`).
+  A captured request showed the description arriving whole with it set, and cut without it.
+
 | Source | Adapter | What it gives |
 |---|---|---|
 | SEC full-text search | `sources/filings.py` | The text of every SEC filing since 2001, by words or phrase, form and filing date (default: the last 120 days). Each result is a document of a filing (the report or an exhibit), read with `read_record`. Companies disclose there the upcoming events they expect to affect their revenue, so it reaches dependencies across every industry without knowing the company or the event first |
@@ -270,7 +297,7 @@ launcher stores the leads, and a lead that names a company becomes that company 
 | SEC EDGAR | `sources/sec.py` | Finds filers by ticker, or by any name EDGAR holds for them, current or former, with or without a ticker. Names come from SEC's `company_tickers.json` (about 10,000 companies with a ticker) and `cik-lookup-data.txt` (every name of every filer, about a million), each kept for a day in `out/`; the second is indexed with SQLite full-text search in `out/sec_names.db`. Matching is by whole words. Companies with a ticker rank first. Up to 40 matches without one are looked up, and those with filings of their own rank above insiders and holders who file only ownership forms; each says what kind of filer it is, its industry, when it last filed and which forms it files. A filer's record: its former names, the forms in its recent filings (ownership forms by insiders and holders counted, not listed), its 40 most recent other filings with document and index links, and its reported revenue by quarter and year; a fourth quarter, reported only inside the year, is derived and labeled. Fills `revenue` and `filings`. Requires `SEC_USER_AGENT` |
 | USAspending | `sources/public_records.py` | Award search by recipient, keyword and agency; `active_on` reads every award still running on a date, back to 2007, and returns the largest with a count. Award detail: period of performance, values, parent, recipient, modifications, and every funding record, totaled at the source's grain (rows within a period add up; obligations are period amounts; outlays are fiscal-year-to-date, so each year takes each line's latest period). Fills `awards`, `award_funding`, `award_modifications` |
 | State and local payment ledgers | `sources/ledgers.py` | Payee search across 19 ledgers; a payee's payment lines for a period (the period is kept in the record ID). Fills `payments`. See `docs/data-sources.md` |
-| Additional public records | `sources/drug_patent.py`, `healthcare.py`, `trade.py`, `energy.py`, `communications.py`, `local_notices.py` | Patent trials, drug listings and advisory meetings, clinical trials, Medicare decisions and ratings, trade investigations and general licenses, energy proceedings, generator deactivations, FCC proceedings and auctions, nuclear licensing, layoff notices and local legislative agendas. [Sources and coverage](docs/data-sources.md#public-record-search) |
+| Additional public records | `sources/` | Issuer disclosures, awards and contract terms, health plans and insurers, legislative and regulatory proceedings, court dockets, bid protests, patent trials, drug filings, trade investigations, energy and licensing decisions, WARN notices and local agendas. [Sources, access and coverage](docs/data-sources.md#public-record-search) |
 | Any address | `sources/web.py` | HTML or PDF as text, with the page's links |
 | Everything else | WebSearch and WebFetch | |
 
@@ -507,7 +534,7 @@ python -m distress_signals ledgers [--verify]
 | `distress_signals/tools.py` | The seven tools' functions |
 | `distress_signals/mcp_server.py` | The tools over MCP, with their descriptions and the tool-call log |
 | `distress_signals/exposure.py` | The calculation |
-| `distress_signals/sources/` | Public-record search and read adapters (section 6) |
+| `distress_signals/sources/` | Source registry, cards and public-record adapters (section 6) |
 | `distress_signals/llm.py` | The Claude CLI call and the transcript |
 | `distress_signals/agent.py` | The system prompt and each run's assignment |
 | `distress_signals/pipeline.py` | Runs |

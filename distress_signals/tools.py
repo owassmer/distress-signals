@@ -25,8 +25,8 @@ from pydantic import ValidationError
 
 from . import db, exposure, forms, names
 from .models import Calculation, Event, Finding, Opportunity
-from .sources import communications, drug_patent, energy, federal_register, filings, healthcare
-from .sources import ledgers, local_notices, public_records, sec, trade, web
+from . import sources
+from .sources import web
 from .util import SourceError, exclusions, now_iso
 
 
@@ -662,88 +662,39 @@ def lookup(id_or_query: str) -> dict:
 
 # ---------- records ----------
 
-# Each adapter owns its search filters and the reader for its native record IDs.
-RECORD_SOURCES = {
-    source: module
-    for module in (drug_patent, healthcare, trade, energy, communications, local_notices)
-    for source in module.SOURCES
-}
-
-SEARCH_FILTERS = {
-    **{source: module.FILTERS[source] for source, module in RECORD_SOURCES.items()},
-    "usaspending": {"agency", "since", "until", "award_types", "keyword", "active_on", "max_results"},
-    "ledgers": {"since", "ledgers"},
-    "sec": set(),
-    "filings": {"forms", "since", "until", "max_results"},
-    "federal_register": {"type", "agency", "effective_from", "effective_until", "comments_close_from",
-                         "comments_close_until", "since", "until", "max_results"},
-}
 VIEW = 12000  # characters of text a read returns at once
-TABLES_OF = {"award": "awards, award_funding, award_modifications", "payment": "payments",
-             "financial_fact": "revenue, filings", "register_search": "register_documents"}
 
 
 def search_records(source: str, query: str, filters: dict | None = None) -> dict:
     filters = filters or {}
-    if source not in SEARCH_FILTERS:
-        raise ToolError(f"source is one of {sorted(SEARCH_FILTERS)}")
-    bad = set(filters) - SEARCH_FILTERS[source]
+    src = sources.all().get(source)
+    if not src:
+        raise ToolError(f"source is one of {sorted(sources.all())}")
+    bad = set(filters) - src.filters
     if bad:
-        raise ToolError(f"{source} takes filters {sorted(SEARCH_FILTERS[source]) or 'none'}; not {sorted(bad)}")
+        raise ToolError(f"{source} takes filters {sorted(src.filters) or 'none'}; not {sorted(bad)}")
     try:
-        if source == "usaspending":
-            got = public_records.search_awards(query or None, **filters)
-        elif source == "sec":
-            got = sec.search(query)
-        elif source == "filings":
-            got = filings.search(query, **filters)
-        elif source == "federal_register":
-            got = federal_register.search(query or None, **filters)
-        elif source in RECORD_SOURCES:
-            got = RECORD_SOURCES[source].search(source, query, **filters)
-        else:
-            got = ledgers.search_payee(query, since=filters.get("since"), ledger_ids=filters.get("ledgers"))
+        got = src.find(query, filters)
     except SourceError as e:
         raise ToolError(str(e))
-    return {"source": source, "query": query, "count": len(got["results"]), **got}
+    rows = got.pop("results")
+    return {"source": source, "query": query, "count": len(rows), "results": rows, **got}
 
 
 def _locate(ref):
-    """(observation ID, fetch function) for a URL or a native record ID."""
+    """(observation ID, fetch function) for a URL or a record ID a source issued."""
     if re.match(r"^https?://", ref):
         return db.make_id("obs_", "page", ref), lambda: web.read(ref)
-    if ref.startswith(federal_register.PREFIX):
-        return db.make_id("obs_", "federal_register", ref), lambda: federal_register.read_all(ref)
-    source, _, native_id = ref.partition(":")
-    if source in RECORD_SOURCES and native_id:
-        return db.make_id("obs_", source, native_id), lambda: RECORD_SOURCES[source].read(source, native_id)
-    m = re.match(r"^usaspending:award:(.+)$", ref)
-    if m:
-        return db.make_id("obs_", "usaspending", m[1]), lambda: public_records.award(m[1])
-    m = re.match(r"^sec:(?:CIK)?0*(\d+)$", ref)
-    if m:
-        return db.make_id("obs_", "sec", m[1]), lambda: sec.company(m[1])
-    m = re.match(r"^ledger:([a-z0-9_]+):(\d{4}-\d{2}-\d{2}):(.+)$", ref) or re.match(r"^ledger:([a-z0-9_]+):()(.+)$", ref)
-    if m:
-        lid, since, payee = m[1], m[2] or None, m[3]
-        return (db.make_id("obs_", "ledger", lid, since or "default", payee),
-                lambda: ledgers.payee_lines(lid, payee, since))
-    raise ToolError("read_record takes a URL, an observation ID (obs_...), or a record_id from search_records")
+    hit = sources.locate(ref)
+    if not hit:
+        raise ToolError("read_record takes a URL, an observation ID (obs_...), or a record_id that search_records returned")
+    (parts, fetch), _ = hit
+    return db.make_id("obs_", *parts), fetch
 
 
 def _source_ref(obs):
     """The reference that reads an observation's source again."""
-    if obs["source"] in RECORD_SOURCES and obs.get("native_id"):
-        return f"{obs['source']}:{obs['native_id']}"
-    if obs["source"] == "usaspending" and obs.get("native_id"):
-        return f"usaspending:award:{obs['native_id']}"
-    if obs["source"] == "sec" and obs["kind"] == "financial_fact" and obs.get("native_id"):
-        return f"sec:{obs['native_id']}"
-    if obs["source"] == "federal_register" and obs["kind"] == "register_search" and obs.get("native_id"):
-        return obs["native_id"]
-    if obs["source"].startswith("ledger:") and obs.get("native_id"):
-        return f"ledger:{obs['native_id']}"
-    return obs.get("url")
+    return sources.again(obs) or obs.get("url")
 
 
 def _view(obs, find=None, offset=0):
@@ -751,8 +702,9 @@ def _view(obs, find=None, offset=0):
     out = {"observation_id": obs["id"], "kind": obs["kind"], "source": obs["source"], "url": obs.get("url"),
            "title": data.get("title"), "published": obs.get("published"), "retrieved_at": obs["retrieved_at"],
            "length": len(text)}
-    if obs["kind"] in TABLES_OF:
-        out["workspace_tables"] = f"{TABLES_OF[obs['kind']]} (observation_id = '{obs['id']}')"
+    filled = sources.tables().get(obs["kind"])
+    if filled:
+        out["workspace_tables"] = f"{filled} (observation_id = '{obs['id']}')"
     if not text and data.get("unchecked"):
         out["note"] = "Only quoted passages are stored for this page (read with WebFetch)."
         out["passages"] = data.get("passages", [])

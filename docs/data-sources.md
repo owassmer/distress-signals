@@ -8,11 +8,28 @@ describes the SEC, Federal Register and USAspending searches.
 
 Use the source name below in `search_records`. The tool description lists the filters for that
 source. When a search returns a continuation, pass it back with the same query and filters to read
-the next page. A search hit identifies a record to investigate. Read the filing, notice or table
-row to establish who is named, what the date means, and which revenue stream depends on the outcome.
+the next page. The same proceeding can produce several records. A solicitation can give a response
+deadline, while an earlier award names the supplier. The contract or a filing can then establish what
+that supplier earns. Keep the records' identifiers, party roles, publication dates and event dates
+with the evidence for each claim.
 
 | Source | What the researcher can read | Access and coverage |
 |---|---|---|
+| `emma` | MSRB continuing disclosures identify the securities, issuer and any reported obligor. The filing itself can describe the event and its terms. California issuance reports also give repayment sources, optional call and maturity dates, and links to official statements. | Use an authorized [MSRB](https://www.msrb.org/Market-Data-and-Research/Continuing-Disclosure-Subscription) XML/PDF delivery for EMMA. [California DebtWatch](https://debtwatch.treasurer.ca.gov/issue-level-detail/issues) is a separate state-published collection available without a key. |
+| `sedar_plus` | Canadian issuers' disclosure PDFs and publication dates. The original filing supplies the terms, dates and economic relationship. | Without a national catalog, [FREEDAR](https://freedar.ca/) points to original documents on the Canadian issuers' websites it indexes. Search an authorized [CSA Data Distribution Services](https://www.securities-administrators.ca/national-systems/data-distribution-services/) catalog, or one issuer's [Canadian Securities Exchange](https://thecse.com/site-terms/) filings with permission for commercial reuse. See the filing setup below. |
+| `ferc_eqr` | Electric Quarterly Report contract records identify sellers, buyers and contract terms, including the reported termination date. | [FERC Electric Quarterly Reports](https://www.ferc.gov/power-sales-and-markets/electric-quarterly-reports-eqr). The public [report viewer](https://eqrreportviewer.ferc.gov/) supplies the quarter and filing versions. Search by respondent or page through the filings for contracts. |
+| `sam_opportunities` | Solicitation posting dates and response deadlines, plus award numbers, dates, amounts and named recipients where reported. A known award number can be checked separately in USAspending. | [GSA active opportunities extract](https://sam.gov/data-services/Contract%20Opportunities/datagov?privacy=Public) is public. Its first download is large. Set `SAM_API_KEY` for the [notices API](https://open.gsa.gov/api/get-opportunities-public-api/). |
+| `dod_contracts` | Dated Defense Department contract bulletins publish the award text, contractor names, amounts, and completion terms. A single bulletin can contain several awards. | [Department bulletin feed](https://public.govdelivery.com/accounts/USDOD/feed.rss) for recent announcements. Individual older bulletins can be read by ID. |
+| `erate` | USAC Form 471 funding requests identify applicants, service providers, contract dates and amounts where supplied. | [USAC funding request data](https://opendata.usac.org/d/qdmp-ygft). Public Socrata data. |
+| `municipal_contracts` | Local purchasing records name vendors and give jurisdiction-specific dates and amounts. | [Chicago](https://data.cityofchicago.org/d/rsxa-ify5), [Cook County](https://datacatalog.cookcountyil.gov/d/qh8j-6k63), [Montgomery County, Maryland](https://data.montgomerycountymd.gov/d/vmu2-pnrc), and [San Francisco](https://data.sfgov.org/d/cqi5-hm2d). Search one or all four jurisdictions. |
+| `medicaid_contracts` | Iowa publishes named managed-care plan contracts and amendments. Texas publishes procurement timelines and links to solicitations with response deadlines and anticipated awards. | [Iowa HHS contracts](https://hhs.iowa.gov/medicaid/about-medicaid/policies-rules-regulations/contracts-rates) and [Texas HHSC procurements](https://www.hhs.texas.gov/business/contracting-hhs/procurement-opportunities). Select `state=IA` or `TX`. |
+| `serff` | State rate filings identify the insurer, tracking number, status and proposed or approved terms where published. | [New York DFS](https://myportal.dfs.ny.gov/web/prior-approval/) and [Oregon DFR](https://www4.cbs.state.or.us/exs/ins/rates2/index.cfm?fuseaction=home.show_table). Select `state=NY` or `OR`. Coverage varies by insurance market. |
+| `regulations_gov` | Dockets, agency documents and public comments. Read the posted date, comment deadline, any effective date and the organization where the agency identifies it. | [Regulations.gov API](https://open.gsa.gov/api/regulationsgov/). Shared public key or an individual key for a separate quota. |
+| `oira` | Pending regulatory reviews and EO 12866 meetings. A review gives the date received. A meeting can give a scheduled date, requestor, client, attendees and written materials. | [OIRA pending reviews](https://www.reginfo.gov/public/do/eoReviewSearch) and [meeting records](https://www.reginfo.gov/public/do/eom12866Search). Public search. |
+| `congress` | Scheduled committee hearings, published witnesses and affiliations, bills and their dated actions, hearing transcripts, and committee reports that can identify spending recipients. | [Congress.gov committee calendar](https://www.congress.gov/committee-schedule) and [GovInfo](https://www.govinfo.gov/). GovInfo supports a shared public key or a separate quota. |
+| `federal_dockets` | Case captions, named parties, docket entries and contributed court documents. Orders can set or change a deadline. | [RECAP public collection](https://archive.org/details/usfederalcourts) for caption discovery and deposited files. Set `COURTLISTENER_TOKEN` for the [live RECAP index](https://www.courtlistener.com/help/api/). Coverage and currency depend on contributions. |
+| `supreme_court` | Case dockets identify parties and preserve dated entries, scheduling orders, conference distributions and document links. | [Supreme Court docket](https://www.supremecourt.gov/docket/docket.aspx). Public case and party search. |
+| `gao_protests` | GAO's protest docket gives the protester, filing date, due date and current status or outcome. | [GAO](https://www.gao.gov/legal/bid-protests) records are public by B-number. Set `GOVCON_API_KEY` for [broader protest discovery](https://govconapi.com/api-guide/protests). |
 | `ptab` | Patent trial proceedings, petitioners, patent owners and filed documents. Scheduling orders can set or revise deadlines. The current public hearing calendar lists parties and scheduled hearings. | Use `record_type=hearings` for the [public calendar](https://www.uspto.gov/patents/ptab/hearings). Set `USPTO_API_KEY` for [Open Data Portal](https://data.uspto.gov/apis/ptab-trials/search-proceedings) proceedings and filed documents. |
 | `orange_book` | Drug products and applicants, with listed patents, exclusivities and their expiry dates. Search by product, holder or expiration window. | [FDA Orange Book](https://open.fda.gov/apis/drug/orangebook/). Public API. |
 | `fda_advisory` | Committee meetings and announcements, including agenda and sponsor information where disclosed. `record_type=approvals` searches Drugs@FDA for sponsors and decisions already recorded. | [FDA meeting calendar](https://www.fda.gov/advisory-committees/advisory-committee-calendar) and [Drugs@FDA](https://open.fda.gov/apis/drug/drugsfda/). |
@@ -28,6 +45,19 @@ row to establish who is named, what the date means, and which revenue stream dep
 | `nrc_adams` | Licensing documents by text, docket or organization. Records distinguish the document date from its addition to the public library. | Set `NRC_ADAMS_API_KEY` for the [ADAMS library](https://adams-api-developer.nrc.gov/). `collection=notices` reads NRC's [Federal Register notices](https://www.federalregister.gov/agencies/nuclear-regulatory-commission) without a key, including references to ADAMS documents. |
 | `warn` | Employer layoff notices, notice dates and effective dates. A supplier's dependence on the employer requires separate evidence. | National discovery uses [WARN Index](https://warnindex.com/) and retains state source and original document links where available. `state=WA` searches [Washington's notice filings](https://fortress.wa.gov/esd/file/WARN/Public/SearchWARN.aspx) directly. |
 | `local_agendas` | Meeting dates, agenda publication times, individual matters and agenda notes. Search a Legistar jurisdiction by its client slug. | [Legistar Web API](https://webapi.legistar.com/Help). Supply a client slug. Set `LEGISTAR_TOKEN_<CLIENT>` for a jurisdiction that requires a token. |
+
+### Filing deliveries
+
+For MSRB records, set `EMMA_DISCLOSURE_DIR` to a directory containing the unpacked continuing-disclosure XML
+and accompanying PDFs. The reader uses the latest transaction for each submission. If the publisher
+supplied only index data, the observation identifies it as such. Without a configured delivery, the
+municipal search opens California DebtWatch. Each California record names the state as publisher.
+
+For SEDAR+, set `SEDAR_DDS_INDEX` to a current UTF-8 CSV from an authorized delivery. The columns are
+`document_id,issuer,title,published,url,file`. Supply the publisher's stable document identifier,
+publication date in ISO format, public document permalink, and original PDF path relative to the CSV.
+Replace the catalog after applying amendments or withdrawals. An authorized CSE deployment can set
+`CSE_SEDAR_LICENSED=1` and pass the issuer's listing slug as `cse_listing`.
 
 ## Payment ledgers
 

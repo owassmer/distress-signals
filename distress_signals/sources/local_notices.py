@@ -15,13 +15,6 @@ from ..util import SourceError, http_json, session, stable_id, to_date, today
 from . import web
 
 
-SOURCES = {
-    "warn": "Employer WARN notices. Nationwide discovery searches WARN Index by employer; state=WA "
-            "searches Washington's official directory and links filed letters. Filter on effective_from/effective_until.",
-    "local_agendas": "Published Legistar agenda items. Give the jurisdiction's client slug, meeting "
-                     "date range (since/until), and optional text from an item, matter or agenda note. "
-                     "Defaults to meetings in the next 30 days. Follow next_page.",
-}
 FILTERS = {
     "warn": {"state", "effective_from", "effective_until", "page"},
     "local_agendas": {"client", "since", "until", "page"},

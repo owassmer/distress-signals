@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -82,6 +83,7 @@ DDL += "".join(f"CREATE TABLE IF NOT EXISTS {t} (observation_id TEXT NOT NULL, {
 
 # Columns added after a table was first created: (table, column, type).
 ADDED = [("runs", "principal", "TEXT"), ("runs", "system", "TEXT"), ("runs", "prompt", "TEXT"),
+         ("runs", "source_order", "TEXT"),
          ("opportunities", "status", "TEXT NOT NULL DEFAULT 'active'")]
 
 
@@ -92,13 +94,28 @@ def path():
 def connect(p=None):
     con = sqlite3.connect(p or path(), timeout=5, isolation_level=None)
     con.row_factory = sqlite3.Row
-    con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA busy_timeout=5000")
+    # Concurrent first opens can both hold a read lock while switching journal modes.
+    # SQLite returns BUSY immediately in that case, even with a busy timeout.
+    deadline = time.monotonic() + 5
+    while True:
+        try:
+            if con.execute("PRAGMA journal_mode").fetchone()[0] != "wal":
+                con.execute("PRAGMA journal_mode=WAL").fetchone()
+            break
+        except sqlite3.OperationalError as exc:
+            if exc.sqlite_errorcode != sqlite3.SQLITE_BUSY or time.monotonic() >= deadline:
+                con.close()
+                raise
+            time.sleep(0.05)
     con.execute("PRAGMA foreign_keys=ON")
     con.executescript(DDL)
     for table, col, typ in ADDED:
         if col not in {r[1] for r in con.execute(f"PRAGMA table_info({table})")}:
-            con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+            # Other researchers can open and migrate this database at the same time.
+            with write(con):
+                if col not in {r[1] for r in con.execute(f"PRAGMA table_info({table})")}:
+                    con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
     return con
 
 
@@ -263,12 +280,14 @@ def cited(con, oid):
 
 # ---------- runs and leads ----------
 
-def start_run(con, rid, seed_kind, seed, question, model, log, principal=None, system=None, prompt=None):
-    """Records the assignment as given: the system prompt and the prompt."""
+def start_run(con, rid, seed_kind, seed, question, model, log, principal=None, system=None, prompt=None, source_order=None):
+    """Records the assignment as given: the system prompt, the prompt, and the order its catalog listed the
+    sources in."""
     with write(con):
-        con.execute("INSERT INTO runs (id, seed_kind, seed, question, model, started, log, principal, system, prompt) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?)", (rid, seed_kind, seed, question, model, now_iso(), log, principal,
-                                                     system, prompt))
+        con.execute("INSERT INTO runs (id, seed_kind, seed, question, model, started, log, principal, system, prompt, "
+                    "source_order) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (rid, seed_kind, seed, question, model, now_iso(), log, principal, system, prompt,
+                     dumps(source_order) if source_order else None))
 
 
 def finish_run(con, rid, opportunity_ids=(), summary=None, error=None, stats=None):

@@ -26,7 +26,7 @@ from urllib.parse import parse_qsl, quote, urlsplit
 import requests
 
 from .. import names
-from ..util import SourceError, http_json, session, stable_id
+from ..util import SourceError, Unreadable, http_json, session, stable_id
 from . import F, Series, outline, page, web
 
 DEBTWATCH = "https://debtwatch.treasurer.ca.gov"
@@ -205,10 +205,11 @@ def _read_document(key):
     row = next((d for d in _documents_of(number) if str(d["DocumentId"]) == doc), None) if re.fullmatch(r"\d{4}-\d{4}", number) else None
     if not row:
         raise SourceError(f"California DebtWatch has no document {key}")
+    signed = _file(doc)
     try:
-        text = web.read(_file(doc))["text"]
-    except SourceError:  # a scanned file, or one past the size a read takes
-        text = "The file's text could not be extracted."
+        text = web.read(signed)["text"]
+    except Unreadable as e:  # the file arrived; it has no text to take
+        text = f"The file's text could not be extracted: {str(e).replace(signed, 'the file')}"
     return {**_document(row), "document": text}
 
 

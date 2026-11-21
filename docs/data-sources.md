@@ -21,10 +21,11 @@ A series that needs a key is in a run's catalog only when the key is set in `.en
 | `SEDAR_DDS_INDEX` | The catalog CSV of a [CSA Data Distribution Services](https://www.securities-administrators.ca/national-systems/data-distribution-services/) delivery | `sedar_filings` |
 | `CSE_SEDAR_LICENSED` | `1` where the deployment has the Canadian Securities Exchange's permission for commercial reuse ([site terms](https://thecse.com/site-terms/)) | `cse_sedar_filings` |
 
-Four more settings change how a series is reached without adding one. `COURTLISTENER_TOKEN` reads the RECAP archive
-live through CourtListener, which also searches by docket number, filing date and the text of filings. Since May
-2026 a CourtListener account without a [Free Law Project membership](https://free.law/membership) may make 5 requests
-a minute and 125 a day; at those limits the Internet Archive's copy of the archive serves a run better. `EDIS_API_TOKEN`
+Four more settings change how a series is reached without adding one. `COURTLISTENER_TOKEN` adds CourtListener's copy
+of the RECAP archive to the Internet Archive's: searches by words (the text of filings), docket number or filing dates
+go there, and so do reads of dockets the Internet Archive lacks. Since May 2026 an account without a [Free Law Project
+membership](https://free.law/membership) may make 5 requests a minute and 125 a day; a search refused for that says so.
+`EDIS_API_TOKEN`
 adds the text of attachments to `usitc_filings`. `LEGISTAR_TOKEN_<CLIENT>` adds a council whose Legistar asks for a
 token (`config/legistar.yaml`) to `local_legislation`. `SOCRATA_APP_TOKEN` raises the request limits of the payment
 ledgers' portals. `SEC_USER_AGENT`, a name and contact email, is required by the SEC for every request.
@@ -247,7 +248,7 @@ senate_committee_meetings The Senate's file of the committee meetings now schedu
 
 | Series | One record is | Creator; publisher | Needs |
 |---|---|---|---|
-| `federal_court_dockets` | The docket of a case in a U.S. district, bankruptcy or appellate court, as far as RECAP's contributors have bought it from PACER | Federal courts; Free Law Project's RECAP archive, as deposited at the Internet Archive |  |
+| `federal_court_dockets` | The docket of a case in a U.S. district, bankruptcy or appellate court, as far as the RECAP archive holds it | Federal courts; Free Law Project's RECAP archive, as deposited at the Internet Archive |  |
 | `federal_court_docket_entries` | An entry on a federal court docket: a filing or an order, with the date it was filed | Federal courts; Free Law Project's RECAP archive, as deposited at the Internet Archive |  |
 | `supreme_court_dockets` | The docket of a case or an application before the Supreme Court of the United States | Supreme Court of the United States |  |
 | `gao_bid_protests` | A bid protest filed at the Government Accountability Office against a federal contract award or solicitation | U.S. Government Accountability Office; GovCon API (govconapi.com), which indexes GAO's docket | `GOVCON_API_KEY` |
@@ -258,12 +259,14 @@ How it is reached:
 Four series: federal court dockets and their entries (the RECAP archive), the Supreme Court's docket, and
 GAO bid protests.
 
-  federal_court_dockets,          RECAP holds the dockets and filings its users have bought from PACER. Free Law
-  federal_court_docket_entries    Project deposits them at the Internet Archive, where they are searched by
-                                  caption and court; a docket's entries are read from its deposited docket sheet.
-                                  With a CourtListener token (COURTLISTENER_TOKEN) the same archive is read live
-                                  through CourtListener's API instead, which also searches by docket number, filing
-                                  dates and the text of filings.
+  federal_court_dockets,          RECAP holds the dockets and filings its users have bought from PACER, in two copies.
+  federal_court_docket_entries    Free Law Project deposits them at the Internet Archive, searched by caption, court,
+                                  PACER case number and the date deposited, without limit; a docket's entries are read
+                                  from its deposited docket sheet. With a CourtListener token (COURTLISTENER_TOKEN),
+                                  searches by words (the text of filings), docket number or filing dates go to
+                                  CourtListener's copy, which also holds dockets known only from PACER's feeds, and a
+                                  docket the Internet Archive lacks is read there. A free CourtListener account may make
+                                  5 requests a minute and 125 a day; a search refused for that says so.
   supreme_court_dockets           the Court publishes each docket as a JSON file. Its own search form finds cases by
                                   words. An open search walks the current term's three sequences of case numbers
                                   (paid, in forma pauperis, applications) downward and merges them by docketed date.

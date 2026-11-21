@@ -30,7 +30,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from .. import names
-from ..util import OUT, SourceError, session, today
+from ..util import OUT, SourceError, Unreadable, session, today
 from . import F, Series, newest, outline, page, web
 
 GOVINFO = "https://www.govinfo.gov"
@@ -368,16 +368,19 @@ def _read_package(key):
         raise SourceError("A GovInfo record_id is the package ID a search returned")
     (MODS_KEPT / f"{key}.xml").unlink(missing_ok=True)
     record = _package(key)
-    base = f"{GOVINFO}/content/pkg/{key}"
-    links = [{"text": "PDF", "url": f"{base}/pdf/{key}.pdf"}, {"text": "Text", "url": f"{base}/html/{key}.htm"}]
-    for url in (links[1]["url"], links[0]["url"]):
-        try:
-            text = web.read(url)["text"]
-            break
-        except Exception:  # a package published in one of the two forms
-            text = None
-    if not text:
-        raise SourceError(f"GovInfo did not return the text of {key}")
+    # the renditions the package's metadata lists: GovInfo answers an address it has nothing at with its error page and 200
+    renditions = {a.get("displayLabel"): a.get("href") or t for g, t, a in _mods(key) if g == "url" and a.get("access") == "raw object"}
+    links = [{"text": label.removesuffix(" rendition"), "url": url} for label, url in renditions.items() if url]
+    text, why = None, []
+    for label in ("HTML rendition", "PDF rendition"):
+        if renditions.get(label):
+            try:
+                text = web.read(renditions[label])["text"]
+                break
+            except Unreadable as e:  # an HTML rendition without text, a scanned PDF
+                why.append(str(e))
+    if text is None:
+        text = "The package's text could not be extracted" + (f": {'; '.join(why)}" if why else ": its metadata lists no rendition.")
     return {**record, "document": text, "links": links, "published": record["date_issued"]}
 
 

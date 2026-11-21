@@ -28,7 +28,7 @@ from zoneinfo import ZoneInfo
 import requests
 from bs4 import BeautifulSoup, Comment
 
-from ..util import OUT, SourceError, http_json, session, today
+from ..util import OUT, Missing, SourceError, Unreadable, http_json, session, today
 from . import F, Series, newest, outline, page, web
 
 REGS = "https://api.regulations.gov/v4"
@@ -163,8 +163,8 @@ def _read_document(key):
     if text:
         try:
             lines += ["", web.read(text)["text"]]
-        except SourceError as e:
-            lines += ["", f"The document's file could not be read here ({e}); its address is in the links."]
+        except (Missing, Unreadable) as e:
+            lines += ["", f"The document's file has no text to read here ({e}); its address is in the links."]
     return {**_document(d), "document": "\n".join(lines), "links": links, "published": _day(d["attributes"].get("postedDate"))}
 
 

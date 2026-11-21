@@ -18,9 +18,10 @@ import xml.etree.ElementTree as ET
 from urllib.parse import quote, urljoin
 from zipfile import ZipFile
 
+import requests
 from bs4 import BeautifulSoup
 
-from ..util import SourceError, http_json, session, to_date, to_float, today
+from ..util import Missing, SourceError, http_json, session, to_date, to_float, today
 from . import F, Series, outline, page, web
 
 FERC_API = "https://elibrary.ferc.gov/eLibrarywebapi/api"
@@ -40,8 +41,12 @@ def _matches(query, *values):
 
 
 def _get(url, **params):
-    response = session().get(url, params=params or None, timeout=45)
-    response.raise_for_status()
+    try:
+        response = session().get(url, params=params or None, timeout=45)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        status = e.response.status_code if getattr(e, "response", None) is not None else None
+        raise (Missing if status in (404, 410) else SourceError)(f"{url} could not be read ({status or type(e).__name__})") from None
     return response
 
 
@@ -115,11 +120,16 @@ def _ferc_read(accession):
             with session().post(f"{FERC_API}/File/DownloadP8File", json={"fileidLst": [f["fileId"]]}, timeout=60, stream=True) as response:
                 response.raise_for_status()
                 content = response.raw.read(web.MAX_BYTES + 1, decode_content=True)
-            if len(content) > web.MAX_BYTES:
-                continue
+        except requests.RequestException as e:
+            raise SourceError(f"FERC eLibrary did not give the file {f.get('fileName')} of {accession} ({type(e).__name__})") from None
+        if len(content) > web.MAX_BYTES:
+            lines += ["", f"File {f.get('fileName')}: larger than the {web.MAX_BYTES // 1_000_000} MB a read takes."]
+            continue
+        try:
             text = web._pdf(content)[0] if content.startswith(b"%PDF-") else _docx_text(content) if kind == "DOCX" \
                 else content.decode("utf-8-sig", errors="replace")
-        except Exception:
+        except Exception as e:  # the file arrived and could not be parsed
+            lines += ["", f"File {f.get('fileName')}: its text could not be extracted ({type(e).__name__})."]
             continue
         if text.strip():
             read += 1
@@ -251,7 +261,7 @@ def _sd_year(year):
     out = []
     for r in _sd("", year):
         number = r["url"].rsplit("/", 1)[-1].rsplit(".", 1)[0]
-        out.append({"id": r["url"].split("/dockets/", 1)[1].rsplit(".", 1)[0], "url": r["url"], "state": "South Dakota",
+        out.append({"id": re.split(r"/dockets/", r["url"], maxsplit=1, flags=re.I)[1].rsplit(".", 1)[0], "url": r["url"], "state": "South Dakota",
                     "sector": SECTORS[r["sector"]], "docket_number": number, "year": year,
                     "title": r["title"].split(" - ", 1)[-1].strip()})
     return out
@@ -264,7 +274,7 @@ def _search_dockets(s):
         return page([])
     try:
         rows = _sd_year(year)
-    except Exception:  # the commission has no index for that year: the dockets end there
+    except Missing:  # the commission has no index for that year: the dockets end there
         return page([])
     return page(rows, year - 1, order="latest year first")
 
@@ -314,8 +324,8 @@ def _read_hearing(key):
     url = f"{IL}/meeting/hearing/{key}"
     try:
         hearing = BeautifulSoup(_get(url).content, "html.parser")
-    except Exception as e:
-        raise SourceError(f"Illinois Commerce Commission has no hearing {key}: {type(e).__name__}")
+    except Missing:
+        raise SourceError(f"Illinois Commerce Commission has no hearing {key}") from None
     docket = hearing.select_one('h2 a[href^="/docket/"]')
     if not docket:
         raise SourceError(f"The hearing page has no docket: {url}")

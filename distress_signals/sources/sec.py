@@ -23,10 +23,11 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlencode
 
+import requests
 from bs4 import BeautifulSoup
 
 from .. import names
-from ..util import OUT, SourceError, http_json, session, today
+from ..util import Missing, OUT, SourceError, http_json, session, today
 from . import F, Series, page, web
 
 TICKERS = "https://www.sec.gov/files/company_tickers.json"
@@ -53,7 +54,8 @@ def _get(url):
     try:
         return http_json(url, headers={"User-Agent": ua}, timeout=60, tries=3)
     except Exception as e:
-        raise SourceError(f"SEC {url}: {type(e).__name__}: {str(e)[:150]}")
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        raise (Missing if status in (404, 410) else SourceError)(f"SEC {url}: {type(e).__name__}: {str(e)[:150]}") from None
 
 
 def tickers():
@@ -147,7 +149,7 @@ def _filers(ciks):
     def one(cik):
         try:
             return cik, _filer(_submissions(cik))
-        except SourceError:
+        except Missing:  # EDGAR has no submissions record for this CIK
             return cik, None
     with ThreadPoolExecutor(5) as ex:  # SEC asks for no more than 10 requests a second
         return {c: r for c, r in ex.map(one, ciks) if r}
@@ -328,12 +330,17 @@ def _read_document(given):
                    "state": [x for x in [((sub.get("addresses") or {}).get("business") or {}).get("stateOrCountry")] if x]}
         if recent["primaryDocument"][i] == fname:
             record |= {"document_type": recent["form"][i], "description": recent["primaryDocDescription"][i] or None}
-    except (SourceError, ValueError, KeyError, IndexError):
+    except (Missing, ValueError, KeyError, IndexError):
         pass  # an older filing, or one made under another filer's CIK: the document itself is still read
     if "document_type" not in record:
         try:  # an exhibit: the filing's index names each document's type
-            index = BeautifulSoup(session().get(f"{base}/{adsh}-index.htm", timeout=60, headers={
-                "User-Agent": os.environ.get("SEC_USER_AGENT", "")}).text, "html.parser")
+            response = session().get(f"{base}/{adsh}-index.htm", timeout=60, headers={"User-Agent": os.environ.get("SEC_USER_AGENT", "")})
+        except requests.RequestException as e:
+            raise SourceError(f"SEC did not give the index of filing {adsh} ({type(e).__name__})") from None
+        if not response.ok and response.status_code not in (404, 410):
+            raise SourceError(f"SEC did not give the index of filing {adsh} ({response.status_code})")
+        try:
+            index = BeautifulSoup(response.text if response.ok else "", "html.parser")
             for row in index.select("table.tableFile tr"):
                 cells = [c.get_text(" ", strip=True) for c in row.find_all("td")]
                 if len(cells) >= 4 and row.find("a") and row.find("a").get("href", "").endswith("/" + fname):

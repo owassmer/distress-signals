@@ -17,7 +17,21 @@ _local = threading.local()
 
 
 class SourceError(Exception):
-    """A source couldn't answer; the message says what to do instead."""
+    """A source couldn't answer; the message says what to do instead. A plain SourceError is a failure to get an
+    answer (the request failed, or the publisher refused it), and a read that meets one stores nothing."""
+
+
+class Missing(SourceError):
+    """The publisher answered that nothing is at the address (404 or 410): a fact about the record."""
+
+
+class Unreadable(SourceError):
+    """The file arrived and has no text a read can take (an image, a type the reader does not know, or past the size
+    a read takes): a fact about the file."""
+
+
+class Throttled(SourceError):
+    """The publisher refused the request for the rate it was asked at; the same request can be made later."""
 UA = "distress-signals (+https://github.com/owassmer/distress-signals)"
 
 

@@ -186,6 +186,45 @@ class MsrbDeliveries(unittest.TestCase):
         self.assertEqual(sources.search("emma_official_statements")["records"], [])
 
 
+class FailedReads(unittest.TestCase):
+    """A read that could not get the record stores nothing; a file that arrived without text is stored as such."""
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        for p in (patch.dict(os.environ, DISTRESS_DB=str(Path(self.folder.name) / "test.db"), DISTRESS_RUN_ID="test"),
+                  patch("distress_signals.sources.issuers._documents_of", return_value=[
+                      {"CDIACNumber": "2026-0001", "DocumentId": 7, "Issuer": "Airport Authority", "DocumentType": "Official Statement",
+                       "SaleDate": "2026-10-01T00:00:00", "PrincipalAmount": 1.0, "DocumentFileName": "os.pdf"}])):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def stored(self):
+        with db.connect() as con:
+            return con.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
+
+    def test_a_failed_download_fails_the_read_and_stores_nothing(self):
+        from distress_signals.sources import issuers
+        for failing in ("_file", "web"):
+            with self.subTest(failing=failing):
+                if failing == "_file":
+                    p = patch.object(issuers, "_file", side_effect=SourceError("DebtWatch did not answer"))
+                else:
+                    p = patch.object(issuers.web, "read", side_effect=SourceError("couldn't fetch the file: ReadTimeout"))
+                with patch.object(issuers, "_file", return_value="https://example.org/signed"), p, self.assertRaises(tools.ToolError):
+                    tools.read_record("california_debt_documents:2026-0001/7")
+                self.assertEqual(self.stored(), 0)
+
+    def test_a_file_without_text_is_stored_with_that_stated(self):
+        from distress_signals.sources import issuers
+        from distress_signals.util import Unreadable
+        with patch.object(issuers, "_file", return_value="https://example.org/signed"), \
+                patch.object(issuers.web, "read", side_effect=Unreadable("https://example.org/signed is a PDF with no text layer")):
+            got = tools.read_record("california_debt_documents:2026-0001/7")
+        self.assertIn("could not be extracted: the file is a PDF with no text layer", got["text"])
+        self.assertEqual(self.stored(), 1)
+
+
 class Citations(unittest.TestCase):
     def test_a_url_citation_resolves_to_the_record_holding_the_passage(self):
         url = "https://example.org/ratings.zip"

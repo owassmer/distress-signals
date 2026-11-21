@@ -19,7 +19,7 @@ from xml.etree import ElementTree
 
 import requests
 
-from ..util import SourceError, session
+from ..util import Missing, SourceError, session
 from . import F, Series, outline, page, web
 
 IDS = "https://ids.usitc.gov/investigations.json"
@@ -35,7 +35,7 @@ def _get(url, **kwargs):
         return response
     except requests.RequestException as exc:
         code = exc.response.status_code if exc.response is not None else type(exc).__name__
-        raise SourceError(f"{url} could not be read ({code})") from exc
+        raise (Missing if code in (404, 410) else SourceError)(f"{url} could not be read ({code})") from None
 
 
 # Revalidate the daily export. A 304 saves the 37 MB download and JSON decoding on subsequent reads.
@@ -208,10 +208,17 @@ def _read_filing(did):
         try:
             with _get(url, headers={"Authorization": f"Bearer {token}"}, stream=True) as response:
                 content = response.raw.read(web.MAX_BYTES + 1, decode_content=True)
-            if content.startswith(b"%PDF-") and len(content) <= web.MAX_BYTES:
-                lines += ["", f"Attachment {f['id']}: {f.get('title') or f.get('originalFileName') or ''}", web._pdf(content)[0]]
-        except SourceError:
+        except Missing as e:
+            lines += ["", f"Attachment {f['id']}: EDIS has no file for it ({e})."]
             continue
+        name = f"Attachment {f['id']}: {f.get('title') or f.get('originalFileName') or ''}"
+        if not content.startswith(b"%PDF-") or len(content) > web.MAX_BYTES:
+            lines += ["", f"{name}: not a PDF within the size a read takes."]
+            continue
+        try:
+            lines += ["", name, web._pdf(content)[0]]
+        except Exception as e:  # the file arrived and could not be parsed
+            lines += ["", f"{name}: its text could not be extracted ({type(e).__name__})."]
     return {**_filing(docs[0]), "document": "\n".join(lines), "published": _filing(docs[0])["received_date"]}
 
 

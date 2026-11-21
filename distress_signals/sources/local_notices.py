@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 
 from .. import names
-from ..util import SourceError, config, http_json
+from ..util import Missing, SourceError, Unreadable, config, http_json
 from . import F, Series, page, web
 
 WARN_INDEX = "https://warnindex.com"
@@ -82,8 +82,8 @@ def _read_notice(key):
         links.append({"text": "The notice as filed", "url": row["raw_notice_url"]})
         try:
             lines += ["", "The notice as filed:", web.read(row["raw_notice_url"])["text"]]
-        except Exception:  # the state posts no readable letter: the fields stand as the index gives them
-            lines.append(f"The notice as filed: {row['raw_notice_url']}")
+        except (Missing, Unreadable) as e:  # the state's letter is gone, or has no text: the fields stand as the index gives them
+            lines.append(f"The notice as filed: {row['raw_notice_url']} ({e})")
     return {**_notice(row), "document": "\n".join(lines), "links": links, "published": row.get("notice_date")}
 
 
@@ -123,7 +123,8 @@ def _legistar(client, path, params=None):
     except (requests.RequestException, ValueError) as e:
         # The publisher takes its access token in the URL. Keep it out of tool logs.
         status = getattr(getattr(e, "response", None), "status_code", None)
-        raise SourceError(f"Legistar could not read {client}/{path} (HTTP {status or 'unavailable'}).") from None
+        kind = Missing if status in (404, 410) else SourceError
+        raise kind(f"Legistar could not read {client}/{path} (HTTP {status or 'unavailable'}).") from None
 
 
 def _matter(client, jurisdiction, m):
@@ -223,7 +224,7 @@ def _read_matter(key):
             text = _legistar(client, f"matters/{number}/texts/{versions[-1]['Key']}").get("MatterTextPlain")
             if text:
                 lines += ["", "Text:", text]
-    except SourceError:
+    except Missing:
         pass  # the council publishes the matter without its history or text
     return {**{k: v for k, v in record.items() if not k.startswith("_")}, "document": "\n".join(lines), "links": links,
             "published": record["last_modified"]}

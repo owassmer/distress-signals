@@ -1,12 +1,14 @@
 """Four series: federal court dockets and their entries (the RECAP archive), the Supreme Court's docket, and
 GAO bid protests.
 
-  federal_court_dockets,          RECAP holds the dockets and filings its users have bought from PACER. Free Law
-  federal_court_docket_entries    Project deposits them at the Internet Archive, where they are searched by
-                                  caption and court; a docket's entries are read from its deposited docket sheet.
-                                  With a CourtListener token (COURTLISTENER_TOKEN) the same archive is read live
-                                  through CourtListener's API instead, which also searches by docket number, filing
-                                  dates and the text of filings.
+  federal_court_dockets,          RECAP holds the dockets and filings its users have bought from PACER, in two copies.
+  federal_court_docket_entries    Free Law Project deposits them at the Internet Archive, searched by caption, court,
+                                  PACER case number and the date deposited, without limit; a docket's entries are read
+                                  from its deposited docket sheet. With a CourtListener token (COURTLISTENER_TOKEN),
+                                  searches by words (the text of filings), docket number or filing dates go to
+                                  CourtListener's copy, which also holds dockets known only from PACER's feeds, and a
+                                  docket the Internet Archive lacks is read there. A free CourtListener account may make
+                                  5 requests a minute and 125 a day; a search refused for that says so.
   supreme_court_dockets           the Court publishes each docket as a JSON file. Its own search form finds cases by
                                   words. An open search walks the current term's three sequences of case numbers
                                   (paid, in forma pauperis, applications) downward and merges them by docketed date.
@@ -23,9 +25,8 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 
 import requests
 from bs4 import BeautifulSoup
-from pypdf.errors import PyPdfError
 
-from ..util import OUT, SourceError, session, today
+from ..util import OUT, Missing, SourceError, Throttled, Unreadable, session, today
 from . import F, Series, page, web
 
 COURT = "https://www.courtlistener.com"
@@ -38,7 +39,7 @@ GAO = "https://www.gao.gov"
 GOVCON = "https://govconapi.com/api/v1/protests"
 ARCHIVE_ID = re.compile(r"gov\.uscourts\.[a-z0-9]+\.\d+")
 SC_ID = re.compile(r"(?:\d{2}(?:-\d+|[a-z]\d+)|\d+o\d+)", re.I)
-LIVE = bool(os.environ.get("COURTLISTENER_TOKEN"))  # which route this run reads the RECAP archive by
+LIVE = bool(os.environ.get("COURTLISTENER_TOKEN"))  # whether this run can also read CourtListener's copy of RECAP
 IA_LAST = 10000  # the Internet Archive's search reads no further than this into one query
 
 
@@ -85,7 +86,48 @@ def _entry_text(entries):
 
 
 
-# ---------- federal court dockets: the Internet Archive's RECAP collection ----------
+# ---------- federal court dockets ----------
+#
+# One RECAP archive, two copies. The Internet Archive's holds the dockets and filings deposited there, and is searched
+# by caption, court, PACER case number and the date deposited, without limit. CourtListener's (with a token) also
+# holds dockets it has only from PACER's feeds, and searches the text of filings, docket numbers and filing dates;
+# a free account may make 5 requests a minute and 125 a day. A search goes to the copy that answers what it asks.
+# A docket is named the Internet Archive's way, by court and PACER case number, wherever it is read from; a
+# docket CourtListener holds without a PACER case number is named by CourtListener's ID.
+
+CL_ONLY = ("docket_number", "date_filed", "date_terminated")  # what only CourtListener searches, besides the query
+CL_ID = re.compile(r"courtlistener\.(\d+)")
+
+
+def _ident(court, pacer, docket_id):
+    return f"gov.uscourts.{court}.{pacer}" if court and str(pacer or "").isdigit() else f"courtlistener.{docket_id}"
+
+
+def _live(path, params=None):
+    url = f"{CL}/{path}/"
+    try:
+        r = session().get(url, params=params, headers={"Authorization": f"Token {os.environ['COURTLISTENER_TOKEN']}"}, timeout=45)
+    except requests.RequestException as e:
+        raise SourceError(f"CourtListener did not answer ({type(e).__name__}).") from None
+    if r.status_code == 429:
+        try:
+            detail = r.json().get("detail") or ""
+        except ValueError:
+            detail = ""
+        raise Throttled(f"CourtListener refused the request for its rate limit. {detail} It is where the query, docket_number, "
+                        "date_filed and date_terminated are searched; case_name, court, pacer_case_id and archive_added are "
+                        "searched in the Internet Archive's copy of the archive, which has no such limit.")
+    if r.status_code in (404, 410):
+        raise Missing(f"CourtListener has nothing at {url}")
+    if not r.ok:
+        raise SourceError(f"CourtListener answered {r.status_code} at {url}")
+    try:
+        return r.json()
+    except ValueError:
+        raise SourceError(f"CourtListener did not return JSON at {url}") from None
+
+
+# the Internet Archive's copy
 
 def _archive_record(doc):
     ident = doc["identifier"]
@@ -121,12 +163,10 @@ def _archive_search(s):
 
 def _archive_sheet(ident):
     """(the archive's record of the docket, its deposited docket sheet or None, its files)."""
-    if not ARCHIVE_ID.fullmatch(ident):
-        raise SourceError("A federal_court_dockets record_id is the one a search returned")
     index = _json(f"{IA}/metadata/{ident}")
     meta = index.get("metadata") or {}
     if meta.get("identifier") != ident:
-        raise SourceError("The RECAP collection has no such docket.")
+        raise Missing(f"The Internet Archive's copy of the RECAP archive has no docket {ident}.")
     files = index.get("files") or []
     sheet = _json(f"{IA}/download/{ident}/{ident}.docket.json") if any(f["name"] == f"{ident}.docket.json" for f in files) else None
     return meta, sheet, files
@@ -142,61 +182,44 @@ def _archive_read(ident):
         lines += [f"  {p['name']} ({', '.join(t['name'] for t in p.get('party_types', []))})" for p in sheet.get("parties", [])]
         entries, links = _entry_text(sheet.get("docket_entries") or [])
         return {**record, "case_name": sheet.get("case_name_full") or sheet.get("case_name") or record["case_name"],
+                "docket_number": sheet.get("docket_number"), "date_filed": sheet.get("date_filed"),
+                "date_terminated": sheet.get("date_terminated"),
                 "document": "\n".join(lines + ["", "Entries:"] + entries), "links": links, "published": sheet.get("date_last_filing")}
     found = sorted(((int(m[1]), int(m[2]), f["name"]) for f in files
                     for m in [re.fullmatch(re.escape(ident) + r"\.(\d+)\.(\d+)(?:_[\w-]+)?\.pdf", f["name"], re.I)] if m), reverse=True)
     if not found:
-        raise SourceError("The RECAP collection lists this case without a docket sheet or filings.")
+        raise Missing(f"The Internet Archive's copy holds {ident} without a docket sheet or filings.")
     links = [{"text": f"Entry {n}, attachment {a}", "url": f"{IA}/download/{ident}/{name}"} for n, a, name in found]
     lines = ["The archive holds the filings below, without a docket sheet."] + [f"{x['text']}: {x['url']}" for x in links]
     try:
         lines += ["", links[0]["text"], web.read(links[0]["url"])["text"]]
-    except (SourceError, PyPdfError):
-        lines.append("The latest filing's text could not be read; its file is linked.")
+    except (Missing, Unreadable) as e:
+        lines.append(f"The latest filing has no text to read here ({e}); its file is linked.")
     return {**record, "document": "\n".join(lines), "links": links}
 
 
-def _archive_entries(s):
-    out = []
-    for ident in s.any("docket"):
-        meta, sheet, _ = _archive_sheet(ident)
-        for e in (sheet or {}).get("docket_entries") or []:
-            out.append({"id": f"{ident}:{e.get('entry_number')}:{e.get('date_filed')}", "url": f"{IA}/details/{ident}",
-                        "docket": ident, "case_name": (sheet.get("case_name") or meta.get("title")),
-                        "entry_number": e.get("entry_number"), "date_filed": e.get("date_filed"), "description": e.get("description")})
-    out.sort(key=lambda r: r["date_filed"] or "", reverse=True)
-    return page(out, order="latest filed first")
+# CourtListener's copy
 
-
-def _archive_entry(key):
-    ident = key.split(":", 1)[0]
-    meta, sheet, _ = _archive_sheet(ident)
-    for e in (sheet or {}).get("docket_entries") or []:
-        if f"{ident}:{e.get('entry_number')}:{e.get('date_filed')}" == key:
-            lines, links = _entry_text([e])
-            return {"id": key, "url": f"{IA}/details/{ident}", "docket": ident, "case_name": sheet.get("case_name") or meta.get("title"),
-                    "entry_number": e.get("entry_number"), "date_filed": e.get("date_filed"), "description": e.get("description"),
-                    "document": "\n".join(lines), "links": links, "published": e.get("date_filed")}
-    raise SourceError("The deposited docket sheet has no such entry.")
-
-
-# ---------- federal court dockets: CourtListener's live API ----------
-
-def _live(path, params=None):
-    return _json(f"{CL}/{path}/", params=params, headers={"Authorization": f"Token {os.environ['COURTLISTENER_TOKEN']}"})
-
-
-def _live_record(row):
+def _live_record(row, ident=None):
     path = row.get("docket_absolute_url") or row.get("absolute_url") or ""
     m = re.search(r"/docket/(\d+)/", path)
-    ident = str(row.get("docket_id") or (m[1] if m else row.get("id")))
-    return {"id": ident, "url": urljoin(COURT, path or f"/docket/{ident}/"), "case_name": row.get("caseName") or row.get("case_name"),
-            "court": row.get("court_id") or row.get("court"), "docket_number": row.get("docketNumber") or row.get("docket_number"),
-            "date_filed": row.get("dateFiled") or row.get("date_filed"),
-            "date_terminated": row.get("dateTerminated") or row.get("date_terminated")}
+    docket_id = str(row.get("docket_id") or (m[1] if m else row.get("id")))
+    court = row.get("court_id") or (row.get("court") or "").rstrip("/").rsplit("/", 1)[-1] or None
+    pacer = row.get("pacer_case_id")
+    return {"id": ident or _ident(court, pacer, docket_id), "url": urljoin(COURT, path or f"/docket/{docket_id}/"),
+            "case_name": row.get("caseName") or row.get("case_name"), "court": court, "pacer_case_id": str(pacer) if pacer else None,
+            "docket_number": row.get("docketNumber") or row.get("docket_number"), "date_filed": row.get("dateFiled") or row.get("date_filed"),
+            "date_terminated": row.get("dateTerminated") or row.get("date_terminated"), "_docket_id": docket_id}
+
+
+def _shown(record):
+    return {k: v for k, v in record.items() if not k.startswith("_")}
 
 
 def _live_search(s):
+    if s.peek("archive_added"):
+        raise SourceError("archive_added is when the Internet Archive's copy received a docket, and the query, docket_number, "
+                          "date_filed and date_terminated are searched in CourtListener's: one search can't give both.")
     params = {"type": "r", "order_by": "dateFiled desc"}
     for key, value in (("q", s.query()), ("court", " ".join(s.any("court"))), ("docket_number", s.one("docket_number")),
                        ("case_name", (s.peek("case_name").get("is") or [None])[0])):
@@ -208,39 +231,106 @@ def _live_search(s):
     params |= {"cursor": s.cursor} if s.cursor else {}
     got = _live("search", params)
     nxt = parse_qs(urlsplit(got.get("next") or "").query).get("cursor", [None])[0]
-    return page([_live_record(r) for r in got.get("results") or []], nxt, got.get("count"), "latest filed first")
+    return page([_shown(_live_record(r)) for r in got.get("results") or []], nxt, got.get("count"), "latest filed first")
+
+
+def _live_docket(ident):
+    """CourtListener's ID for a docket."""
+    m = CL_ID.fullmatch(ident)
+    if m:
+        return m[1]
+    court, pacer = ident.split(".")[2:]
+    found = _live("dockets", {"court": court, "pacer_case_id": pacer}).get("results") or []
+    if not found:
+        raise Missing(f"Neither copy of the RECAP archive has the docket {ident}.")
+    return str(found[0]["id"])
 
 
 def _live_read(ident):
-    docket = _live(f"dockets/{ident}")
-    batch = _live("docket-entries", {"docket": ident})
+    docket_id = _live_docket(ident)
+    docket = _live(f"dockets/{docket_id}")
+    batch = _live("docket-entries", {"docket": docket_id, "order_by": "-date_filed"})
     lines, links = _entry_text(batch.get("results") or [])
-    record = _live_record({**docket, "docket_id": ident})
-    head = [f"Last filing: {docket.get('date_last_filing')}", "", "Entries:"]
+    record = _live_record({**docket, "docket_id": docket_id}, ident)
+    head = [f"Last filing: {docket.get('date_last_filing')}", "", "Entries, latest first:"]
     more = ["", "The docket has more entries; federal_court_docket_entries lists them all."] if batch.get("next") else []
-    return {**record, "case_name": docket.get("case_name_full") or record["case_name"], "document": "\n".join(head + lines + more),
+    return {**_shown(record), "case_name": docket.get("case_name_full") or record["case_name"], "document": "\n".join(head + lines + more),
             "links": links, "published": docket.get("date_last_filing")}
 
 
-def _live_entry_record(e, docket):
-    return {"id": f"{docket}:{e.get('id')}", "url": f"{COURT}/docket/{docket}/", "docket": str(docket),
+def _search_dockets(s):
+    if LIVE and (s.words() or any(s.peek(f) for f in CL_ONLY)):
+        return _live_search(s)
+    return _archive_search(s)
+
+
+def _read_docket(ident):
+    if ARCHIVE_ID.fullmatch(ident):
+        try:
+            return _archive_read(ident)
+        except Missing:
+            if not LIVE:
+                raise
+    elif not (CL_ID.fullmatch(ident) and LIVE):
+        raise SourceError("A federal_court_dockets record_id is one a search returned")
+    return _live_read(ident)
+
+
+# docket entries
+
+def _archive_entry_record(ident, sheet, meta, e):
+    return {"id": f"{ident}:{e.get('entry_number')}:{e.get('date_filed')}", "url": f"{IA}/details/{ident}", "docket": ident,
+            "case_name": sheet.get("case_name") or meta.get("title"), "entry_number": e.get("entry_number"),
+            "date_filed": e.get("date_filed"), "description": e.get("description")}
+
+
+def _live_entry_record(e, ident):
+    return {"id": f"{ident}:cl{e.get('id')}", "url": urljoin(COURT, e.get("absolute_url") or ""), "docket": ident,
             "entry_number": e.get("entry_number"), "date_filed": e.get("date_filed"), "description": e.get("description")}
 
 
-def _live_entries(s):
-    docket = s.one("docket") or s.any("docket")[0]
-    params = {"docket": docket, "order_by": "-date_filed"}
-    params |= {"cursor": s.cursor} if s.cursor else {}
-    got = _live("docket-entries", params)
-    nxt = parse_qs(urlsplit(got.get("next") or "").query).get("cursor", [None])[0]
-    return page([_live_entry_record(e, docket) for e in got.get("results") or []], nxt, order="latest filed first")
+def _deposited(ident):
+    """(the archive's record, its docket sheet) where the Internet Archive's copy holds the sheet, else None."""
+    if not ARCHIVE_ID.fullmatch(ident):
+        return None
+    try:
+        meta, sheet, _ = _archive_sheet(ident)
+    except Missing:
+        return None
+    return (meta, sheet) if sheet else None
 
 
-def _live_entry(key):
-    docket, _, entry = key.partition(":")
-    e = _live(f"docket-entries/{entry}")
-    lines, links = _entry_text([e])
-    return {**_live_entry_record(e, docket), "document": "\n".join(lines), "links": links, "published": e.get("date_filed")}
+def _search_entries(s):
+    dockets = s.any("docket")
+    held = {d: _deposited(d) for d in dockets}
+    elsewhere = [d for d, h in held.items() if h is None]
+    if elsewhere and not LIVE:
+        raise Missing(f"The Internet Archive's copy holds no docket sheet for {', '.join(elsewhere)}.")
+    if elsewhere and len(dockets) > 1:
+        raise SourceError(f"CourtListener holds {', '.join(elsewhere)}; give one docket at a time for a docket read from it.")
+    if elsewhere:
+        params = {"docket": _live_docket(dockets[0]), "order_by": "-date_filed"} | ({"cursor": s.cursor} if s.cursor else {})
+        got = _live("docket-entries", params)
+        nxt = parse_qs(urlsplit(got.get("next") or "").query).get("cursor", [None])[0]
+        return page([_live_entry_record(e, dockets[0]) for e in got.get("results") or []], nxt, order="latest filed first")
+    out = [_archive_entry_record(d, sheet, meta, e) for d, (meta, sheet) in held.items() for e in sheet.get("docket_entries") or []]
+    out.sort(key=lambda r: r["date_filed"] or "", reverse=True)
+    return page(out, order="latest filed first")
+
+
+def _read_entry(key):
+    ident, _, rest = key.partition(":")
+    if rest.startswith("cl") and LIVE:
+        e = _live(f"docket-entries/{rest[2:]}")
+        lines, links = _entry_text([e])
+        return {**_live_entry_record(e, ident), "document": "\n".join(lines), "links": links, "published": e.get("date_filed")}
+    held = _deposited(ident)
+    for e in (held[1].get("docket_entries") or []) if held else []:
+        record = _archive_entry_record(ident, held[1], held[0], e)
+        if record["id"] == key:
+            lines, links = _entry_text([e])
+            return {**record, "document": "\n".join(lines), "links": links, "published": e.get("date_filed")}
+    raise Missing(f"The deposited docket sheet of {ident} has no entry {rest}.")
 
 
 # ---------- the Supreme Court's docket ----------
@@ -451,26 +541,23 @@ def _read_protest(number):
 
 
 RECAP = "Free Law Project's RECAP archive"
-DOCKET_LIVE = (F("case_name", "text"), F("court", "identifier"), F("docket_number", "identifier"), F("date_filed", "date"),
-               F("date_terminated", "date"), F("full_text", "full text"))
 DOCKET_ARCHIVE = (F("case_name", "text"), F("court", "identifier"), F("pacer_case_id", "identifier"), F("archive_added", "date"))
+DOCKET_LIVE = DOCKET_ARCHIVE + (F("docket_number", "identifier"), F("date_filed", "date"), F("date_terminated", "date"),
+                                F("full_text", "full text"))
+COPIES = ", as deposited at the Internet Archive" + (" and as CourtListener holds it" if LIVE else "")
 SERIES = [
     Series(
         id="federal_court_dockets", title="federal court dockets",
-        record="the docket of a case in a U.S. district, bankruptcy or appellate court, as far as RECAP's contributors "
-               "have bought it from PACER",
-        creator="federal courts", jurisdiction="federal",
-        publisher=RECAP + ("" if LIVE else ", as deposited at the Internet Archive"),
-        fields=DOCKET_LIVE if LIVE else DOCKET_ARCHIVE,
-        search=_live_search if LIVE else _archive_search, read=_live_read if LIVE else _archive_read),
+        record="the docket of a case in a U.S. district, bankruptcy or appellate court, as far as the RECAP archive holds it",
+        creator="federal courts", jurisdiction="federal", publisher=RECAP + COPIES,
+        fields=DOCKET_LIVE if LIVE else DOCKET_ARCHIVE, search=_search_dockets, read=_read_docket),
     Series(
         id="federal_court_docket_entries", title="federal court docket entries",
         record="an entry on a federal court docket: a filing or an order, with the date it was filed",
-        creator="federal courts", jurisdiction="federal",
-        publisher=RECAP + ("" if LIVE else ", as deposited at the Internet Archive"),
+        creator="federal courts", jurisdiction="federal", publisher=RECAP + COPIES,
         fields=(F("docket", "identifier", required=True), F("entry_number", "number"), F("date_filed", "date"),
                 F("description", "text")),
-        search=_live_entries if LIVE else _archive_entries, read=_live_entry if LIVE else _archive_entry),
+        search=_search_entries, read=_read_entry),
     Series(
         id="supreme_court_dockets", title="the Supreme Court's docket",
         record="the docket of a case or an application before the Supreme Court of the United States",

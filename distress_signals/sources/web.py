@@ -7,7 +7,7 @@ import re
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse
 
-from ..util import SourceError, session
+from ..util import Missing, SourceError, Throttled, Unreadable, session
 
 UA = "Mozilla/5.0 (compatible; distress-signals; +https://github.com/owassmer/distress-signals)"
 logging.getLogger("pypdf").setLevel(logging.ERROR)  # font-parsing notices aren't errors
@@ -91,14 +91,22 @@ def read(url):
         content = r.raw.read(MAX_BYTES + 1, decode_content=True)
     except Exception as e:
         raise SourceError(f"couldn't fetch {url}: {type(e).__name__}: {str(e)[:150]}. Read it with WebFetch and cite the URL with its passage.")
+    if r.status_code in (404, 410):
+        raise Missing(f"{url} answered {r.status_code}: the publisher has nothing at that address.")
+    if r.status_code == 429:
+        raise Throttled(f"{url} answered 429: the publisher limits how fast it is read. The same read can be made later.")
     if r.status_code >= 400:
         raise SourceError(f"{url} answered {r.status_code}. Read it with WebFetch and cite the URL with its passage.")
     if len(content) > MAX_BYTES:
-        raise SourceError(f"{url} is larger than {MAX_BYTES // 1_000_000} MB")
+        raise Unreadable(f"{url} is larger than {MAX_BYTES // 1_000_000} MB, the most a read takes")
     ctype = (r.headers.get("Content-Type") or "").split(";")[0].strip().lower()
     title, links, published = "", [], None
-    if ctype == "application/pdf" or content[:5] == b"%PDF-":
-        text, title = _pdf(content)
+    pdf = ctype == "application/pdf" or content[:5] == b"%PDF-"
+    if pdf:
+        try:
+            text, title = _pdf(content)
+        except Exception as e:  # pypdf's errors for a damaged file
+            raise Unreadable(f"{url} is a PDF that could not be parsed ({type(e).__name__})")
     elif "html" in ctype or content.lstrip()[:200].lower().startswith((b"<!doctype html", b"<html")) or b"<body" in content[:5000].lower():
         p = _Text(r.url)
         p.feed(content.decode(r.encoding or r.apparent_encoding or "utf-8", errors="replace"))
@@ -111,10 +119,12 @@ def read(url):
     elif ctype.startswith("text/") or ctype in ("application/json", "application/xml"):
         text = _tidy(content.decode(r.encoding or "utf-8", errors="replace"))
     else:
-        raise SourceError(f"{url} is {ctype or 'an unknown type'}, which read_record can't read")
-    if len(text) < 200:
-        raise SourceError(f"{url} gave no readable text (it may be rendered by script). Read it with WebFetch and "
-                          "cite the URL with its passage.")
+        raise Unreadable(f"{url} is {ctype or 'an unknown type'}, which read_record can't read")
+    if pdf and not re.sub(r"\[page \d+\]", "", text).strip():
+        raise Unreadable(f"{url} is a PDF with no text layer: its pages are images")
+    if not pdf and len(text) < 200:  # an HTML shell whose content a script fills in
+        raise Unreadable(f"{url} gave no readable text (it may be rendered by script). Read it with WebFetch and "
+                         "cite the URL with its passage.")
     kind = "filing" if sec and "/Archives/" in url else "page"
     return {"kind": kind, "source": "sec" if sec else host, "url": url, "published": published, "text": text,
             "data": {"title": title, "links": links[:300], "final_url": r.url, "content_type": ctype}}

@@ -15,7 +15,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from ..util import OUT, SourceError, http_json, session, today
-from . import public_records
+from . import usaspending as public_records  # until this module is on the record shape
 
 SAM_API = "https://api.sam.gov/opportunities/v2/search"
 SAM_CSV = ("https://sam.gov/api/prod/fileextractservices/v1/api/download/"

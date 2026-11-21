@@ -1,69 +1,479 @@
 # Data sources
 
-Each source in `search_records` returns record IDs for `read_record`. Reading a record stores the evidence
-and its source URL so the researcher can cite it. [The design specification](../SPEC.md#6-sources) also
-describes the SEC, Federal Register and USAspending searches.
+The researcher searches *series* of public records with `search_records` and reads them with `read_record`. A
+series is one kind of record (every Federal Register document, every WARN notice, every federal award), described
+to the researcher by one entry in a catalog: what a record is, who creates and publishes it, its jurisdiction,
+the dates it covers and its fields. [The specification](../SPEC.md#6-sources) describes the design. This page
+lists the 60 series, how each is reached, and the keys some of them need.
 
-## Public record search
+A series that needs a key is in a run's catalog only when the key is set in `.env`. 49 series need none.
 
-Use the source name below in `search_records`. The tool description lists the filters for that
-source. When a search returns a continuation, pass it back with the same query and filters to read
-the next page. The same proceeding can produce several records. A solicitation can give a response
-deadline, while an earlier award names the supplier. The contract or a filing can then establish what
-that supplier earns. Keep the records' identifiers, party roles, publication dates and event dates
-with the evidence for each claim.
+## Keys
 
-| Source | What the researcher can read | Access and coverage |
+| `.env` | What it is | Series it adds |
 |---|---|---|
-| `emma` | MSRB continuing disclosures identify the securities, issuer and any reported obligor. The filing itself can describe the event and its terms. California issuance reports also give repayment sources, optional call and maturity dates, and links to official statements. | Use an authorized [MSRB](https://www.msrb.org/Market-Data-and-Research/Continuing-Disclosure-Subscription) XML/PDF delivery for EMMA. [California DebtWatch](https://debtwatch.treasurer.ca.gov/issue-level-detail/issues) is a separate state-published collection available without a key. |
-| `sedar_plus` | Canadian issuers' disclosure PDFs and publication dates. The original filing supplies the terms, dates and economic relationship. | Without a national catalog, [FREEDAR](https://freedar.ca/) points to original documents on the Canadian issuers' websites it indexes. Search an authorized [CSA Data Distribution Services](https://www.securities-administrators.ca/national-systems/data-distribution-services/) catalog, or one issuer's [Canadian Securities Exchange](https://thecse.com/site-terms/) filings with permission for commercial reuse. See the filing setup below. |
-| `ferc_eqr` | Electric Quarterly Report contract records identify sellers, buyers and contract terms, including the reported termination date. | [FERC Electric Quarterly Reports](https://www.ferc.gov/power-sales-and-markets/electric-quarterly-reports-eqr). The public [report viewer](https://eqrreportviewer.ferc.gov/) supplies the quarter and filing versions. Search by respondent or page through the filings for contracts. |
-| `sam_opportunities` | Solicitation posting dates and response deadlines, plus award numbers, dates, amounts and named recipients where reported. A known award number can be checked separately in USAspending. | [GSA active opportunities extract](https://sam.gov/data-services/Contract%20Opportunities/datagov?privacy=Public) is public. Its first download is large. Set `SAM_API_KEY` for the [notices API](https://open.gsa.gov/api/get-opportunities-public-api/). |
-| `dod_contracts` | Dated Defense Department contract bulletins publish the award text, contractor names, amounts, and completion terms. A single bulletin can contain several awards. | [Department bulletin feed](https://public.govdelivery.com/accounts/USDOD/feed.rss) for recent announcements. Individual older bulletins can be read by ID. |
-| `erate` | USAC Form 471 funding requests identify applicants, service providers, contract dates and amounts where supplied. | [USAC funding request data](https://opendata.usac.org/d/qdmp-ygft). Public Socrata data. |
-| `municipal_contracts` | Local purchasing records name vendors and give jurisdiction-specific dates and amounts. | [Chicago](https://data.cityofchicago.org/d/rsxa-ify5), [Cook County](https://datacatalog.cookcountyil.gov/d/qh8j-6k63), [Montgomery County, Maryland](https://data.montgomerycountymd.gov/d/vmu2-pnrc), and [San Francisco](https://data.sfgov.org/d/cqi5-hm2d). Search one or all four jurisdictions. |
-| `medicaid_contracts` | Iowa publishes named managed-care plan contracts and amendments. Texas publishes procurement timelines and links to solicitations with response deadlines and anticipated awards. | [Iowa HHS contracts](https://hhs.iowa.gov/medicaid/about-medicaid/policies-rules-regulations/contracts-rates) and [Texas HHSC procurements](https://www.hhs.texas.gov/business/contracting-hhs/procurement-opportunities). Select `state=IA` or `TX`. |
-| `serff` | State rate filings identify the insurer, tracking number, status and proposed or approved terms where published. | [New York DFS](https://myportal.dfs.ny.gov/web/prior-approval/) and [Oregon DFR](https://www4.cbs.state.or.us/exs/ins/rates2/index.cfm?fuseaction=home.show_table). Select `state=NY` or `OR`. Coverage varies by insurance market. |
-| `regulations_gov` | Dockets, agency documents and public comments. Read the posted date, comment deadline, any effective date and the organization where the agency identifies it. | [Regulations.gov API](https://open.gsa.gov/api/regulationsgov/). Shared public key or an individual key for a separate quota. |
-| `oira` | Pending regulatory reviews and EO 12866 meetings. A review gives the date received. A meeting can give a scheduled date, requestor, client, attendees and written materials. | [OIRA pending reviews](https://www.reginfo.gov/public/do/eoReviewSearch) and [meeting records](https://www.reginfo.gov/public/do/eom12866Search). Public search. |
-| `congress` | Scheduled committee hearings, published witnesses and affiliations, bills and their dated actions, hearing transcripts, and committee reports that can identify spending recipients. | [Congress.gov committee calendar](https://www.congress.gov/committee-schedule) and [GovInfo](https://www.govinfo.gov/). GovInfo supports a shared public key or a separate quota. |
-| `federal_dockets` | Case captions, named parties, docket entries and contributed court documents. Orders can set or change a deadline. | [RECAP public collection](https://archive.org/details/usfederalcourts) for caption discovery and deposited files. Set `COURTLISTENER_TOKEN` for the [live RECAP index](https://www.courtlistener.com/help/api/). Coverage and currency depend on contributions. |
-| `supreme_court` | Case dockets identify parties and preserve dated entries, scheduling orders, conference distributions and document links. | [Supreme Court docket](https://www.supremecourt.gov/docket/docket.aspx). Public case and party search. |
-| `gao_protests` | GAO's protest docket gives the protester, filing date, due date and current status or outcome. | [GAO](https://www.gao.gov/legal/bid-protests) records are public by B-number. Set `GOVCON_API_KEY` for [broader protest discovery](https://govconapi.com/api-guide/protests). |
-| `ptab` | Patent trial proceedings, petitioners, patent owners and filed documents. Scheduling orders can set or revise deadlines. The current public hearing calendar lists parties and scheduled hearings. | Use `record_type=hearings` for the [public calendar](https://www.uspto.gov/patents/ptab/hearings). Set `USPTO_API_KEY` for [Open Data Portal](https://data.uspto.gov/apis/ptab-trials/search-proceedings) proceedings and filed documents. |
-| `orange_book` | Drug products and applicants, with listed patents, exclusivities and their expiry dates. Search by product, holder or expiration window. | [FDA Orange Book](https://open.fda.gov/apis/drug/orangebook/). Public API. |
-| `fda_advisory` | Committee meetings and announcements, including agenda and sponsor information where disclosed. `record_type=approvals` searches Drugs@FDA for sponsors and decisions already recorded. | [FDA meeting calendar](https://www.fda.gov/advisory-committees/advisory-committee-calendar) and [Drugs@FDA](https://open.fda.gov/apis/drug/drugsfda/). |
-| `clinical_trials` | Study sponsor, collaborators, posting dates and expected or actual completion. The record retains the sponsor's date precision and status. | [ClinicalTrials.gov API](https://clinicaltrials.gov/data-api/api). |
-| `medicare_coverage` | National coverage and lab coding analyses. Tracking sheets identify the requestor and give expected completion, proposed memo deadlines, and actual decisions where available. | [CMS Coverage API](https://api.coverage.cms.gov/docs/v1/coverage-api.json). Public report and tracking sheets. |
-| `medicare_stars` | Annual Medicare Advantage and Part D contract ratings, plan and parent names, table edition and published rating values. The edition and the year in which MA bonus payments are affected can differ. | [CMS annual tables](https://www.cms.gov/medicare/health-drug-plans/part-c-d-performance-data). Uses the latest standalone annual table by default. |
-| `usitc` | Investigation participants and their roles, target dates, order dates and status. An investigation number also opens its public EDIS filing index. | [USITC investigations](https://ids.usitc.gov/) and [EDIS](https://edis.usitc.gov/). Investigation and filing metadata are public. Set `EDIS_API_TOKEN` for EDIS attachment PDFs. |
-| `ofac` | General licenses and their revisions. Read the license for the named parties, authorized transactions, conditions and expiry. | [Treasury's selected licenses](https://ofac.treasury.gov/selected-general-licenses-issued-ofac) and [File Finder](https://ofac.treasury.gov/file-finder). |
-| `ferc_elibrary` | Filings and orders by text, docket or posting date. An accession identifies the filing and lists its attachments. PDF, text and DOCX attachments have their own readable IDs. | [FERC eLibrary](https://elibrary.ferc.gov/eLibrary/search). Public records. |
-| `utility_dockets` | South Dakota electric and gas dockets by year. Illinois hearings by calendar week, with docket and hearing records. | [South Dakota PUC](https://puc.sd.gov/dockets/) and [Illinois Commerce Commission](https://icc.illinois.gov/meetings). Select `state=SD` or `state=IL`. |
-| `pjm_deactivations` | Unit requests, projected and actual dates, and changes in status. Owner letters and PJM responses can identify the owner. The transmission-owner zone identifies the grid area. | [PJM unit data](https://www.pjm.com/pjmfiles/media/planning/gen-deactivation-data/GenDeactivationUnits.xml) and [deactivation notices](https://www.pjm.com/planning/service-requests/gen-deactivations/generator-deactivation-notices). |
-| `fcc` | Docket filings, named filers, deadlines and attachments. Auction reports provide announcements and round-level bidder records where published. | [FCC ECFS](https://www.fcc.gov/ecfs/) uses a shared public key by default. Set `FCC_API_KEY` for a separate quota. [Auction reports](https://auctiondata.fcc.gov/) are public. |
-| `nrc_adams` | Licensing documents by text, docket or organization. Records distinguish the document date from its addition to the public library. | Set `NRC_ADAMS_API_KEY` for the [ADAMS library](https://adams-api-developer.nrc.gov/). `collection=notices` reads NRC's [Federal Register notices](https://www.federalregister.gov/agencies/nuclear-regulatory-commission) without a key, including references to ADAMS documents. |
-| `warn` | Employer layoff notices, notice dates and effective dates. A supplier's dependence on the employer requires separate evidence. | National discovery uses [WARN Index](https://warnindex.com/) and retains state source and original document links where available. `state=WA` searches [Washington's notice filings](https://fortress.wa.gov/esd/file/WARN/Public/SearchWARN.aspx) directly. |
-| `local_agendas` | Meeting dates, agenda publication times, individual matters and agenda notes. Search a Legistar jurisdiction by its client slug. | [Legistar Web API](https://webapi.legistar.com/Help). Supply a client slug. Set `LEGISTAR_TOKEN_<CLIENT>` for a jurisdiction that requires a token. |
+| `DATA_GOV_API_KEY` | An [api.data.gov](https://api.data.gov/signup/) key, free; one key serves Regulations.gov and the FCC's ECFS. The shared `DEMO_KEY` allows 10 requests an hour | `fcc_ecfs_filings`, `regulatory_dockets`, `regulatory_documents`, `public_comments` |
+| `USPTO_API_KEY` | A [USPTO Open Data Portal](https://data.uspto.gov/) key, free | `ptab_proceedings`, `ptab_documents` |
+| `NRC_ADAMS_API_KEY` | A subscription key from the [NRC's developer portal](https://adams-api-developer.nrc.gov/) | `nrc_adams_documents` |
+| `GOVCON_API_KEY` | A [GovCon API](https://govconapi.com/api-guide/protests) key (a third party's index of GAO's docket) | `gao_bid_protests` |
+| `EMMA_DISCLOSURE_DIR` | The directory holding an unpacked [MSRB continuing-disclosure subscription](https://www.msrb.org/Market-Data-and-Research/Continuing-Disclosure-Subscription) delivery | `emma_continuing_disclosures` |
+| `SEDAR_DDS_INDEX` | The catalog CSV of a [CSA Data Distribution Services](https://www.securities-administrators.ca/national-systems/data-distribution-services/) delivery | `sedar_filings` |
+| `CSE_SEDAR_LICENSED` | `1` where the deployment has the Canadian Securities Exchange's permission for commercial reuse ([site terms](https://thecse.com/site-terms/)) | `cse_sedar_filings` |
 
-### Filing deliveries
+Four more settings change how a series is reached without adding one. `COURTLISTENER_TOKEN` reads the RECAP archive
+live through CourtListener, which also searches by docket number, filing date and the text of filings. `EDIS_API_TOKEN`
+adds the text of attachments to `usitc_filings`. `LEGISTAR_TOKEN_<CLIENT>` adds a council whose Legistar asks for a
+token (`config/legistar.yaml`) to `local_legislation`. `SOCRATA_APP_TOKEN` raises the request limits of the payment
+ledgers' portals. `SEC_USER_AGENT`, a name and contact email, is required by the SEC for every request.
 
-For MSRB records, set `EMMA_DISCLOSURE_DIR` to a directory containing the unpacked continuing-disclosure XML
-and accompanying PDFs. The reader uses the latest transaction for each submission. If the publisher
-supplied only index data, the observation identifies it as such. Without a configured delivery, the
-municipal search opens California DebtWatch. Each California record names the state as publisher.
+The MSRB delivery is the subscription's XML transactions with their PDFs, unpacked in one directory; the latest transaction
+for a submission stands. The SEDAR+ catalog is a UTF-8 CSV with the columns `document_id,issuer,title,published,url,file`:
+the publisher's document identifier, the filing date, the document's public address, and the PDF's path beside the CSV.
 
-For SEDAR+, set `SEDAR_DDS_INDEX` to a current UTF-8 CSV from an authorized delivery. The columns are
-`document_id,issuer,title,published,url,file`. Supply the publisher's stable document identifier,
-publication date in ISO format, public document permalink, and original PDF path relative to the CSV.
-Replace the catalog after applying amendments or withdrawals. An authorized CSE deployment can set
-`CSE_SEDAR_LICENSED=1` and pass the issuer's listing slug as `cse_listing`.
+## The series
+
+### The Federal Register
+
+`sources/federal_register.py`
+
+| Series | One record is | Creator; publisher | Needs |
+|---|---|---|---|
+| `federal_register` | A rule, proposed rule, notice or presidential document | Federal agencies and the President; Office of the Federal Register |  |
+
+How it is reached:
+
+```
+The Federal Register (federalregister.gov): every rule, proposed rule, notice and presidential document
+since 1994.
+
+The Register returns, and counts, at most 10,000 documents for one query. A search by words comes back by
+relevance and stops there. A search without words, and any search read to its end, comes back newest first
+and continues by publication date, which has no such limit; its count then comes from the Register's count
+of documents by type, which is not capped.
+```
+
+### SEC EDGAR
+
+`sources/sec.py`
+
+| Series | One record is | Creator; publisher | Needs |
+|---|---|---|---|
+| `edgar_filers` | A company, fund or person that files with the SEC, under its Central Index Key (CIK) | U.S. Securities and Exchange Commission |  |
+| `edgar_filing_documents` | A document of a filing made with the SEC: the form itself, or one of its exhibits | SEC filers; U.S. Securities and Exchange Commission (EDGAR full-text search) |  |
+| `edgar_xbrl_facts` | A value a filer reported in its financial statements for one period, as XBRL data | SEC filers; U.S. Securities and Exchange Commission |  |
+
+How it is reached:
+
+```
+SEC EDGAR, three series: filers, the documents of their filings, and the figures they report as data.
+
+edgar_filers            every company, fund or person with a CIK. Names come from two SEC files, each kept
+                        for a day in out/: company_tickers.json (the companies with a ticker) and
+                        cik-lookup-data.txt (every name EDGAR holds for every filer, current and former, about a
+                        million), indexed with SQLite full-text search in out/sec_names.db. A search by SIC
+                        code or state goes through EDGAR's company browser. Each filer's fields come from its
+                        submissions record.
+edgar_filing_documents  EDGAR full-text search: the documents of filings since 2001, by words, filer, form,
+                        date, SIC code and state. It returns 100 at a time and at most 10,000 for one search,
+                        so a search read to its end is split into date windows that each come back whole.
+edgar_xbrl_facts        the values a filer reported in its financial statements (XBRL company facts), read
+                        for one filer at a time.
+```
+
+### USAspending
+
+`sources/usaspending.py`
+
+| Series | One record is | Creator; publisher | Needs |
+|---|---|---|---|
+| `usaspending_awards` | A federal prime award: a contract, indefinite delivery vehicle (IDV), grant, loan, direct payment or other assistance | Federal agencies; U.S. Department of the Treasury (USAspending.gov) |  |
+| `usaspending_transactions` | An action on a federal award: the award itself, or a modification to it, with the amount it obligates | Federal agencies; U.S. Department of the Treasury (USAspending.gov) |  |
+| `usaspending_award_funding` | The obligations and outlays on one federal award from one federal account in one reporting period | Federal agencies; U.S. Department of the Treasury (USAspending.gov) |  |
+
+How it is reached:
+
+```
+USAspending.gov, three series: federal awards, the transactions on them, and their funding by federal
+account.
+
+  usaspending_awards         prime awards of every type. The search API takes one group of award types at a
+                             time, so a search across types asks each group in turn. It continues by the last
+                             record's sort value, which has no limit on how far it reads.
+  usaspending_transactions   each action on an award: the award itself and every modification. Read for one
+                             award from its own history, or across awards by recipient, agency and action date.
+  usaspending_award_funding  an award's obligations and outlays by federal account and reporting period, read
+                             for one award at a time.
+
+A range on an award's end date or start date has no filter in the API. The search then sorts by that date,
+newest first, and reads until it passes the range, which reaches every award in it.
+```
+
+### State and local payment ledgers
+
+`sources/ledgers.py`
+
+| Series | One record is | Creator; publisher | Needs |
+|---|---|---|---|
+| `government_payments` | A payment by a state or local government to a payee: one line of its published checkbook | State and local governments |  |
+
+How it is reached:
+
+```
+State and local government payment ledgers (Socrata SODA API): who a government pays, from which
+department, how much and when. config/ledgers.yaml maps each government's published checkbook onto the same
+fields; a search asks every ledger at once and merges their payments by date.
+```
+
+### Federal contract notices and announcements
+
+`sources/federal_contracts.py`
+
+| Series | One record is | Creator; publisher | Needs |
+|---|---|---|---|
+| `sam_contract_opportunities` | A federal contract opportunity notice active on SAM.gov: a presolicitation, solicitation, sources-sought or award notice, or another notice of a procurement | Federal contracting offices; General Services Administration (SAM.gov) |  |
+| `dod_contract_announcements` | An announcement of one contract action valued at $7.5 million or more, from the Department of War's daily release | U.S. Department of War |  |
+
+How it is reached:
+
+```
+Two series: contract opportunity notices active on SAM.gov, and the Department of War's daily contract
+announcements.
+
+  sam_contract_opportunities   GSA publishes every active notice in one daily file (about 225 MB). It is downloaded
+                               when it changes and indexed in out/sources/sam_notices.db: each notice's fields, and
+                               its title and description for full-text search. A search is answered from the index.
+  dod_contract_announcements   The Department lists its daily releases in a feed (the last 500), but its release
+                               pages refuse scripted readers. Each release's text is read from the Internet
+                               Archive's copy of the page, kept in out/sources/dod_contracts/, and split into its
+                               announcements: one paragraph for each contract action, under its military
+                               department's heading.
+```
+
+### Contracts with end dates
+
+`sources/contract_data.py`
+
+| Series | One record is | Creator; publisher | Needs |
+|---|---|---|---|
+| `erate_funding_requests` | A funding request (FRN) on an FCC Form 471: a school's or library's request for E-Rate support for services from one service provider under one contract, as first filed or as it now stands | E-Rate applicants; Universal Service Administrative Company |  |
+| `municipal_contracts` | A row of a city's or county's published contracts: a contract, or an amendment or purchase order under it, with its vendor and term | City and county governments |  |
+| `eqr_contracts` | A contract for the sale of electricity or transmission that a seller reported to FERC in one quarter's Electric Quarterly Report | Public utilities and power marketers under FERC's jurisdiction; Federal Energy Regulatory Commission |  |
+
+How it is reached:
+
+```
+Three series of contracts with end dates: E-Rate funding requests, city and county contracts, and the
+contracts electricity sellers report to FERC.
+
+  erate_funding_requests   USAC's open data (Socrata), which applies every filter and counts the matches.
+  municipal_contracts      four city and county portals (Socrata) with their own column names, mapped onto the
+                           same fields; a search asks them all and merges their rows by end date.
+  eqr_contracts            FERC publishes each quarter's Electric Quarterly Reports as one archive of about
+                           4,000 filings and 4 GB, one zip per respondent. A search by respondent reads that
+                           respondent's filing. Any other search reads the filings in turn, a few at a time, and
+                           returns a cursor: it reaches every contract, slowly.
+```
+
+### Rulemaking
+
+`sources/rulemaking.py`
+
+| Series | One record is | Creator; publisher | Needs |
+|---|---|---|---|
+| `regulatory_dockets` | A docket on Regulations.gov: an agency's file for one rulemaking or other action, holding its documents and the comments on them | Federal agencies; General Services Administration (Regulations.gov) | `DATA_GOV_API_KEY` |
+| `regulatory_documents` | A document an agency posted to a docket on Regulations.gov: a proposed rule, a rule, a notice, or material supporting one | Federal agencies; General Services Administration (Regulations.gov) | `DATA_GOV_API_KEY` |
+| `public_comments` | A comment submitted to an agency on a document it posted for comment on Regulations.gov, with the submitter and organization the agency shows | Commenters: companies, associations, governments and individuals; General Services Administration (Regulations.gov) | `DATA_GOV_API_KEY` |
+| `eo12866_reviews` | A review of a regulatory action by OIRA under Executive Order 12866, before the agency may publish it: under review now, or concluded with OIRA's decision | Office of Information and Regulatory Affairs, Office of Management and Budget |  |
+| `eo12866_meetings` | A meeting OIRA held or has scheduled with outside parties about a regulatory action under Executive Order 12866 review, with who asked for it and the client they act for | Office of Information and Regulatory Affairs, Office of Management and Budget |  |
+
+How it is reached:
+
+```
+Five series of the federal rulemaking record: Regulations.gov's dockets, documents and comments, and OIRA's
+reviews of regulatory actions under Executive Order 12866 and its meetings with outside parties about them.
+
+  regulatory_dockets, regulatory_documents, public_comments
+        Regulations.gov's API, with an api.data.gov key. One search returns at most 5,000 records, so a search
+        that runs past them goes on from the last record's modification time, as the API's documentation says to.
+        The API's times are UTC and its dates are Eastern: a comment period that ends 2027-01-12T04:59:59Z ends
+        on January 11.
+  eo12866_reviews
+        OIRA publishes its reviews as files: the actions now under review, and each year's concluded reviews.
+        They are kept in out/sources/eo12866_reviews/.
+  eo12866_meetings
+        OIRA's meeting search lists meetings by date. Who asked for a meeting, and for which client, is on the
+        meeting's own page, which is read for each meeting listed and kept in out/sources/eo12866_meetings/.
+```
+
+### Congress
+
+`sources/congress.py`
+
+| Series | One record is | Creator; publisher | Needs |
+|---|---|---|---|
+| `bills` | A bill or resolution of the current Congress, with its sponsor, committees and latest action; its status file adds every action, its summary, cost estimates and related bills | U.S. Congress; Government Publishing Office |  |
+| `bill_text_versions` | A version of the text of a bill or resolution: as introduced, reported, engrossed, enrolled or another stage | U.S. Congress; Government Publishing Office |  |
+| `committee_reports` | A report of a House, Senate or conference committee to its chamber, most often on a bill it has reported | Committees of Congress; Government Publishing Office |  |
+| `congressional_hearings` | The published transcript of a hearing before a committee of Congress, with its witnesses and their affiliations | Committees of Congress; Government Publishing Office |  |
+| `house_committee_meetings` | A hearing, markup or other meeting of a House committee or subcommittee, held or scheduled, with its witnesses and the documents filed for it | Committees of the House of Representatives; Clerk of the House (Committee Repository) |  |
+| `senate_committee_meetings` | A hearing or meeting of a Senate committee or subcommittee now on the Senate's schedule | Committees of the Senate; Secretary of the Senate |  |
+
+How it is reached:
+
+```
+Six series of the record of Congress.
+
+bills                     GPO publishes every bill's status as a file, and each kind of bill's files as one archive.
+                          The current Congress's archives are downloaded when they change and indexed in
+                          out/sources/bills.db: each bill's fields, and its titles, summary, subjects and actions for
+                          full-text search. A search is answered from the index; a read fetches the bill's own file.
+bill_text_versions,       GovInfo's own search finds the packages; each package's fields are read from its
+committee_reports,        descriptive metadata (MODS), kept in out/sources/govinfo/.
+congressional_hearings
+house_committee_meetings  The Clerk's Committee Repository lists meetings by week; a meeting's title, witnesses and
+                          documents are on its own page, kept in out/sources/house_meetings/.
+senate_committee_meetings The Senate's file of the committee meetings now scheduled.
+```
+
+### Courts and bid protests
+
+`sources/court_records.py`
+
+| Series | One record is | Creator; publisher | Needs |
+|---|---|---|---|
+| `federal_court_dockets` | The docket of a case in a U.S. district, bankruptcy or appellate court, as far as RECAP's contributors have bought it from PACER | Federal courts; Free Law Project's RECAP archive, as deposited at the Internet Archive |  |
+| `federal_court_docket_entries` | An entry on a federal court docket: a filing or an order, with the date it was filed | Federal courts; Free Law Project's RECAP archive, as deposited at the Internet Archive |  |
+| `supreme_court_dockets` | The docket of a case or an application before the Supreme Court of the United States | Supreme Court of the United States |  |
+| `gao_bid_protests` | A bid protest filed at the Government Accountability Office against a federal contract award or solicitation | U.S. Government Accountability Office; GovCon API (govconapi.com), which indexes GAO's docket | `GOVCON_API_KEY` |
+
+How it is reached:
+
+```
+Four series: federal court dockets and their entries (the RECAP archive), the Supreme Court's docket, and
+GAO bid protests.
+
+  federal_court_dockets,          RECAP holds the dockets and filings its users have bought from PACER. Free Law
+  federal_court_docket_entries    Project deposits them at the Internet Archive, where they are searched by
+                                  caption and court; a docket's entries are read from its deposited docket sheet.
+                                  With a CourtListener token (COURTLISTENER_TOKEN) the same archive is read live
+                                  through CourtListener's API instead, which also searches by docket number, filing
+                                  dates and the text of filings.
+  supreme_court_dockets           the Court publishes each docket as a JSON file. Its own search form finds cases by
+                                  words. An open search walks the current term's three sequences of case numbers
+                                  (paid, in forma pauperis, applications) downward and merges them by docketed date.
+  gao_bid_protests                GAO's own docket pages refuse scripted readers, so protests are read from GovCon
+                                  API's index of them, which needs a key (GOVCON_API_KEY).
+```
+
+### Drugs and patents
+
+`sources/drug_patent.py`
+
+| Series | One record is | Creator; publisher | Needs |
+|---|---|---|---|
+| `orange_book_products` | A drug product approved under a new drug application (NDA) or an abbreviated one (ANDA), as the Orange Book lists it | U.S. Food and Drug Administration |  |
+| `orange_book_patents` | A patent listed in the Orange Book for an approved drug product, with its expiration date | U.S. Food and Drug Administration |  |
+| `orange_book_exclusivities` | A period of marketing exclusivity the Orange Book lists for an approved drug product, with its code and expiration date | U.S. Food and Drug Administration |  |
+| `drugsfda_applications` | An application to market a drug in the United States (NDA, ANDA or BLA), with its products and FDA's actions on it | U.S. Food and Drug Administration |  |
+| `fda_advisory_committee_meetings` | A meeting of an FDA advisory committee, as announced on FDA's calendar | U.S. Food and Drug Administration |  |
+| `ptab_hearings` | An oral hearing on the Patent Trial and Appeal Board's published schedule | U.S. Patent and Trademark Office, Patent Trial and Appeal Board |  |
+| `ptab_proceedings` | A trial before the Patent Trial and Appeal Board challenging a patent: an inter partes review, post-grant review, covered business method review or derivation | U.S. Patent and Trademark Office, Patent Trial and Appeal Board | `USPTO_API_KEY` |
+| `ptab_documents` | A document filed in a Patent Trial and Appeal Board trial: a petition, response, order or decision | Parties to PTAB trials and the Board; U.S. Patent and Trademark Office, Patent Trial and Appeal Board | `USPTO_API_KEY` |
+
+How it is reached:
+
+```
+Eight series on drug approvals and patents: the Orange Book's products, patents and exclusivities; Drugs@FDA
+applications; FDA advisory committee meetings; and the Patent Trial and Appeal Board's proceedings, documents
+and hearings.
+
+  orange_book_products,        FDA publishes the Orange Book as three data files in one small zip, updated
+  orange_book_patents,         monthly. They are read whole; each patent and exclusivity carries its product's
+  orange_book_exclusivities    applicant, trade name and ingredient.
+  drugsfda_applications        openFDA's copy of Drugs@FDA, which applies names, numbers and action dates, and
+                               reads no further than 25,000 records into one search.
+  fda_advisory_committee_meetings   FDA's advisory committee calendar, read whole.
+  ptab_hearings                the Board's published hearing schedules (PDF tables), read whole.
+  ptab_proceedings,            the USPTO Open Data Portal, which needs a key (USPTO_API_KEY).
+  ptab_documents
+```
+
+### Health care
+
+`sources/healthcare.py`
+
+| Series | One record is | Creator; publisher | Needs |
+|---|---|---|---|
+| `clinicaltrials_studies` | A clinical study registered on ClinicalTrials.gov, under its NCT number | Study sponsors and investigators; U.S. National Library of Medicine |  |
+| `medicare_coverage_analyses` | A national coverage analysis (NCA) or coding analysis for labs (CAL): CMS's review of whether and how Medicare covers an item or service, with its tracking sheet | Centers for Medicare & Medicaid Services |  |
+| `medicare_star_ratings` | A Medicare Advantage or Part D contract's summary star ratings for one rating year | Centers for Medicare & Medicaid Services |  |
+
+How it is reached:
+
+```
+Three series: clinical studies registered on ClinicalTrials.gov, Medicare's national coverage analyses, and
+Medicare Advantage and Part D star ratings.
+
+  clinicaltrials_studies       the registry's API applies every filter here, and continues by page token.
+  medicare_coverage_analyses   CMS lists every analysis in one report without their dates; each one's tracking
+                               sheet has them. The sheets are kept in out/ and read again only when CMS's
+                               last-updated stamp for the analysis changes, so a search has every date to filter.
+  medicare_star_ratings        CMS publishes one table a year, in a zip file. A search reads the years it
+                               needs, newest first.
+```
+
+### State health agencies
+
+`sources/state_health.py`
+
+| Series | One record is | Creator; publisher | Needs |
+|---|---|---|---|
+| `medicaid_managed_care_contracts` | A contract, or an amendment to one, between a state Medicaid agency and a managed-care plan | State Medicaid agencies |  |
+| `medicaid_managed_care_procurements` | A state's procurement of managed-care plans for one Medicaid program, with its timeline and solicitation | State Medicaid agencies |  |
+| `insurance_rate_filings` | A health insurer's rate filing with its state regulator, under its SERFF tracking number | State insurance regulators |  |
+
+How it is reached:
+
+```
+Three series from state health agencies' own pages: Medicaid managed-care contracts (Iowa), Medicaid
+managed-care procurements (Texas), and health insurers' rate filings (New York and Oregon).
+
+Each page is read whole and its records filtered here. Rate filings are published a year at a time; a search
+reads the years it needs, newest first.
+```
+
+### Trade and sanctions
+
+`sources/trade.py`
+
+| Series | One record is | Creator; publisher | Needs |
+|---|---|---|---|
+| `usitc_investigations` | A U.S. International Trade Commission investigation in one phase: an import-injury (antidumping or countervailing duty) case, a Section 337 unfair-import case, or a fact-finding study | U.S. International Trade Commission |  |
+| `usitc_filings` | A public document filed in a USITC investigation, in the Commission's docket system (EDIS) | Parties to USITC investigations and the Commission; U.S. International Trade Commission |  |
+| `ofac_general_licenses` | A general license issued by the Office of Foreign Assets Control under a sanctions program, in each version posted, with related notices | U.S. Department of the Treasury, Office of Foreign Assets Control |  |
+
+How it is reached:
+
+```
+Three series: USITC investigations, the public documents filed in them (EDIS), and OFAC's general licenses.
+
+usitc_investigations     the Commission's daily export of every investigation, read whole and filtered here.
+usitc_filings            EDIS lists public filings newest first, 20 at a time, by investigation, document type
+                         and firm. An attachment's text needs an EDIS account token (EDIS_API_TOKEN); without
+                         one a read returns the filing's details and lists its attachments.
+ofac_general_licenses    Treasury's File Finder, restricted to general licenses: every version it has posted,
+                         searched in full text.
+```
+
+### Energy
+
+`sources/energy.py`
+
+| Series | One record is | Creator; publisher | Needs |
+|---|---|---|---|
+| `ferc_elibrary` | A filing made with the Federal Energy Regulatory Commission, or an order or notice it issued, under its accession number | FERC and the parties to its proceedings; Federal Energy Regulatory Commission |  |
+| `utility_dockets` | A docket opened at a state public utilities commission: a rate case, tariff filing, siting permit or other proceeding | State public utilities commissions |  |
+| `utility_commission_hearings` | A hearing scheduled in a docket before a state utility commission | State utility commissions |  |
+| `pjm_generator_deactivations` | A generating unit's request to deactivate, with its dates and status, as PJM lists it | PJM Interconnection |  |
+| `pjm_deactivation_notices` | A letter in PJM's index of deactivation notices: a generator owner's notice, a revision of it, or PJM's response | Generator owners and PJM Interconnection; PJM Interconnection |  |
+
+How it is reached:
+
+```
+Five series: FERC's eLibrary, state utility commission dockets (South Dakota) and hearings (Illinois), and
+PJM's generator deactivations and the notice letters behind them.
+
+  ferc_elibrary                  eLibrary's own search applies the words, a docket and one date range, and
+                                 pages by number.
+  utility_dockets                South Dakota publishes one index page per sector and year; a search reads the
+                                 years it needs, newest first.
+  utility_commission_hearings    Illinois publishes its hearing calendar a week at a time; a search reads the
+                                 weeks it needs, latest first.
+  pjm_generator_deactivations    PJM's export of every deactivation request, read whole.
+  pjm_deactivation_notices       PJM's index of the letters: owners' notices, revisions and PJM's responses.
+```
+
+### Communications and nuclear licensing
+
+`sources/communications.py`
+
+| Series | One record is | Creator; publisher | Needs |
+|---|---|---|---|
+| `fcc_ecfs_filings` | A filing in an FCC proceeding: a comment, reply, ex parte notice, petition or other submission | Parties to FCC proceedings and the Commission; Federal Communications Commission (Electronic Comment Filing System) | `DATA_GOV_API_KEY` |
+| `fcc_auction_announcements` | An announcement the FCC made to bidders during a spectrum auction | Federal Communications Commission |  |
+| `fcc_auction_bidder_status` | A bidder's eligibility, activity and commitments in one round of an FCC spectrum auction | Federal Communications Commission |  |
+| `nrc_adams_documents` | A document in the Nuclear Regulatory Commission's public library: a licensing application, inspection report, order, letter or other record of a licensee's docket | The NRC and its licensees and applicants; U.S. Nuclear Regulatory Commission | `NRC_ADAMS_API_KEY` |
+
+How it is reached:
+
+```
+Four series: filings in FCC proceedings (ECFS), the announcements and bidder status of FCC spectrum auctions,
+and documents in the NRC's ADAMS library.
+
+  fcc_ecfs_filings            ECFS applies the words, a proceeding, a filer and a range of received dates. It
+                              reads no further than 10,000 records into one query, so a search continues from
+                              the last record's received time, which has no such limit. It takes an api.data.gov
+                              key (DATA_GOV_API_KEY); the shared demo key allows ten requests a day.
+  fcc_auction_announcements,  the FCC's public reporting system publishes each auction's reports as one file,
+  fcc_auction_bidder_status   read for one auction at a time.
+  nrc_adams_documents         the ADAMS public search API, which needs a subscription key (NRC_ADAMS_API_KEY).
+```
+
+### Layoff notices and local legislation
+
+`sources/local_notices.py`
+
+| Series | One record is | Creator; publisher | Needs |
+|---|---|---|---|
+| `warn_notices` | An employer's notice of a plant closing or mass layoff, given to its state under the WARN Act | State dislocated worker units; WARN Index (warnindex.com), which compiles the states' postings |  |
+| `local_legislation` | A matter before a city or county legislative body: an ordinance, resolution, contract approval or other file, with the dates it was introduced, placed on an agenda and passed | City and county legislative bodies; Granicus (Legistar) |  |
+
+How it is reached:
+
+```
+Two series: WARN notices of plant closings and mass layoffs, and legislation before city and county councils.
+
+warn_notices        WARN Index (warnindex.com) compiles the notices each state posts. Its API applies the
+                    state, the employer and a range of notice dates, and counts the matches. A read returns
+                    the notice's fields and, where the state posts the employer's letter, the letter's text.
+local_legislation   Legistar's web API, one client per council (config/legistar.yaml). Each client applies
+                    every filter itself; a search asks them all at once and merges their matters by the time
+                    each was last modified.
+```
+
+### Issuers outside the SEC
+
+`sources/issuers.py`
+
+| Series | One record is | Creator; publisher | Needs |
+|---|---|---|---|
+| `california_debt_issues` | A debt issue a California state or local public agency reported to the California Debt and Investment Advisory Commission, proposed or sold, with the official statement and other documents filed for it | California public agencies that issue debt; California Debt and Investment Advisory Commission |  |
+| `emma_continuing_disclosures` | A file of a continuing disclosure an issuer or obligated person submitted to the MSRB's EMMA: annual financial information, audited statements, or notice of an event affecting the bonds | Issuers of municipal securities and the obligated persons behind them; Municipal Securities Rulemaking Board | `EMMA_DISCLOSURE_DIR` |
+| `sedar_filings` | A document an issuer filed with Canadian securities regulators on SEDAR+ | Issuers of securities in Canada; Canadian Securities Administrators | `SEDAR_DDS_INDEX` |
+| `cse_sedar_filings` | A document a company listed on the Canadian Securities Exchange filed on SEDAR+, as the Exchange republishes it | Companies listed on the Canadian Securities Exchange; Canadian Securities Exchange | `CSE_SEDAR_LICENSED` |
+
+How it is reached:
+
+```
+Four series of what issuers of securities file outside the SEC.
+
+california_debt_issues        The California Debt and Investment Advisory Commission's DebtWatch: every debt issue a
+                              California public agency reported, with the documents filed for it. Its API applies
+                              date and amount ranges and finds one word or phrase; the registry applies the rest.
+emma_continuing_disclosures   The MSRB's continuing-disclosure subscription delivery, unpacked in EMMA_DISCLOSURE_DIR:
+                              its XML transactions, of which the latest for a submission stands, and the PDFs.
+sedar_filings                 A catalog of SEDAR+ documents from the Canadian Securities Administrators' data
+                              distribution service: the CSV at SEDAR_DDS_INDEX, with the PDFs beside it.
+cse_sedar_filings             The SEDAR+ filings the Canadian Securities Exchange republishes for each company it
+                              lists, read by listing. The Exchange's terms ask permission for commercial reuse;
+                              CSE_SEDAR_LICENSED says the deployment has it.
+```
 
 ## Payment ledgers
 
-All 19 ledgers are published through the Socrata open data API, so one client reads all of them.
-Each government names its columns differently. `config/ledgers.yaml` maps each ledger's columns to
-one schema.
+`government_payments` is 19 governments' published checkbooks. All are on the Socrata open data API, so one
+client reads all of them. Each government names its columns differently; `config/ledgers.yaml` maps each ledger's
+columns to one schema.
 
 | Field | Meaning |
 |---|---|
@@ -121,18 +531,8 @@ each, and requires all of the following:
 Run `python -m distress_signals ledgers --verify` to repeat the check. Connecticut fails it because its
 column is an accounting date.
 
-## Federal contract awards
-
-`collect` queries the USAspending `spending_by_award` endpoint for each target. It requests contract
-award types A through D from the last three years. USAspending's recipient search is fuzzy, so an
-award is kept only if the recipient name contains one of the target's known names as whole words.
-All federal awards are stored under one payer, `U.S. Federal government`, with the awarding
-sub-agency as the department.
-
 ## Adding a ledger
 
 1. Find the dataset ID on the government's Socrata portal.
 2. Add an entry to `config/ledgers.yaml` with the column mapping. Map `invoice_date` only after
-   running `ledgers --verify` and confirming it passes.
-3. Run `discover` to classify the new government's departments and screen its payees, then
-   `collect`.
+   `python -m distress_signals ledgers --verify` passes for it.

@@ -15,6 +15,7 @@ GAO bid protests.
 """
 
 import datetime as dt
+import json
 import os
 import re
 import time
@@ -24,7 +25,7 @@ import requests
 from bs4 import BeautifulSoup
 from pypdf.errors import PyPdfError
 
-from ..util import SourceError, session, today
+from ..util import OUT, SourceError, session, today
 from . import F, Series, page, web
 
 COURT = "https://www.courtlistener.com"
@@ -32,6 +33,7 @@ CL = f"{COURT}/api/rest/v4"
 IA = "https://archive.org"
 SC = "https://www.supremecourt.gov"
 SC_FORM = f"{SC}/docket/docket.aspx"
+SC_KEPT = OUT / "sources" / "supreme_court"
 GAO = "https://www.gao.gov"
 GOVCON = "https://govconapi.com/api/v1/protests"
 ARCHIVE_ID = re.compile(r"gov\.uscourts\.[a-z0-9]+\.\d+")
@@ -250,12 +252,18 @@ _tops = {}
 _dockets = {}
 
 
-def _sc_json(number):
-    """A docket's JSON, or None where the Court has no such case. Kept for ten minutes: the Court's server
-    refuses a client that asks quickly, so each docket is asked for once and one at a time."""
+def _sc_json(number, fresh=False):
+    """A docket's JSON, or None where the Court has no such case. The Court's server refuses a client that asks
+    for many dockets in a short time, so each is asked for once and kept in out/sources/supreme_court/: a search
+    walks the kept copies (a docket's parties, lower court and dates do not change), and a read asks again."""
     hit = _dockets.get(number)
-    if hit and time.time() - hit[0] < 600:
+    if hit and time.time() - hit[0] < 600 and not (fresh and hit[2]):
         return hit[1]
+    kept = SC_KEPT / f"{number.upper()}.json"
+    if not fresh and kept.is_file():
+        data = json.loads(kept.read_text())
+        _dockets[number] = (time.time(), data, True)
+        return data
     try:
         r = session().get(f"{SC}/rss/cases/json/{number}.json", timeout=40)
     except requests.RequestException as e:
@@ -264,14 +272,16 @@ def _sc_json(number):
         raise SourceError("The Supreme Court's server is refusing requests for now; it does so after many in a short time. "
                           "The same search can be made again later.")
     if r.status_code == 404:
-        _dockets[number] = (time.time(), None)
+        _dockets[number] = (time.time(), None, False)
         return None
     try:
         r.raise_for_status()
         data = r.json()
     except (requests.RequestException, ValueError):
         raise SourceError(f"The Supreme Court's docket for {number} could not be read ({r.status_code}).")
-    _dockets[number] = (time.time(), data)
+    SC_KEPT.mkdir(parents=True, exist_ok=True)
+    kept.write_text(json.dumps(data))
+    _dockets[number] = (time.time(), data, False)
     return data
 
 
@@ -393,7 +403,7 @@ def _sc_search(s):
 
 
 def _sc_read(number):
-    d = _sc_json(number) if SC_ID.fullmatch(number) else None
+    d = _sc_json(number, fresh=True) if SC_ID.fullmatch(number) else None
     if not d:
         raise SourceError(f"The Supreme Court has no docket {number!r}")
     lines = list(dict.fromkeys(f"{role}: {p['PartyName']}" for role in ("Petitioner", "Respondent", "Other")

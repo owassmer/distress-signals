@@ -147,9 +147,9 @@ or lead set aside). It can concern a company, an event or a case, and can replac
 | `revisions` | Each saved snapshot, its hash, change note and run |
 | `observations` | Each record read: kind, source, native ID, address, dates, text, data |
 | `citations` | Which records each case cites |
-| `awards`, `award_funding`, `award_modifications`, `payments`, `revenue`, `filings` | The rows behind records read, at the source's grain, for the workspace |
+| One table for each series, named for it | The records read, a column for each of the series' fields ([section 6](#6-sources)) |
 | `findings`, `workspace_results` | Findings; saved workspace queries and their rows |
-| `runs`, `run_reads`, `leads`, `deliveries` | Runs with their assignment as given and the order their catalog listed the sources in; what each run read; follow-on leads; delivery state |
+| `runs`, `run_reads`, `leads`, `deliveries` | Runs with their assignment as given and the order their catalog listed the series in; what each run read; follow-on leads; delivery state |
 
 Amounts keep their meaning: a payment, an obligation, an outlay, reported revenue and a modeled shortfall
 are different kinds.
@@ -192,11 +192,11 @@ parallel.
 
 The system prompt is `config/mandate.md`, preceded by the operator's offering when
 `config/offering.local.md` exists (gitignored), and followed by today's date and what each tool does. It
-says that what the analyst knows about events ends at its training cutoff, before today, and that each
-source has its own publication and update dates. Without that, runs began by listing the events the model
-remembered, and kept returning to the same few. It says the records cover companies public or private. Federal awards and state and local payments reach any
-company those governments pay, and the other record sources cover parties to proceedings, contracts and events, and the open web extends the search. A private company's revenue usually has to be
-estimated, with the basis stated, as an assumed input. It names no companies: excluded companies are enforced where a case or finding is saved, which is refused
+says that what the analyst knows about events ends at its training cutoff, before today, and that the records
+the tools reach are current and each carries its own dates. Without that, runs began by listing the events the
+model remembered, and kept returning to the same few. It names no series of records: the catalog in the
+`search_records` description is the whole of what the analyst is told about them ([section 6](#6-sources)).
+It names no companies: excluded companies are enforced where a case or finding is saved, which is refused
 with the reason, because a company the context names is one the analyst reaches for. Nothing from earlier
 runs enters it.
 
@@ -229,7 +229,7 @@ end point (the structured final answer), and supplied a short length itself.
   effort reasoned little and stopped short. The model thinks adaptively. `--timeout` in minutes: 180 for
   `research`, 60 for `refresh`. The mandate tells the analyst there is time to research each company
   thoroughly. A run stopped at its limit loses its final answer, though its saved cases remain.
-  `MCP_TOOL_TIMEOUT` of 10 minutes, and `CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH` so the catalog of sources
+  `MCP_TOOL_TIMEOUT` of 10 minutes, and `CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH` so the catalog of series
   arrives whole (section 6).
 - Before the prompt, a `set_max_thinking_tokens` control request sets `thinking_display` to `summarized`,
   so reasoning summaries are returned.
@@ -246,9 +246,9 @@ mid-run too. Each revision is stamped with its run.
 
 | Tool | What it does |
 |---|---|
-| `search_records(source, query, filters)` | Searches the [public record sources](#6-sources) and returns record IDs. Storage begins when the researcher reads a record. A Federal Register search also returns a `read_all` ID for the whole result set. |
-| `read_record(id_or_url, find, offset, fresh)` | Reads a result by its record ID, a web page or a PDF. Stores the record and returns its text in 12,000-character segments with available links. `find` returns passages around a term. `fresh` updates the same observation from the publisher. |
-| `compute(sql, save_as, note)` | Runs one read-only SQL query over the records this run has read and the findings and results it has recorded; returns up to 200 rows; `save_as` keeps up to 2,000 under an ID that inputs and findings cite |
+| `search_records(series, query, filters, limit, cursor)` | Searches one [series of public records](#6-sources) and returns each record's fields, address and `record_id`, a `cursor` where the search has not reached its end, and a `result_set` ID for every record the search matches. Nothing is stored until it is read |
+| `read_record(id_or_url, find, offset, fresh)` | Reads a record by its `record_id`, every record of a `result_set` (up to 25,000), a web page or a PDF. Stores what it read, fills the series' table, and returns the text in 12,000-character segments with the document's links. `find` returns passages around a term. `fresh` reads the source again and updates the same observation |
+| `compute(sql, save_as, note)` | Runs one read-only SQL query over the records this run has read (each series' table, and the views of dates, names and amounts across series) and the findings and results it has recorded; returns up to 200 rows; `save_as` keeps up to 2,000 under an ID that inputs and findings cite |
 | `record_finding(finding)` | Records a fact, inference, conclusion, question or dropped lead; can withdraw a case, which updates its deal in HubSpot at once |
 | `lookup(id_or_query)` | Returns a saved case (editable form, status, company, event, results, cited passages with their sources, findings, recent revisions, and its deal's stage and outcome), finding or workspace result by ID; a company by ID, name, alias or domain, with its deals in HubSpot (the operator's own included), their stages and outcomes; an event by ID, key or title |
 | `calculate_exposure(case)` | Calculates the revenue at stake from draft inputs without saving |
@@ -264,42 +264,90 @@ launcher stores the leads, and a lead that names a company becomes that company 
 
 ## 6. Sources
 
-**The registry** (`sources/__init__.py`). Each source is one module that ends with a `SOURCE`: its card and
-the functions behind it. `search_records` and `read_record` dispatch through the registry, and the run page
-takes its wording for each source from it, so adding a source is its module and its name in `MODULES`.
+**A series is one kind of record**: every Federal Register document, every WARN notice, every federal award.
+It is named in its publisher's terms. Where saying what one record is takes an "or", there are two series.
+The same kind of record from several governments is one series, and those governments are its jurisdiction.
+[`docs/data-sources.md`](docs/data-sources.md) lists the series, how each is reached, and the keys some need.
 
-**The card** is everything the researcher is told about a source. It has the same fields for every source,
-and says what a record is, not what it is for:
-- who publishes the record, and what one record is;
-- whom a record names, and the dates it carries;
-- how it is searched: what the query is, and every filter with its default;
-- what reading a record returns, and the workspace tables it fills;
-- what the source reaches.
+**The registry** (`sources/__init__.py`). A module in `sources/` fetches records and declares its series in
+`SERIES`, where its code lives; the registry finds them. Everything else is in the registry, once, for every
+series: the catalog, the search grammar, record references, what a read stores, and each series' table.
 
-A card is at most 1,000 characters, so no source is described at greater length than another; a longer one
-fails when the module loads.
+**An entry** is everything the researcher is told about a series. It describes the records the way archives
+and data catalogs do (ISAD(G), DCAT), with the same parts for every series:
 
-**The catalog** is the cards, one after another, in the `search_records` description. The researcher has
-all of it from the start, and nothing about a source is held back for a later call.
-- **Order.** The order is drawn for each run from its run ID (`sources.order`), so no source is always first,
-  and the same run always sees the same order. The `source` parameter lists its values in that order too.
-  The launcher stores the order with the run (`runs.source_order`) and writes it in the run's assignment
-  file. This is an experiment: whether position affects which sources a run uses is to be read from a few
+| Part | Holds |
+|---|---|
+| record | What one record is |
+| creator | The body that creates the records in doing its work |
+| publisher | Who makes them available, shown where that is another body |
+| jurisdiction | The governments whose records they are |
+| coverage | The first and last dates held |
+| fields | The record's data dictionary: each field's name and type |
+
+An entry states what is. It has no part for limits or for what a series lacks, and nothing about how a record
+is reached: keys, bulk files and routes around a publisher's blocks stay in the adapter. Coverage and
+jurisdictions are read from the publisher's data once a day where it exposes them (`sources.observe`, kept in
+`out/series.json`). The rest of an entry is at most 1,000 characters; a longer one fails when its module loads.
+
+**A field's type is how it is searched**, the same way in every series, so the entry is also the interface:
+
+| Type | A filter gives | Key |
+|---|---|---|
+| name, place, text | Words, each found in the value | `FIELD` |
+| identifier | The value itself | `FIELD` |
+| listed values | One of them | `FIELD` |
+| date | A range | `FIELD_from`, `FIELD_until` |
+| amount, number | A range | `FIELD_min`, `FIELD_max` |
+| full text | (the query matches it; a read returns it) | |
+
+A field holds one value, or several where its type is in the plural. A series kept by its parent (a filer's
+reported figures, a docket's entries) marks the parent's field required.
+
+**What the registry does with a search.** An adapter takes from a search the filters its publisher applies.
+Whatever it leaves, the registry applies to the records returned, and keeps asking for pages until it has what
+was asked for or 45 seconds have passed. A search that has not reached its end returns a cursor, however the
+filtering was done; a cursor is a position, and means the same whatever size the next call asks for. `total`
+is the publisher's count where it applied every filter, and `examined` says how many records the registry
+checked where it did not. So every field of every series can be searched, whether or not its publisher can.
+
+**References.** A record is `series:id`, and every record a search matches is `series?the search`. Reading
+either stores an observation: the record's fields as labeled lines, then its document. A result set is read
+whole, up to 25,000 records and seven minutes, with one line for each record.
+
+**Tables.** Each series is a table of the same name with a column for each field, filled by reads. Three
+views cross the series and are generated from the field types: `record_dates`, `record_names` and
+`record_amounts`, each `(series, record_id, field, value, observation_id)`. Four generic tables for every
+series (records, names, dates, amounts) were considered and rejected: that is the entity-attribute-value
+design, which makes a record's own fields awkward to query.
+
+**Keys.** A series names the settings it needs (`requires`). One whose key is not set is left out of that
+run's catalog, so the catalog lists what the run has.
+
+**The catalog** is the entries, one after another, in the `search_records` description, under the grammar.
+The researcher has all of it from the start, and nothing about a series is held back for a later call.
+- **Order.** The order is drawn for each run from its run ID (`sources.order`), so no series is always first,
+  and the same run always sees the same order. The `series` parameter lists its values in that order too.
+  The launcher stores the order with the run (`runs.series_order`) and writes it in the run's assignment
+  file. This is an experiment: whether position affects which series a run uses is to be read from a few
   runs.
 - **Length.** Claude Code cuts an MCP tool's description at 4,096 characters unless
   `CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH` says otherwise, so the launcher sets it (`pipeline.claude_env`).
-  A captured request showed the description arriving whole with it set, and cut without it.
+  A captured request showed the description arriving whole with it set, and cut without it. With the 49
+  series that need no key, the catalog is about 27,000 characters.
 
-| Source | Adapter | What it gives |
-|---|---|---|
-| SEC full-text search | `sources/filings.py` | The text of every SEC filing since 2001, by words or phrase, form and filing date (default: the last 120 days). Each result is a document of a filing (the report or an exhibit), read with `read_record`. Companies disclose there the upcoming events they expect to affect their revenue, so it reaches dependencies across every industry without knowing the company or the event first |
-| Federal Register | `sources/federal_register.py` | Every federal rule, proposed rule, notice and presidential document, by words, type, agency and date: publication, effective, comments close (default: published in the last year). The government's dated calendar of federal actions. A search returns up to 200 documents, the most relevant first. When more match, it also returns how they divide by type and by agency, from the Register's facets. The Register returns and counts at most 10,000 documents for one query, so a count at 10,000 is flagged as a floor. `read_all` reads every match: it splits the publication dates into windows of fewer than 10,000 each, pages through them 1,000 at a time, and keeps up to 25,000 documents. It fills `register_documents`, with type, agencies, action, publication, effective and comment dates, significance, RINs, docket IDs, CFR parts, the document's DATES section, abstract and address. Its text has one line per document, for `find` |
-| SEC EDGAR | `sources/sec.py` | Finds filers by ticker, or by any name EDGAR holds for them, current or former, with or without a ticker. Names come from SEC's `company_tickers.json` (about 10,000 companies with a ticker) and `cik-lookup-data.txt` (every name of every filer, about a million), each kept for a day in `out/`; the second is indexed with SQLite full-text search in `out/sec_names.db`. Matching is by whole words. Companies with a ticker rank first. Up to 40 matches without one are looked up, and those with filings of their own rank above insiders and holders who file only ownership forms; each says what kind of filer it is, its industry, when it last filed and which forms it files. A filer's record: its former names, the forms in its recent filings (ownership forms by insiders and holders counted, not listed), its 40 most recent other filings with document and index links, and its reported revenue by quarter and year; a fourth quarter, reported only inside the year, is derived and labeled. Fills `revenue` and `filings`. Requires `SEC_USER_AGENT` |
-| USAspending | `sources/public_records.py` | Award search by recipient, keyword and agency; `active_on` reads every award still running on a date, back to 2007, and returns the largest with a count. Award detail: period of performance, values, parent, recipient, modifications, and every funding record, totaled at the source's grain (rows within a period add up; obligations are period amounts; outlays are fiscal-year-to-date, so each year takes each line's latest period). Fills `awards`, `award_funding`, `award_modifications` |
-| State and local payment ledgers | `sources/ledgers.py` | Payee search across 19 ledgers; a payee's payment lines for a period (the period is kept in the record ID). Fills `payments`. See `docs/data-sources.md` |
-| Additional public records | `sources/` | Issuer disclosures, awards and contract terms, health plans and insurers, legislative and regulatory proceedings, court dockets, bid protests, patent trials, drug filings, trade investigations, energy and licensing decisions, WARN notices and local agendas. [Sources, access and coverage](docs/data-sources.md#public-record-search) |
-| Any address | `sources/web.py` | HTML or PDF as text, with the page's links |
-| Everything else | WebSearch and WebFetch | |
+**Kept copies.** Where a publisher gives a bulk file, or one page per record, the adapter keeps what it read
+under `out/sources/`, and asks the publisher again when its copy has changed or the kept one has aged: SAM.gov's daily file of active
+notices and the current Congress's bill status files (each indexed with SQLite full-text search), GovInfo's
+descriptive metadata, OIRA's review files and meeting pages, the House's meeting pages, the Supreme Court's
+dockets, and the Department of War's releases.
+
+**Any address.** `sources/web.py` reads HTML or a PDF as text, with the page's links, for `read_record`.
+WebSearch and WebFetch reach everything else.
+
+**Checking a series.** `tests/test_series.py` tests the registry offline. `tests/live_series.py` tries a series
+against its publisher through the tools: each field of a record, used as a filter, must find that record, and a
+continued search must not repeat one.
 
 ## 7. Calculation
 
@@ -527,14 +575,14 @@ python -m distress_signals ledgers [--verify]
 | `config/offering.local.md` | The operator's offering, when supplied (gitignored) |
 | `config/briefs/` | Briefs, each used only when selected |
 | `config/exclude.yaml`, `exclude.local.yaml` | Companies left aside |
-| `config/ledgers.yaml` | The payment ledgers |
+| `config/ledgers.yaml`, `config/legistar.yaml` | The payment ledgers; the city and county councils on Legistar |
 | `distress_signals/models.py` | Company, event, case, input, baseline, affected version, finding, observation |
 | `distress_signals/db.py` | Schema, migrations, records, workspace tables, findings, revisions, runs, leads |
 | `distress_signals/forms.py` | Saved cases and events in their current form |
 | `distress_signals/tools.py` | The seven tools' functions |
 | `distress_signals/mcp_server.py` | The tools over MCP, with their descriptions and the tool-call log |
 | `distress_signals/exposure.py` | The calculation |
-| `distress_signals/sources/` | Source registry, cards and public-record adapters (section 6) |
+| `distress_signals/sources/` | The registry of series and the adapters that declare them (section 6) |
 | `distress_signals/llm.py` | The Claude CLI call and the transcript |
 | `distress_signals/agent.py` | The system prompt and each run's assignment |
 | `distress_signals/pipeline.py` | Runs |
@@ -549,7 +597,8 @@ python -m distress_signals ledgers [--verify]
 | `distress_signals/showcase.py` | Public guide export and legacy URL forwarding |
 | `distress_signals/names.py`, `util.py` | Name normalization, HTTP, dates, exclusions |
 | `distress_signals/__main__.py` | The commands |
-| `docs/data-sources.md` | Source coverage, access and record fields |
+| `docs/data-sources.md` | The series, how each is reached, and the keys some need |
+| `tests/` | The registry's tests, and the harness that tries a series against its publisher |
 
 ## 13. Build order
 

@@ -6,6 +6,7 @@ how much and when.
 """
 
 import datetime as dt
+import re
 import os
 import statistics as st
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -14,6 +15,7 @@ from urllib.parse import urlencode
 
 from .. import names
 from ..util import SourceError, config, http_json, money, to_date, to_float, today
+from . import Source
 
 PAGE = 50000
 
@@ -211,3 +213,32 @@ def verify_invoice_dates(ledger, n=5000):
            "share_negative": round(sum(x < 0 for x in lags) / len(lags), 3)}
     res["pass"] = res["share_negative"] < 0.05 and res["share_zero"] < 0.5 and res["median"] > 0
     return res
+
+
+def _locate(ref):
+    m = re.match(r"^ledger:([a-z0-9_]+):(\d{4}-\d{2}-\d{2}):(.+)$", ref) or re.match(r"^ledger:([a-z0-9_]+):()(.+)$", ref)
+    if not m:
+        return None
+    lid, since, payee = m[1], m[2] or None, m[3]
+    return ("ledger", lid, since or "default", payee), lambda: payee_lines(lid, payee, since)
+
+
+SOURCE = Source(
+    id="ledgers",
+    publisher=f"{len(load())} U.S. state and local governments (their published payment ledgers)",
+    record="one payee spelling in one government's ledger, with every payment line to it.",
+    names="the payee and the paying department.",
+    dates="each payment's date, and its invoice date where the ledger has one.",
+    search="query is a company name, matched by whole words; returns each payee spelling by paying department with payment "
+           "counts, totals and dates. Takes one to two minutes. Filters: since (YYYY-MM-DD; the default is the last three "
+           "years; the record IDs it returns keep it), ledgers (ledger IDs).",
+    read="every payment line it keeps; fills payments.",
+    coverage="each government's payments from the date its published ledger begins; a search's result gives those dates.",
+    filters=frozenset({"since", "ledgers"}),
+    find=lambda query, filters: search_payee(query, since=filters.get("since"), ledger_ids=filters.get("ledgers")),
+    label=lambda q, f: f"Searched state and local government payments to “{q}”",
+    locate=_locate,
+    again=lambda obs: f"ledger:{obs['native_id']}" if obs["source"].startswith("ledger:") and obs.get("native_id") else None,
+    noun="a payment ledger",
+    kind="payment", tables=("payments",),
+)

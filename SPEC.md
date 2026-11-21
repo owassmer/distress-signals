@@ -149,7 +149,7 @@ or lead set aside). It can concern a company, an event or a case, and can replac
 | `citations` | Which records each case cites |
 | `awards`, `award_funding`, `award_modifications`, `payments`, `revenue`, `filings` | The rows behind records read, at the source's grain, for the workspace |
 | `findings`, `workspace_results` | Findings; saved workspace queries and their rows |
-| `runs`, `run_reads`, `leads`, `deliveries` | Runs with their assignment as given; what each run read; follow-on leads; delivery state |
+| `runs`, `run_reads`, `leads`, `deliveries` | Runs with their assignment as given and the order their catalog listed the sources in; what each run read; follow-on leads; delivery state |
 
 Amounts keep their meaning: a payment, an obligation, an outlay, reported revenue and a modeled shortfall
 are different kinds.
@@ -229,7 +229,8 @@ end point (the structured final answer), and supplied a short length itself.
   effort reasoned little and stopped short. The model thinks adaptively. `--timeout` in minutes: 180 for
   `research`, 60 for `refresh`. The mandate tells the analyst there is time to research each company
   thoroughly. A run stopped at its limit loses its final answer, though its saved cases remain.
-  `MCP_TOOL_TIMEOUT` of 10 minutes.
+  `MCP_TOOL_TIMEOUT` of 10 minutes, and `CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH` so the catalog of sources
+  arrives whole (section 6).
 - Before the prompt, a `set_max_thinking_tokens` control request sets `thinking_display` to `summarized`,
   so reasoning summaries are returned.
 
@@ -262,6 +263,32 @@ depends on the outcome, why the conversation is timely, and what was set aside),
 launcher stores the leads, and a lead that names a company becomes that company in HubSpot, proposed.
 
 ## 6. Sources
+
+**The registry** (`sources/__init__.py`). Each source is one module that ends with a `SOURCE`: its card and
+the functions behind it. `search_records` and `read_record` dispatch through the registry, and the run page
+takes its wording for each source from it, so adding a source is its module and its name in `MODULES`.
+
+**The card** is everything the researcher is told about a source. It has the same fields for every source,
+and says what a record is, not what it is for:
+- who publishes the record, and what one record is;
+- whom a record names, and the dates it carries;
+- how it is searched: what the query is, and every filter with its default;
+- what reading a record returns, and the workspace tables it fills;
+- what the source reaches.
+
+A card is at most 1,000 characters, so no source is described at greater length than another; a longer one
+fails when the module loads.
+
+**The catalog** is the cards, one after another, in the `search_records` description. The researcher has
+all of it from the start, and nothing about a source is held back for a later call.
+- **Order.** The order is drawn for each run from its run ID (`sources.order`), so no source is always first,
+  and the same run always sees the same order. The `source` parameter lists its values in that order too.
+  The launcher stores the order with the run (`runs.source_order`) and writes it in the run's assignment
+  file. This is an experiment: whether position affects which sources a run uses is to be read from a few
+  runs.
+- **Length.** Claude Code cuts an MCP tool's description at 4,096 characters unless
+  `CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH` says otherwise, so the launcher sets it (`pipeline.claude_env`).
+  A captured request showed the description arriving whole with it set, and cut without it.
 
 | Source | Adapter | What it gives |
 |---|---|---|
@@ -506,7 +533,7 @@ python -m distress_signals ledgers [--verify]
 | `distress_signals/tools.py` | The seven tools' functions |
 | `distress_signals/mcp_server.py` | The tools over MCP, with their descriptions and the tool-call log |
 | `distress_signals/exposure.py` | The calculation |
-| `distress_signals/sources/` | `sec.py`, `public_records.py`, `ledgers.py`, `web.py` |
+| `distress_signals/sources/` | `__init__.py` (the registry and the catalog), `filings.py`, `federal_register.py`, `sec.py`, `public_records.py`, `ledgers.py`, `web.py` |
 | `distress_signals/llm.py` | The Claude CLI call and the transcript |
 | `distress_signals/agent.py` | The system prompt and each run's assignment |
 | `distress_signals/pipeline.py` | Runs |

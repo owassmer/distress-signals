@@ -6,6 +6,7 @@ about 10,000) and cik-lookup-data.txt (every name EDGAR holds for every filer, c
 million). The second is indexed with SQLite full-text search in out/sec_names.db."""
 
 import datetime as dt
+import re
 import json
 import os
 import sqlite3
@@ -15,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from .. import names
 from ..util import OUT, SourceError, http_json, session
+from . import Source
 
 TICKERS = "https://www.sec.gov/files/company_tickers.json"
 NAMES = "https://www.sec.gov/Archives/edgar/cik-lookup-data.txt"
@@ -272,3 +274,30 @@ def company(cik):
                      "former_names": [f.get("name") for f in s.get("formerNames") or []], "entity_type": s.get("entityType"),
                      "sic": s.get("sicDescription"), "fiscal_year_end": s.get("fiscalYearEnd"),
                      "filings": filings, "revenue": revenue}}
+
+
+def _locate(ref):
+    m = re.match(r"^sec:(?:CIK)?0*(\d+)$", ref)
+    return (("sec", m[1]), lambda: company(m[1])) if m else None
+
+
+SOURCE = Source(
+    id="sec",
+    publisher="U.S. Securities and Exchange Commission (EDGAR)",
+    record="one filer: a company, fund or person that files with the SEC.",
+    names="the filer, under every name it has filed with, current or former, and its ticker where it has one.",
+    dates="each filing's date and report date, and the periods of its reported revenue.",
+    search="query is a ticker or a name, matched by whole words. Filers with a ticker come first; one without says what "
+           "kind of filer it is, its industry, when it last filed and which forms it files. No filters.",
+    read="its former names, the forms it files, its recent filings with links, and its reported revenue by quarter and "
+         "year (a fourth quarter is derived from the year and labeled so); fills revenue and filings.",
+    coverage="every filer EDGAR holds, about a million; revenue where the filer reports it as data.",
+    filters=frozenset(),
+    find=lambda query, filters: search(query),
+    label=lambda q, f: f"Looked up “{q}” in SEC company records",
+    locate=_locate,
+    again=lambda obs: f"sec:{obs['native_id']}" if obs["source"] == "sec" and obs["kind"] == "financial_fact"
+    and obs.get("native_id") else None,
+    noun="the company's SEC record",
+    kind="financial_fact", tables=("revenue", "filings"),
+)

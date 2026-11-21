@@ -6,7 +6,7 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from . import agent, db, llm, tools, transcript
+from . import agent, db, llm, sources, tools, transcript
 from .util import OUT, ROOT, claude_token, now_iso
 
 TIMEOUT = 3 * 3600  # seconds per research run; the mandate tells the analyst there is time to research thoroughly
@@ -31,6 +31,14 @@ def _mcp_config(rid, log, principal=None):
     json.dump(cfg, f)
     f.close()
     return f.name
+
+
+def claude_env():
+    """What the claude process is given beyond the launcher's own environment. Claude Code cuts an MCP tool's
+    description at 4,096 characters unless CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH says otherwise, and
+    search_records carries the whole catalog of sources, about 1,000 characters each."""
+    return {"MCP_TOOL_TIMEOUT": "600000", "MCP_TIMEOUT": "60000", "CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH": "200000",
+            **({"CLAUDE_CODE_OAUTH_TOKEN": token} if (token := claude_token()) else {})}
 
 
 def research(seed_kind="mandate", seed=None, brief=None, question=None, opportunity_id=None, lead_id=None, model=None,
@@ -61,18 +69,20 @@ def research(seed_kind="mandate", seed=None, brief=None, question=None, opportun
         model = model or llm.MODEL
         principal = case["company"]["name"] if case else (seed if seed_kind == "company" else None)
         system, text = agent.system(), agent.prompt(seed_kind, seed, _brief_text(brief), question, case, lead)
-        db.start_run(con, rid, seed_kind, seed or "", question, f"{model} ({llm.EFFORT})", str(log), principal, system, text)
+        order = sources.order(rid)  # the MCP server draws the same order from the same run ID
+        db.start_run(con, rid, seed_kind, seed or "", question, f"{model} ({llm.EFFORT})", str(log), principal, system, text,
+                     source_order=order)
         assignment = log.with_suffix(".assignment.md")
         assignment.write_text(f"# {rid}: {seed_kind} {seed or ''}\n\nModel `{model}`, effort `{llm.EFFORT}`. Cases limited to: "
                               f"{principal or 'no company'}.\n\n"
+                              f"Sources, in the order its catalog lists them: {', '.join(order)}.\n\n"
                               f"## System prompt\n\n{system}\n\n## Prompt\n\n{text}\n")
         print(f"{rid}: {seed_kind}{' ' + repr(seed) if seed else ''}; transcript in {events.relative_to(ROOT)} "
               f"(readable: python -m distress_signals transcript {rid})", flush=True)
         cfg = _mcp_config(rid, log, principal)
         try:
             out, stats = llm.ask(system, text, agent.RESULT, events, model=model, timeout=timeout, tools=agent.TOOLS,
-                                 mcp_config=cfg, env={"MCP_TOOL_TIMEOUT": "600000", "MCP_TIMEOUT": "60000",
-                                                      **({"CLAUDE_CODE_OAUTH_TOKEN": token} if (token := claude_token()) else {})})
+                                 mcp_config=cfg, env=claude_env())
         except Exception as e:
             db.finish_run(con, rid, db.saved_by_run(con, rid), error=str(e)[:2000])
             raise

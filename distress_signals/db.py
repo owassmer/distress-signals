@@ -82,6 +82,7 @@ DDL += "".join(f"CREATE TABLE IF NOT EXISTS {t} (observation_id TEXT NOT NULL, {
 
 # Columns added after a table was first created: (table, column, type).
 ADDED = [("runs", "principal", "TEXT"), ("runs", "system", "TEXT"), ("runs", "prompt", "TEXT"),
+         ("runs", "source_order", "TEXT"),
          ("opportunities", "status", "TEXT NOT NULL DEFAULT 'active'")]
 
 
@@ -263,12 +264,14 @@ def cited(con, oid):
 
 # ---------- runs and leads ----------
 
-def start_run(con, rid, seed_kind, seed, question, model, log, principal=None, system=None, prompt=None):
-    """Records the assignment as given: the system prompt and the prompt."""
+def start_run(con, rid, seed_kind, seed, question, model, log, principal=None, system=None, prompt=None, source_order=None):
+    """Records the assignment as given: the system prompt, the prompt, and the order its catalog listed the
+    sources in."""
     with write(con):
-        con.execute("INSERT INTO runs (id, seed_kind, seed, question, model, started, log, principal, system, prompt) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?)", (rid, seed_kind, seed, question, model, now_iso(), log, principal,
-                                                     system, prompt))
+        con.execute("INSERT INTO runs (id, seed_kind, seed, question, model, started, log, principal, system, prompt, "
+                    "source_order) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (rid, seed_kind, seed, question, model, now_iso(), log, principal, system, prompt,
+                     dumps(source_order) if source_order else None))
 
 
 def finish_run(con, rid, opportunity_ids=(), summary=None, error=None, stats=None):

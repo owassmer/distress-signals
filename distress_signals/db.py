@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -93,13 +94,28 @@ def path():
 def connect(p=None):
     con = sqlite3.connect(p or path(), timeout=5, isolation_level=None)
     con.row_factory = sqlite3.Row
-    con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA busy_timeout=5000")
+    # Concurrent first opens can both hold a read lock while switching journal modes.
+    # SQLite returns BUSY immediately in that case, even with a busy timeout.
+    deadline = time.monotonic() + 5
+    while True:
+        try:
+            if con.execute("PRAGMA journal_mode").fetchone()[0] != "wal":
+                con.execute("PRAGMA journal_mode=WAL").fetchone()
+            break
+        except sqlite3.OperationalError as exc:
+            if exc.sqlite_errorcode != sqlite3.SQLITE_BUSY or time.monotonic() >= deadline:
+                con.close()
+                raise
+            time.sleep(0.05)
     con.execute("PRAGMA foreign_keys=ON")
     con.executescript(DDL)
     for table, col, typ in ADDED:
         if col not in {r[1] for r in con.execute(f"PRAGMA table_info({table})")}:
-            con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+            # Other researchers can open and migrate this database at the same time.
+            with write(con):
+                if col not in {r[1] for r in con.execute(f"PRAGMA table_info({table})")}:
+                    con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
     return con
 
 

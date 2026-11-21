@@ -105,10 +105,19 @@ def _cite(con, cite, where, cited_ids):
     if cite.get("url"):
         url = cite["url"].strip()
         oid = db.make_id("obs_", "page", url)
+        # A bulk download can be the public URL of many distinct, independently stored rows.
         obs = db.get_observation(con, oid)
-        if obs is None:
-            row = con.execute("SELECT id FROM observations WHERE url=? AND text IS NOT NULL LIMIT 1", (url,)).fetchone()
-            obs = db.get_observation(con, row["id"]) if row else None
+        if not (obs and obs.get("text") and quoted(passage, obs["text"])):
+            matches = []
+            for row in con.execute("SELECT id, text FROM observations WHERE url=? AND text IS NOT NULL", (url,)):
+                if quoted(passage, row["text"]):
+                    matches.append(row["id"])
+                elif obs is None or not obs.get("text"):
+                    obs = db.get_observation(con, row["id"])
+            if len(matches) > 1:
+                raise ToolError(f"{where}: several records at {url} contain this passage. Cite its observation_id.")
+            if matches:
+                obs = db.get_observation(con, matches[0])
         if obs is None:
             db.put_observation(con, {"id": oid, "kind": "page", "source": "web", "url": url, "retrieved_at": now_iso(),
                                      "text": None, "data": {"unchecked": True, "passages": [passage]}})

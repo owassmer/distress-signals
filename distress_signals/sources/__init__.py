@@ -21,7 +21,14 @@ import random
 from dataclasses import dataclass
 from typing import Callable
 
-MODULES = ("federal_register", "filings", "ledgers", "public_records", "sec")
+MODULES = (
+    "federal_register", "filings", "ledgers", "public_records", "sec",
+    "emma", "sedar_plus", "ferc_eqr", "sam_opportunities", "dod_contracts", "erate", "municipal_contracts",
+    "medicaid_contracts", "serff", "regulations_gov", "oira", "congress", "federal_dockets", "supreme_court",
+    "gao_protests", "ptab", "orange_book", "fda_advisory", "clinical_trials", "medicare_coverage",
+    "medicare_stars", "usitc", "ofac", "ferc_elibrary", "utility_dockets", "pjm_deactivations", "fcc",
+    "nrc_adams", "warn", "local_agendas",
+)
 CARD_CHARS = 1000
 
 
@@ -52,6 +59,29 @@ class Source:
     def card(self):
         return (f"- {self.id} · {self.publisher}\n  A record: {self.record}\n  Names: {self.names}\n  Dates: {self.dates}\n"
                 f"  Search: {self.search}\n  Read: {self.read}\n  Coverage: {self.coverage}")
+
+
+def native_source(source_id, adapter, display_name, **fields):
+    """Bind a card to an adapter with stable source_id:native_id record references."""
+    def locate(ref):
+        prefix, _, native_id = ref.partition(":")
+        if prefix == source_id and native_id:
+            return (source_id, native_id), lambda: adapter.read(source_id, native_id)
+
+    def again(observation):
+        if observation["source"] == source_id and observation.get("native_id"):
+            return f"{source_id}:{observation['native_id']}"
+
+    def label(query, filters):
+        if query:
+            return f"Searched {display_name} for “{query}”"
+        labels = {"state": "state", "jurisdiction": "jurisdiction", "quarter": "quarter", "year": "year",
+                  "status": "status", "agency": "agency", "docket": "docket", "since": "from", "until": "through"}
+        criteria = [f"{text} {filters[key]}" for key, text in labels.items() if filters.get(key)]
+        return f"Searched {display_name}" + (" (" + ", ".join(criteria) + ")" if criteria else "")
+
+    return Source(id=source_id, filters=frozenset(adapter.FILTERS[source_id]), locate=locate, again=again,
+                  find=lambda query, filters: adapter.search(source_id, query, **filters), label=label, **fields)
 
 
 _all = None

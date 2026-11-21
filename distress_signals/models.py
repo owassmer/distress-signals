@@ -241,7 +241,7 @@ class Finding(Strict):
 
 class Observation(Strict):
     id: str
-    kind: Literal["payment", "award", "filing", "financial_fact", "page"]
+    kind: str = Field(min_length=1, description="Record type supplied by the source adapter")
     source: str
     native_id: str | None = None
     url: str | None = None

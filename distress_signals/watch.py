@@ -21,7 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from . import activityview, db, example_review, findingsview, hubspot, sources
-from .feed import _result_text
+from .feed import _result_text, _search_label, _search_result
 from .runpage import CHART_JS, FAVICON, FOUND_JS, ICONS, LEADS_HTML, PACE, PAGE, PAGE_STEPS, SHELL_STYLE, STYLE
 from .util import OUT, load_env
 
@@ -87,9 +87,7 @@ def describe(name, i):
     if name == "WebFetch":
         return {"label": f"Read a page on {_domain(i.get('url'))}", "link": i.get("url")}
     if name == "search_records":
-        src, q, f = i.get("source"), i.get("query"), i.get("filters") or {}
-        known = sources.all().get(src)
-        return {"label": known.label(q, f) if known else f"Searched {src} for “{q}”"}
+        return {"label": _search_label(i)}
     if name == "read_record":
         ref = str(i.get("id_or_url") or "")
         terms = [t.strip() for t in (i.get("find") or "").split("|") if t.strip()]
@@ -158,9 +156,7 @@ def outcome(name, i, text, is_error):
                 "label": f"Searched “{short}” for {_quoted(terms)}" if terms else f"Read “{short}”",
                 "meta": ", ".join(x for x in (site, f"{found} passage{'s' if found != 1 else ''}" if terms else None) if x)}
     if name == "search_records":
-        n = out.get("count", len(out.get("results") or []))
-        return {"status": "ok", "meta": f"{n} result{'s' if n != 1 else ''} returned"
-                + (f" of {out['total_matches']} matches" if out.get("total_matches") and out["total_matches"] > n else "")}
+        return {"status": "ok", "meta": _search_result(out)}
     if name == "record_finding":
         finding = i.get("finding") or {}
         if finding.get("withdraw_case"):

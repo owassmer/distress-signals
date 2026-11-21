@@ -192,10 +192,10 @@ parallel.
 
 The system prompt is `config/mandate.md`, preceded by the operator's offering when
 `config/offering.local.md` exists (gitignored), and followed by today's date and what each tool does. It
-says that what the analyst knows about events ends at its training cutoff, before today, and that the
-records the tools reach are current. Without that, runs began by listing the events the model
+says that what the analyst knows about events ends at its training cutoff, before today, and that each
+source has its own publication and update dates. Without that, runs began by listing the events the model
 remembered, and kept returning to the same few. It says the records cover companies public or private. Federal awards and state and local payments reach any
-company those governments pay, and the web reaches the rest. A private company's revenue usually has to be
+company those governments pay, and the other record sources cover parties to proceedings, contracts and events, and the open web extends the search. A private company's revenue usually has to be
 estimated, with the basis stated, as an assumed input. It names no companies: excluded companies are enforced where a case or finding is saved, which is refused
 with the reason, because a company the context names is one the analyst reaches for. Nothing from earlier
 runs enters it.
@@ -246,8 +246,8 @@ mid-run too. Each revision is stamped with its run.
 
 | Tool | What it does |
 |---|---|
-| `search_records(source, query, filters)` | Searches the full text of SEC filings (`filings`), the Federal Register (`federal_register`), U.S. federal awards (`usaspending`), SEC filers by ticker or any name they have filed under (`sec`), or 19 state and local government payment ledgers (`ledgers`). Returns results with record IDs; nothing is stored. A Federal Register search also returns `read_all`, a record ID for its whole result set |
-| `read_record(id_or_url, find, offset, fresh)` | Reads a record (a web page or PDF, a federal award, an SEC filer's record, a ledger payee, a Federal Register search's whole result set), stores it, fills the workspace tables, and returns its text 12,000 characters at a time with the page's links, or with `find` the passages around given terms. A stored record is reused; `fresh` reads its source again |
+| `search_records(source, query, filters)` | Searches the [public record sources](#6-sources) and returns record IDs. Storage begins when the researcher reads a record. A Federal Register search also returns a `read_all` ID for the whole result set. |
+| `read_record(id_or_url, find, offset, fresh)` | Reads a result by its record ID, a web page or a PDF. Stores the record and returns its text in 12,000-character segments with available links. `find` returns passages around a term. `fresh` updates the same observation from the publisher. |
 | `compute(sql, save_as, note)` | Runs one read-only SQL query over the records this run has read and the findings and results it has recorded; returns up to 200 rows; `save_as` keeps up to 2,000 under an ID that inputs and findings cite |
 | `record_finding(finding)` | Records a fact, inference, conclusion, question or dropped lead; can withdraw a case, which updates its deal in HubSpot at once |
 | `lookup(id_or_query)` | Returns a saved case (editable form, status, company, event, results, cited passages with their sources, findings, recent revisions, and its deal's stage and outcome), finding or workspace result by ID; a company by ID, name, alias or domain, with its deals in HubSpot (the operator's own included), their stages and outcomes; an event by ID, key or title |
@@ -297,6 +297,7 @@ all of it from the start, and nothing about a source is held back for a later ca
 | SEC EDGAR | `sources/sec.py` | Finds filers by ticker, or by any name EDGAR holds for them, current or former, with or without a ticker. Names come from SEC's `company_tickers.json` (about 10,000 companies with a ticker) and `cik-lookup-data.txt` (every name of every filer, about a million), each kept for a day in `out/`; the second is indexed with SQLite full-text search in `out/sec_names.db`. Matching is by whole words. Companies with a ticker rank first. Up to 40 matches without one are looked up, and those with filings of their own rank above insiders and holders who file only ownership forms; each says what kind of filer it is, its industry, when it last filed and which forms it files. A filer's record: its former names, the forms in its recent filings (ownership forms by insiders and holders counted, not listed), its 40 most recent other filings with document and index links, and its reported revenue by quarter and year; a fourth quarter, reported only inside the year, is derived and labeled. Fills `revenue` and `filings`. Requires `SEC_USER_AGENT` |
 | USAspending | `sources/public_records.py` | Award search by recipient, keyword and agency; `active_on` reads every award still running on a date, back to 2007, and returns the largest with a count. Award detail: period of performance, values, parent, recipient, modifications, and every funding record, totaled at the source's grain (rows within a period add up; obligations are period amounts; outlays are fiscal-year-to-date, so each year takes each line's latest period). Fills `awards`, `award_funding`, `award_modifications` |
 | State and local payment ledgers | `sources/ledgers.py` | Payee search across 19 ledgers; a payee's payment lines for a period (the period is kept in the record ID). Fills `payments`. See `docs/data-sources.md` |
+| Additional public records | `sources/` | Issuer disclosures, awards and contract terms, health plans and insurers, legislative and regulatory proceedings, court dockets, bid protests, patent trials, drug filings, trade investigations, energy and licensing decisions, WARN notices and local agendas. [Sources, access and coverage](docs/data-sources.md#public-record-search) |
 | Any address | `sources/web.py` | HTML or PDF as text, with the page's links |
 | Everything else | WebSearch and WebFetch | |
 
@@ -533,7 +534,7 @@ python -m distress_signals ledgers [--verify]
 | `distress_signals/tools.py` | The seven tools' functions |
 | `distress_signals/mcp_server.py` | The tools over MCP, with their descriptions and the tool-call log |
 | `distress_signals/exposure.py` | The calculation |
-| `distress_signals/sources/` | `__init__.py` (the registry and the catalog), `filings.py`, `federal_register.py`, `sec.py`, `public_records.py`, `ledgers.py`, `web.py` |
+| `distress_signals/sources/` | Source registry, cards and public-record adapters (section 6) |
 | `distress_signals/llm.py` | The Claude CLI call and the transcript |
 | `distress_signals/agent.py` | The system prompt and each run's assignment |
 | `distress_signals/pipeline.py` | Runs |
@@ -548,7 +549,7 @@ python -m distress_signals ledgers [--verify]
 | `distress_signals/showcase.py` | Public guide export and legacy URL forwarding |
 | `distress_signals/names.py`, `util.py` | Name normalization, HTTP, dates, exclusions |
 | `distress_signals/__main__.py` | The commands |
-| `docs/data-sources.md` | The payment ledgers and federal awards in detail |
+| `docs/data-sources.md` | Source coverage, access and record fields |
 
 ## 13. Build order
 

@@ -12,7 +12,7 @@ import json
 import threading
 import time
 
-from . import db, hubspot
+from . import db, hubspot, sources
 from .util import OUT, found_line
 
 EVERY = 60            # seconds between notes
@@ -23,6 +23,31 @@ def _esc(text):
     return html.escape(text).replace("\n", "<br>")
 
 
+# Names used in the live HubSpot feed and the exported research log.
+def _search_label(args):
+    source = args.get("source") or ""
+    query = args.get("query") or ""
+    known = sources.all().get(source)
+    if known:
+        return known.label(query, args.get("filters") or {})
+    name = source.replace("_", " ") or "public records"
+    return f"Searched {name}" + (f" for “{query}”" if query else "")
+
+
+def _search_result(out):
+    count = out.get("count", len(out.get("results") or []))
+    summary = f"{count} result{'s' if count != 1 else ''} returned"
+    total = out.get("total_matches")
+    if isinstance(total, int) and total > count:
+        summary += f" of {total} matches"
+    errors = out.get("source_errors") or out.get("errors")
+    if errors:
+        summary += f" · {len(errors)} source{'s' if len(errors) != 1 else ''} unavailable"
+    elif out.get("complete") is False and not (isinstance(total, int) and total > count):
+        summary += " · search incomplete"
+    return summary
+
+
 def describe(use):
     """One plain line for a tool call."""
     name, i = use["name"].replace("mcp__ds__", ""), use.get("input") or {}
@@ -31,7 +56,7 @@ def describe(use):
     if name == "WebFetch":
         return f"Read without storing: {i.get('url')}"
     if name == "search_records":
-        return f"Searched {i.get('source')}: {i.get('query')}"
+        return _search_label(i)
     if name == "read_record":
         return f"Read {i.get('id_or_url')}" + (f", looking for {i['find']}" if i.get("find") else "")
     if name == "compute":
@@ -107,6 +132,13 @@ class Feed:
                 name, text = use.get("name", "").replace("mcp__ds__", ""), _result_text(b)
                 if b.get("is_error"):
                     self.items.append(("Refused", _esc(f"{name}: {text[:300]}")))
+                elif name == "search_records":
+                    try:
+                        result = json.loads(text)
+                    except ValueError:
+                        continue
+                    if isinstance(result, dict) and (result.get("source_errors") or result.get("errors")):
+                        self.items.append(("Search", _esc(_search_result(result))))
                 elif name == "save_opportunity":
                     self._saved(use, text)
                 elif name == "record_finding" and ((use.get("input") or {}).get("finding") or {}).get("withdraw_case"):

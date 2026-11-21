@@ -55,6 +55,23 @@ class CommunicationsTests(unittest.TestCase):
         self.assertIn("Estimated completion: March 11, 2024", obs["text"])
         self.assertIn("Kairos Power LLC", obs["text"])
 
+    def test_nrc_notice_read_preserves_dates_and_accessions_without_a_key(self):
+        doc = {"document_number": "2026-14565", "title": "Subsequent License Renewal Application",
+               "publication_date": "2026-07-20", "dates": "Hearing requests due September 18, 2026.", "type": "Notice",
+               "agencies": [{"slug": "nuclear-regulatory-commission"}]}
+        passage = "The application is available under Package Accession No. ML26168A222."
+        with (patch.dict(os.environ, {"NRC_ADAMS_API_KEY": ""}),
+              patch.object(records, "_json", side_effect=[{"results": [doc], "count": 1}, doc]) as api,
+              patch.object(records.web, "read", return_value={"text": passage})):
+            result = records.search("nrc_adams", "renewal", collection="notices", since="2026-07-01")
+            self.assertIn("conditions[publication_date][gte]", api.call_args.kwargs["params"])
+            row = result["results"][0]
+            self.assertEqual(row["dates"], doc["dates"])
+            obs = records.read("nrc_adams", row["record_id"].split(":", 1)[1])
+        self.assertEqual(obs["text"], passage)
+        self.assertEqual(obs["published"], "2026-07-20")
+        self.assertEqual(obs["data"]["adams_accessions"], ["ML26168A222"])
+
     def test_missing_adams_subscription_is_an_error(self):
         with patch.dict(os.environ, {"NRC_ADAMS_API_KEY": ""}):
             with self.assertRaisesRegex(SourceError, "NRC_ADAMS_API_KEY"):

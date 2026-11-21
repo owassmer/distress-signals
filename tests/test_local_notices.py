@@ -32,20 +32,33 @@ class LocalNoticesTests(unittest.TestCase):
             self.assertIn("a named vendor", read["text"])
             self.assertEqual(read["published"], event["EventAgendaLastPublishedUTC"])
 
-    def test_warn_archive_preserves_missing_dates(self):
+    def test_index_filters_effective_dates_and_links_original(self):
+        row = {"state": "OH", "employer": "Truck Body LLC", "notice_id": "b" * 32, "layoff_count": 73,
+               "notice_date": "2026-11-18", "effective_date": "2027-03-12",
+               "source_url": "https://agency.example/notices", "raw_notice_url": "https://agency.example/file.pdf"}
+        older = {**row, "effective_date": None, "notice_id": "a" * 32}
+        with patch.object(notices, "http_json", side_effect=[{"items": [older, row], "total": 101}, row]) as api:
+            result = notices.search("warn", "Truck", state="OH", effective_from="2027-03-01")
+            hit, = result["results"]
+            self.assertEqual(api.call_args.kwargs["params"]["employer"], "Truck")
+            self.assertEqual(result["next_page"], 2)
+            self.assertEqual(hit["notice_date"], "2026-11-18")
+            self.assertEqual(hit["effective_date"], "2027-03-12")
+            self.assertEqual(hit["raw_notice_url"], row["raw_notice_url"])
+            obs = notices.read("warn", hit["record_id"].partition(":")[2])
+            self.assertIn(row["source_url"], obs["text"])
+            self.assertEqual(obs["data"]["publisher"], "WARN Index")
+            self.assertIsNone(obs["published"])
+
+    def test_existing_archive_observation_can_still_refresh(self):
         row = {"state": "MI", "company": "Motor Co.", "id": "abcd", "effective_date": "2026-12-15",
                "notice_date": "", "first_seen": "2026-11-03", "employees_affected": "25"}
-        coverage = {"states": {"MI": {"status": "ok"}}, "generated_at": "2026-11-04"}
         directory = {"states": {"MI": {"url": "https://state.example/warn"}}}
         with patch.object(notices, "_archive_rows", return_value=[row]), \
-             patch.object(notices, "http_json", side_effect=[coverage, directory, directory]):
-            summary = notices.search("warn", "Motor", state="MI", effective_from="2026-12-01")
-            hit, = summary["results"]
-            self.assertIsNone(hit["notice_date"])
-            self.assertEqual(hit["first_seen"], "2026-11-03")
-            self.assertEqual(hit["state_source_url"], directory["states"]["MI"]["url"])
+             patch.object(notices, "http_json", return_value=directory):
             obs = notices.read("warn", "MI:abcd")
             self.assertIsNone(obs["published"])
+            self.assertIsNone(obs["data"]["notice_date"])
             self.assertEqual(obs["data"]["publisher"], "APVentureEngine normalized WARN archive")
             self.assertEqual(obs["native_id"], "MI:abcd")
 
@@ -66,6 +79,8 @@ class LocalNoticesTests(unittest.TestCase):
                 read = notices.read("warn", hit["record_id"].partition(":")[2])
             self.assertIn("2027-01-26", read["text"])
             self.assertIn("could not be read", read["text"])
+            self.assertEqual(read["url"], notices.WA)
+            self.assertEqual(read["data"]["letter_url"], hit["letter_url"])
             self.assertEqual(hit["effective_date"], "2027-01-26")
             self.assertEqual(hit["received_date"], "11/18/2026")
             self.assertEqual(result["next_page"], 2)

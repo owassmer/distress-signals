@@ -1,14 +1,15 @@
 """FDA product protections, advisory meetings and approvals, and USPTO trial records."""
 
 import datetime as dt
+import io
 import json
 import os
 import re
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 
 import requests
 
-from ..util import SourceError, http_json
+from ..util import SourceError, http_json, session, stable_id
 from . import web
 
 FDA = "https://api.fda.gov/drug"
@@ -22,13 +23,17 @@ SOURCES = {
                     "Use record_type=approvals for Drugs@FDA applications and recorded actions by sponsor, drug or application.",
     "ptab": "USPTO Patent Trial and Appeal Board proceedings and parties. Use record_type=documents for filings, "
             "including orders that set or revise deadlines. query accepts USPTO search terms or field syntax; "
-            "trial_number limits the search to one trial. Requires USPTO_API_KEY.",
+            "trial_number limits the search to one trial. Proceedings and documents require USPTO_API_KEY. "
+            "Use record_type=hearings to search the current public hearing schedule by party, proceeding or hearing "
+            "date (since/until) without a key. The calendar covers both trials and appeals.",
 }
 FILTERS = {
     "orange_book": {"expires_from", "expires_until", "limit", "offset"},
     "fda_advisory": {"record_type", "since", "until", "limit", "offset"},
-    "ptab": {"record_type", "trial_number", "limit", "offset"},
+    "ptab": {"record_type", "trial_number", "since", "until", "limit", "offset"},
 }
+HEARINGS = "https://www.uspto.gov/patents/ptab/hearings/hearing-schedules-ptab"
+HEARING_COLUMNS = ["Proceeding No.", "Serial No.", "PARTY", "Date", "Time", "Location", "Room"]
 PTAB_BAG = {"proceedings": "patentTrialProceedingDataBag", "documents": "patentTrialDocumentDataBag"}
 
 
@@ -84,7 +89,15 @@ def _fda_records(dataset, clauses, limit, offset):
 
 
 def _words(query, fields):
-    return "(" + " OR ".join(f"{field}:{_literal(query)}" for field in fields) + ")"
+    # openFDA indexes some name fields as case-sensitive keywords and others as analyzed text.
+    # Preserve phrase matching and include a case-insensitive Lucene term for mixed-case names.
+    terms = [_literal(form) for form in dict.fromkeys((query, query.upper(), query.lower(), query.title()))]
+    if any(c.isascii() and c.isalpha() for c in query):
+        escaped = "".join(f"[{c.lower()}{c.upper()}]" if c.isascii() and c.isalpha()
+                          else "\\" + c if c in r'\/.?+*|{}[]()"#@&<>~' else c for c in query)
+        terms.append(f"/{escaped}/")
+    names = "(" + " OR ".join(terms) + ")"
+    return "(" + " OR ".join(f"{field}:{names}" for field in fields) + ")"
 
 
 def _fda_url(dataset, expression):
@@ -170,10 +183,76 @@ def _meetings(query, start, end, limit, offset):
     return _page(rows[offset:offset + limit], len(rows), offset)
 
 
+def _hearing_pdf(url):
+    parts = urlsplit(url)
+    return (parts.scheme == "https" and parts.netloc == "www.uspto.gov"
+            and parts.path.startswith("/sites/default/files/") and parts.path.lower().endswith(".pdf")
+            and not parts.query and not parts.fragment and ".." not in parts.path)
+
+
+def _hearing_rows(url):
+    import pdfplumber
+
+    if not _hearing_pdf(url):
+        raise SourceError("Invalid USPTO hearing schedule URL")
+    with session().get(url, timeout=45, stream=True) as response:
+        response.raise_for_status()
+        content = response.raw.read(web.MAX_BYTES + 1, decode_content=True)
+    if len(content) > web.MAX_BYTES:
+        raise SourceError("USPTO hearing schedule exceeds the PDF size limit")
+    rows = []
+    with pdfplumber.open(io.BytesIO(content)) as pdf:
+        for page in pdf.pages:
+            table = page.extract_table() or []
+            if HEARING_COLUMNS not in table:
+                raise SourceError(f"Unrecognized USPTO schedule table on page {page.page_number} of {url}")
+            for cells in table[table.index(HEARING_COLUMNS) + 1:]:
+                if not any(cells):
+                    continue
+                if len(cells) != len(HEARING_COLUMNS) or not all(cells[i] for i in (0, 2, 3)):
+                    raise SourceError(f"Incomplete hearing row on page {page.page_number} of {url}")
+                proceedings, serial, parties, date, time, location, room = cells
+                try:
+                    day = dt.datetime.strptime(date.strip(), "%A, %B %d, %Y").date().isoformat()
+                except ValueError:
+                    raise SourceError(f"Unrecognized USPTO hearing date {date!r} in {url}") from None
+                ids = ["".join(x.split()) for x in proceedings.splitlines() if x.strip()]
+                hearing = {"proceedings": ids, "serial_number": serial, "parties": " ".join(parties.split()),
+                           "hearing_date": day, "time": time, "location": location, "room": room}
+                key = stable_id(*ids, day, time)
+                rows.append({"record_id": f"ptab:hearings:{key}:{url}", "title": f"{hearing['parties']} — {day}",
+                             "url": f"{url}#page={page.page_number}", **hearing})
+    return rows
+
+
+def _hearings(query, trial_number, start, end, limit, offset):
+    _bounds(start, end)
+    index = web.read(HEARINGS)
+    links = [link["url"] for link in index["data"]["links"]
+             if "hearing schedule" in link["text"].lower() and _hearing_pdf(link["url"])]
+    if not links:
+        raise SourceError(f"USPTO has no linked hearing schedule PDF at {HEARINGS}")
+    matches = []
+    for url in links:
+        for row in _hearing_rows(url):
+            if trial_number and "".join(trial_number.split()).upper() not in row["proceedings"]:
+                continue
+            day = row["hearing_date"]
+            if (start and day < start) or (end and day > end):
+                continue
+            terms = " ".join([row["title"], *row["proceedings"], row["serial_number"] or "", row["location"] or ""])
+            if query and query.casefold() not in terms.casefold() and "".join(query.split()).upper() not in row["proceedings"]:
+                continue
+            matches.append(row)
+    matches.sort(key=lambda r: (r["hearing_date"], r["proceedings"]))
+    return {**_page(matches[offset:offset + limit], len(matches), offset), "schedule_editions": links}
+
+
 def _odp(path, params=None):
     key = os.environ.get("USPTO_API_KEY")
     if not key:
-        raise SourceError("PTAB searches and reads require USPTO_API_KEY from the USPTO Open Data Portal")
+        raise SourceError("PTAB proceedings and filings require USPTO_API_KEY from the USPTO Open Data Portal. "
+                          "Use record_type=hearings for the public PTAB hearing calendar without a key.")
     return _request(f"{PTAB}/{path}", params=params, headers={"X-API-KEY": key})
 
 
@@ -191,7 +270,7 @@ def _ptab_row(item, kind):
 
 def _ptab(query, kind, trial_number, limit, offset):
     if kind not in PTAB_BAG:
-        raise SourceError("PTAB record_type must be proceedings or documents")
+        raise SourceError("PTAB record_type must be proceedings, documents or hearings")
     params = {"limit": limit, "offset": offset}
     terms = [f"({query})"] if query else []
     if trial_number:
@@ -213,7 +292,12 @@ def search(source, query=None, *, limit=20, offset=0, **filters):
         raise SourceError("Use a limit from 1 to 99 and a nonnegative offset")
     limit, offset = int(limit), int(offset)
     if source == "ptab":
-        return _ptab(query, filters.get("record_type", "proceedings"), filters.get("trial_number"), limit, offset)
+        kind = filters.get("record_type", "proceedings")
+        if kind == "hearings":
+            return _hearings(query, filters.get("trial_number"), filters.get("since"), filters.get("until"), limit, offset)
+        if filters.get("since") or filters.get("until"):
+            raise SourceError("since and until filter scheduled PTAB hearings; use ODP field syntax for other dates")
+        return _ptab(query, kind, filters.get("trial_number"), limit, offset)
     if source == "orange_book":
         return _orange(query, filters.get("expires_from"), filters.get("expires_until"), limit, offset)
     if source == "fda_advisory":
@@ -260,6 +344,16 @@ def read(source, native_id):
     if source in ("orange_book", "fda_advisory"):
         return _read_fda(source, native_id)
     kind, _, identifier = native_id.partition(":")
+    if source == "ptab" and kind == "hearings":
+        key, _, url = identifier.partition(":")
+        if not re.fullmatch(r"[0-9a-f]{20}", key) or not _hearing_pdf(url):
+            raise SourceError("Invalid PTAB hearing record ID")
+        rows = [row for row in _hearing_rows(url) if row["record_id"] == f"ptab:{native_id}"]
+        if len(rows) != 1:
+            raise SourceError("The cited USPTO schedule does not contain a unique matching hearing")
+        row = rows[0]
+        return {"source": source, "kind": "ptab_hearing", "native_id": native_id, "url": row["url"],
+                "published": None, "data": row, "text": json.dumps(row, ensure_ascii=False, indent=2)}
     if source != "ptab" or kind not in PTAB_BAG or not re.fullmatch(r"[A-Za-z0-9_-]+", identifier):
         raise SourceError("Invalid PTAB record ID")
     page = _odp(f"{kind}/{identifier}")

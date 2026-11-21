@@ -1,6 +1,6 @@
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlparse
 
 import requests
@@ -94,3 +94,48 @@ class DrugPatentTest(unittest.TestCase):
         self.assertEqual(observation["native_id"], "documents:12345")
         self.assertEqual(observation["published"], "2025-12-02")
         self.assertIn("March 3, 2026", observation["text"])
+
+    @patch.object(source, "http_json")
+    def test_fda_entity_search_preserves_original_spelling_and_matches_other_case(self, get):
+        get.return_value = {"results": [], "meta": {"results": {"total": 0}}}
+        for query in ("Sandoz", "SANDOZ", "sandoz", "SaNdOz"):
+            source.search("fda_advisory", query, record_type="approvals")
+            expression = get.call_args.kwargs["params"]["search"]
+            self.assertIn(f'"{query}"', expression)
+            self.assertIn('/[sS][aA][nN][dD][oO][zZ]/', expression)
+
+    @patch.object(source, "_hearing_rows")
+    @patch.object(source.web, "read")
+    def test_keyless_hearing_lookup_retains_joint_proceedings_and_source_edition(self, index, pdf):
+        url = "https://www.uspto.gov/sites/default/files/documents/112026-ptab-dec26.pdf"
+        index.return_value = {"data": {"links": [{"text": "PTAB December 2026 Hearing Schedule [PDF]", "url": url}]}}
+        ids = ["IPR2025-01516", "IPR2025-01540", "IPR2025-01541"]
+        key = source.stable_id(*ids, "2026-12-08", "11:00 AM (CST)")
+        ref = f"ptab:hearings:{key}:{url}"
+        pdf.return_value = [{"record_id": ref, "proceedings": ids, "serial_number": "", "location": "DALLAS, TX",
+                             "title": "SAMSUNG ELECTRONICS CO LTD v. ONE-E-WAY INC.", "hearing_date": "2026-12-08",
+                             "url": url + "#page=1"}]
+        with patch.dict(os.environ, {"USPTO_API_KEY": ""}):
+            page = source.search("ptab", "one-e-way", record_type="hearings", trial_number="IPR 2025-01540",
+                                 since="2026-12-01", until="2026-12-31")
+            self.assertEqual(page["total_matches"], 1)
+            obs = source.read(*page["results"][0]["record_id"].split(":", 1))
+            self.assertEqual(obs["kind"], "ptab_hearing")
+            self.assertEqual(obs["data"]["proceedings"], ids)
+        pdf.assert_called_with(url)
+
+    @patch("pdfplumber.open")
+    @patch.object(source, "session")
+    def test_hearing_pdf_reads_ruled_cells_across_lines(self, session, open_pdf):
+        page = MagicMock(page_number=1)
+        page.extract_table.return_value = [source.HEARING_COLUMNS, ["", "", "", "", "", "", ""],
+            ["IPR 2025-01516\nIPR 2025-01540\nIPR 2025-01541", "", "SAMSUNG ELECTRONICS CO LTD\nv.\nONE-E-WAY INC.",
+             "Tuesday, December 8, 2026", "11:00 AM (CST)", "DALLAS, TX", "155"]]
+        open_pdf.return_value.__enter__.return_value.pages = [page]
+        session.return_value.get.return_value.__enter__.return_value.raw.read.return_value = b"pdf"
+        url = "https://www.uspto.gov/sites/default/files/documents/112026-ptab-dec26.pdf"
+        row, = source._hearing_rows(url)
+        self.assertEqual(row["hearing_date"], "2026-12-08")
+        self.assertEqual(row["proceedings"], ["IPR2025-01516", "IPR2025-01540", "IPR2025-01541"])
+        self.assertEqual(row["parties"], "SAMSUNG ELECTRONICS CO LTD v. ONE-E-WAY INC.")
+        self.assertEqual(row["url"], url + "#page=1")

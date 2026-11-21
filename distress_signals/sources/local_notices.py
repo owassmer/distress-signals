@@ -16,7 +16,7 @@ from . import web
 
 
 SOURCES = {
-    "warn": "Employer WARN notices. Nationwide discovery searches a normalized archive; state=WA "
+    "warn": "Employer WARN notices. Nationwide discovery searches WARN Index by employer; state=WA "
             "searches Washington's official directory and links filed letters. Filter on effective_from/effective_until.",
     "local_agendas": "Published Legistar agenda items. Give the jurisdiction's client slug, meeting "
                      "date range (since/until), and optional text from an item, matter or agenda note. "
@@ -26,6 +26,8 @@ FILTERS = {
     "warn": {"state", "effective_from", "effective_until", "page"},
     "local_agendas": {"client", "since", "until", "page"},
 }
+WARN_INDEX = "https://warnindex.com"
+# Existing observations may still identify rows in the APVentureEngine archive.
 ARCHIVE = "https://raw.githubusercontent.com/APVentureEngine/warn-act-notices/main/data"
 WA = "https://fortress.wa.gov/esd/file/WARN/Public/SearchWARN.aspx"
 LEGISTAR = "https://webapi.legistar.com/v1"
@@ -72,27 +74,35 @@ def _warn_row(row, directory):
     }
 
 
-def _warn_archive(query, state, start, end, page):
-    coverage = http_json(f"{ARCHIVE}/coverage.json")
-    states = coverage["states"]
-    if state and state not in states:
-        raise SourceError(f"The WARN archive covers these jurisdictions: {', '.join(sorted(states))}.")
-    directory = http_json(f"{ARCHIVE}/source_formats.json")["states"]
-    query = query.casefold()
-    matches = []
-    for row in _archive_rows(state):
-        names = (row.get(key) or "" for key in ("company", "company_canonical", "company_dba", "location"))
-        if any(query in name.casefold() for name in names) and _includes(row["effective_date"], start, end):
-            matches.append(row)
-    matches.sort(key=lambda r: (r["notice_date"], r["effective_date"], r["id"]), reverse=True)
-    offset = (page - 1) * 25
-    more = offset + 25 < len(matches)
-    return {"results": [_warn_row(row, directory) for row in matches[offset:offset + 25]],
-            "matching_rows": len(matches), "complete": not more, "next_page": page + 1 if more else None,
-            "archive_generated_at": coverage.get("generated_at"),
-            "coverage": states[state] if state else sorted(states),
-            "note": "These are third-party transcriptions. state_source_url, when supplied, opens "
-                    "the state's notice portal. first_seen is when the archive saw a row."}
+def _index_row(row):
+    record_id = row["notice_id"]
+    return {"record_id": f"warn:index:{record_id}", "title": row["employer"],
+            "url": f"{WARN_INDEX}/notices/{record_id}", "publisher": "WARN Index",
+            "state": row["state"], "location": row.get("location"), "address": row.get("address"),
+            "notice_date": row.get("notice_date"), "effective_date": row.get("effective_date"),
+            "employees_affected": row.get("layoff_count"), "notice_type": row.get("closure_type"),
+            "state_source_url": row.get("source_url"), "raw_notice_url": row.get("raw_notice_url"),
+            "scraped_at": row.get("scraped_at")}
+
+
+def _warn_index(query, state, start, end, page):
+    # The publisher's after/before filter is on the notice date. The planned layoff is a different date.
+    size = 50
+    offset = (page - 1) * size
+    params = {"offset": offset, "limit": size, "sort_by": "notice_date", "sort_dir": "desc"}
+    if state:
+        params["state"] = state
+    if query:
+        params["employer"] = query
+    data = http_json(f"{WARN_INDEX}/api/notices", params=params)
+    items = data["items"]
+    more = offset + len(items) < data["total"]
+    return {"results": [_index_row(r) for r in items if _includes(r.get("effective_date"), start, end)],
+            "notices_scanned": len(items), "total_before_effective_date_filter": data["total"],
+            "complete": not more, "next_page": page + 1 if more else None,
+            "note": "WARN Index transcribes state records. Each page checks the next 50 notices in filing-date "
+                    "order and filters their effective dates. Follow state_source_url or raw_notice_url "
+                    "to check the original record."}
 
 
 def _wa_form(query, page):
@@ -245,7 +255,7 @@ def search(source, query, **filters):
         start, end = _dates(filters.get("effective_from"), filters.get("effective_until"))
         if state == "WA":
             return _warn_washington(query or "", start, end, page)
-        return _warn_archive(query or "", state, start, end, page)
+        return _warn_index(query or "", state, start, end, page)
     except (requests.RequestException, ValueError, KeyError, TypeError) as e:
         raise SourceError(f"{source} could not read the publisher's records ({type(e).__name__}).") from None
 
@@ -266,6 +276,7 @@ def _read_wa(native_id):
                     letter = web.read(row["letter_url"])
                     lines.extend(["", "Filed letter", letter["text"]])
                 except (SourceError, PyPdfError):
+                    row["url"] = row["directory_url"]
                     lines.append("The linked letter could not be read. The fields above come from Washington ESD's directory.")
             return {"kind": "record", "source": "warn", "native_id": native_id, "url": row["url"],
                     "published": None, "text": "\n".join(lines), "data": row}
@@ -291,6 +302,15 @@ def read(source, native_id):
             for item in data["agenda_items"]:
                 lines.append("")
                 lines.extend(f"{k}: {v}" for k, v in item.items() if v is not None)
+        elif source == "warn" and native_id.startswith("index:"):
+            row_id = native_id.removeprefix("index:")
+            if not re.fullmatch(r"[a-f0-9]{32}", row_id):
+                raise SourceError("Invalid WARN Index notice ID.")
+            row = http_json(f"{WARN_INDEX}/api/notices/{row_id}")
+            data = _index_row(row)
+            published = None
+            lines = [data["publisher"], data["url"]]
+            lines.extend(f"{k}: {v}" for k, v in row.items() if v is not None)
         else:
             state, row_id = native_id.split(":")
             if not re.fullmatch(r"[A-Z]{2}", state) or not re.fullmatch(r"[a-fA-F0-9]+", row_id):

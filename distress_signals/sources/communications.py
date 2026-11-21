@@ -11,6 +11,7 @@ from urllib.parse import urlencode
 import requests
 
 from ..util import SourceError, http_json, session, stable_id
+from . import federal_register, web
 
 ECFS = "https://publicapi.fcc.gov/ecfs/filings"
 PRS = "https://auctiondata.fcc.gov/public/projects"
@@ -20,12 +21,13 @@ AUCTION_REPORTS = {"announcements", "bidder_status"}
 SOURCES = {
     "fcc": "FCC docket filings by words, docket or filer. For an auction use auction_number, with report "
            "filings (default), announcements or bidder_status. The latter two search the auction's published CSV.",
-    "nrc_adams": "NRC documents by text, docket, document_type or organization (author or addressee). "
-                 "since and until filter the date added to the public library. Requires NRC_ADAMS_API_KEY.",
+    "nrc_adams": "ADAMS documents by text, docket, document_type or organization; since/until filter the date added. "
+                 "Requires NRC_ADAMS_API_KEY. For keyless search set collection=notices: NRC Federal Register notices "
+                 "by words and publication dates, with GPO text, agency deadlines and cited ADAMS accessions.",
 }
 FILTERS = {
     "fcc": {"docket", "filer", "auction_number", "report", "limit", "offset"},
-    "nrc_adams": {"docket", "document_type", "organization", "since", "until", "limit", "offset"},
+    "nrc_adams": {"collection", "docket", "document_type", "organization", "since", "until", "limit", "offset"},
 }
 
 
@@ -47,7 +49,8 @@ def _fcc_json(url, **options):
 def _adams_json(url, **options):
     key = os.getenv("NRC_ADAMS_API_KEY")
     if not key:
-        raise SourceError("Set NRC_ADAMS_API_KEY to a subscription key from https://adams-api-developer.nrc.gov/")
+        raise SourceError("Set NRC_ADAMS_API_KEY from https://adams-api-developer.nrc.gov/ for the ADAMS library, "
+                          "or search nrc_adams with collection=notices for keyless NRC Federal Register notices.")
     return _json("NRC ADAMS", url, headers={"Ocp-Apim-Subscription-Key": key}, **options)
 
 
@@ -159,10 +162,75 @@ def _adams(query, limit, offset, docket=None, document_type=None, organization=N
             "next_offset": next_offset if more else None}
 
 
+def _notice_row(doc):
+    number, published = doc["document_number"], doc["publication_date"]
+    return {"record_id": f"nrc_adams:notice/{number}", "title": doc["title"],
+            "url": f"https://www.govinfo.gov/content/pkg/FR-{published}/html/{number}.htm",
+            "collection": "NRC Federal Register notices", "published": published, "action": doc.get("action"),
+            "dates": doc.get("dates"), "docket_ids": doc.get("docket_ids"), "comments_close": doc.get("comments_close_on")}
+
+
+def _notices(query, limit, offset, since=None, until=None, **other):
+    if other:
+        raise SourceError("For collection=notices search by words in query and publication dates in since/until")
+    if offset >= federal_register.CAP:
+        raise SourceError("Federal Register result windows end at 10,000; narrow the query or publication dates")
+    params = {"conditions[agencies][]": "nuclear-regulatory-commission", "conditions[type][]": "NOTICE",
+              "per_page": 100, "order": "newest",
+              "fields[]": ["document_number", "publication_date", "title", "action", "dates", "docket_ids", "comments_close_on"]}
+    if query:
+        params["conditions[term]"] = query
+    for side, value in (("gte", since), ("lte", until)):
+        if value:
+            try:
+                params[f"conditions[publication_date][{side}]"] = dt.date.fromisoformat(value).isoformat()
+            except (TypeError, ValueError) as exc:
+                raise SourceError("Notice publication dates use YYYY-MM-DD") from exc
+    if since and until and since > until:
+        raise SourceError("since must be on or before until")
+    page, skip = divmod(offset, 100)
+    data = _json("NRC Federal Register notices", federal_register.API, params={**params, "page": page + 1})
+    count = data["count"]
+    docs = data["results"][skip:skip + limit]
+    if len(docs) < limit and offset + len(docs) < min(count, federal_register.CAP):
+        extra = _json("NRC Federal Register notices", federal_register.API, params={**params, "page": page + 2})
+        docs += extra["results"][:limit - len(docs)]
+    end = offset + len(docs)
+    result = {"results": [_notice_row(doc) for doc in docs], "total_matches": count,
+              "complete": end >= count and count < federal_register.CAP,
+              "next_offset": end if docs and end < min(count, federal_register.CAP) else None}
+    if count >= federal_register.CAP:
+        result["note"] = "The Federal Register caps a search at 10,000 matches. Narrow the publication dates for the rest."
+    return result
+
+
+def _read_notice(number):
+    if not re.fullmatch(r"[A-Za-z0-9-]+", number):
+        raise SourceError("Invalid Federal Register document number")
+    doc = _json("NRC Federal Register notice", f"{federal_register.BASE}/documents/{number}.json")
+    if (doc.get("document_number") != number or doc.get("type") != "Notice"
+            or not any(a.get("slug") == "nuclear-regulatory-commission" for a in doc.get("agencies", []))):
+        raise SourceError("The document is not an NRC Federal Register notice")
+    row = _notice_row(doc)
+    notice = web.read(row["url"])
+    # Accessions identify cited material; the notice supplies the surrounding text and dates.
+    accessions = list(dict.fromkeys(re.findall(r"\bML[0-9]{5}[A-Z0-9][0-9]{3}\b", notice["text"])))
+    row["links"] = [{"text": f"ADAMS {acc}", "url": "https://adamswebsearch2.nrc.gov/webSearch2/main.jsp?"
+                     + urlencode({"AccessionNumber": acc})} for acc in accessions]
+    row["adams_accessions"] = accessions
+    return {"source": "nrc_adams", "kind": "nrc_notice", "native_id": "notice/" + number, "url": row["url"],
+            "published": row["published"], "data": row, "text": notice["text"]}
+
+
 def search(source, query, limit=25, offset=0, **filters):
     if type(limit) is not int or not 1 <= limit <= 99 or type(offset) is not int or offset < 0:
         raise SourceError("limit must be an integer from 1 to 99 and offset a nonnegative integer")
     if source == "nrc_adams":
+        collection = filters.pop("collection", "adams")
+        if collection == "notices":
+            return _notices(query or "", limit, offset, **filters)
+        if collection != "adams":
+            raise SourceError("NRC collection is adams or notices")
         return _adams(query or "", limit, offset, **filters)
     report = filters.pop("report", "filings")
     auction = filters.get("auction_number")
@@ -196,6 +264,8 @@ def _adams_text(content):
 
 
 def read(source, native_id):
+    if source == "nrc_adams" and native_id.startswith("notice/"):
+        return _read_notice(native_id.removeprefix("notice/"))
     if source == "nrc_adams":
         if not re.fullmatch(r"[A-Za-z0-9-]+", native_id):
             raise SourceError("Invalid ADAMS accession number")

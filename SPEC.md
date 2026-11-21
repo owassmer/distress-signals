@@ -192,10 +192,10 @@ parallel.
 
 The system prompt is `config/mandate.md`, preceded by the operator's offering when
 `config/offering.local.md` exists (gitignored), and followed by today's date and what each tool does. It
-says that what the analyst knows about events ends at its training cutoff, before today, and that the
-records the tools reach are current. Without that, runs began by listing the events the model
+says that what the analyst knows about events ends at its training cutoff, before today, and that each
+source has its own publication and update dates. Without that, runs began by listing the events the model
 remembered, and kept returning to the same few. It says the records cover companies public or private. Federal awards and state and local payments reach any
-company those governments pay, and the web reaches the rest. A private company's revenue usually has to be
+company those governments pay, and the other record sources cover parties to proceedings, contracts and events, and the open web extends the search. A private company's revenue usually has to be
 estimated, with the basis stated, as an assumed input. It names no companies: excluded companies are enforced where a case or finding is saved, which is refused
 with the reason, because a company the context names is one the analyst reaches for. Nothing from earlier
 runs enters it.
@@ -245,8 +245,8 @@ mid-run too. Each revision is stamped with its run.
 
 | Tool | What it does |
 |---|---|
-| `search_records(source, query, filters)` | Searches the full text of SEC filings (`filings`), the Federal Register (`federal_register`), U.S. federal awards (`usaspending`), SEC filers by ticker or any name they have filed under (`sec`), or 19 state and local government payment ledgers (`ledgers`). Returns results with record IDs; nothing is stored. A Federal Register search also returns `read_all`, a record ID for its whole result set |
-| `read_record(id_or_url, find, offset, fresh)` | Reads a record (a web page or PDF, a federal award, an SEC filer's record, a ledger payee, a Federal Register search's whole result set), stores it, fills the workspace tables, and returns its text 12,000 characters at a time with the page's links, or with `find` the passages around given terms. A stored record is reused; `fresh` reads its source again |
+| `search_records(source, query, filters)` | Searches the [public record sources](#6-sources) and returns record IDs. Storage begins when the researcher reads a record. A Federal Register search also returns a `read_all` ID for the whole result set. |
+| `read_record(id_or_url, find, offset, fresh)` | Reads a result by its record ID, a web page or a PDF. Stores the record and returns its text in 12,000-character segments with available links. `find` returns passages around a term. `fresh` updates the same observation from the publisher. |
 | `compute(sql, save_as, note)` | Runs one read-only SQL query over the records this run has read and the findings and results it has recorded; returns up to 200 rows; `save_as` keeps up to 2,000 under an ID that inputs and findings cite |
 | `record_finding(finding)` | Records a fact, inference, conclusion, question or dropped lead; can withdraw a case, which updates its deal in HubSpot at once |
 | `lookup(id_or_query)` | Returns a saved case (editable form, status, company, event, results, cited passages with their sources, findings, recent revisions, and its deal's stage and outcome), finding or workspace result by ID; a company by ID, name, alias or domain, with its deals in HubSpot (the operator's own included), their stages and outcomes; an event by ID, key or title |

@@ -54,7 +54,10 @@ flowchart LR
 - **Provenance.** Every figure is reported, derived (a checked workspace result, or the calculation), or
   assumed (with the reasoning). A reported figure cites the relevant section of text, checked word for word
   against the stored record. The section is the sentence that states the figure, or its line item with the
-  table's heading, never the number alone. Saving refuses any cited passage of fewer than three words.
+  table's heading, never the number alone. Saving refuses any cited passage of fewer than three words. Once a
+  passage is found in the record, what is stored and shown is the whole of the sentences it falls in (sentencex),
+  whatever span the analyst quoted; where lines run without sentence punctuation, as table and form rows do, the
+  whole of its lines.
 - **The assignment is what the operator gives.** The analyst is told the mandate, what each tool does,
   and the operator's offering when one is supplied. A run's prompt is its assignment: the mandate, or a
   subject or brief the operator selects, or the case to refresh. Prior research is retrievable by ID or

@@ -11,6 +11,7 @@ JSON-able values and raises ToolError with a message the researcher can act on.
 The analyst owns the economic judgment; code observes and computes. Every input in a case carries
 one provenance (reported, derived or assumed) and the store checks the first two."""
 
+import bisect
 import copy
 import hashlib
 import json
@@ -68,21 +69,74 @@ def _norm(s):
     return re.sub(r"\s+", " ", s).strip().casefold()
 
 
+def _parts(passage):
+    """The parts of a passage to find, in order: '...' marks an omission between them."""
+    return [p for p in (frag.strip(" \"'") for frag in re.split(r"\.\.\.", _norm(passage))) if p]
+
+
+def _find(frag, t, pos):
+    i = t.find(frag, pos)
+    if i < 0:
+        frag = frag.rstrip(".,;:")
+        i = t.find(frag, pos) if frag else -1
+    return i, len(frag)
+
+
 def quoted(passage, text):
     """True when the passage appears in the text, in order, allowing '...' for omissions."""
     t, pos = _norm(text), 0
-    for frag in re.split(r"\.\.\.", _norm(passage)):
-        frag = frag.strip(" \"'")
-        if not frag:
-            continue
-        i = t.find(frag, pos)
-        if i < 0:
-            frag = frag.rstrip(".,;:")
-            i = t.find(frag, pos)
+    for frag in _parts(passage):
+        i, n = _find(frag, t, pos)
         if i < 0:
             return False
-        pos = i + len(frag)
+        pos = i + n
     return True
+
+
+def whole_sentences(passage, text):
+    """The passage as the whole sentences of the text it falls in, by sentencex (a line broken inside a sentence
+    does not end it), with each sentence's whitespace made single spaces; where lines run without sentence
+    punctuation, as the rows of a table or a form do, each line is its own. Where the passage
+    omits text between them ('...'), the sentences either side are joined by ' \u2026 '. The passage as given where
+    it cannot be placed in the sentences."""
+    from sentencex import segment
+    spans, at = [], 0
+    for s in segment("en", text):
+        start = text.find(s, at) if s else -1
+        if start < 0:
+            continue
+        at = start + len(s)
+        if "\n" in s.strip() and not s.rstrip().rstrip("\"')]\u201d\u2019").endswith((".", "!", "?", ":", ";")):
+            # lines that end in no sentence punctuation are rows of a table or a form: each line is its own
+            line = start
+            for row in s.split("\n"):
+                spans.append((line, line + len(row)))
+                line += len(row) + 1
+        else:
+            spans.append((start, at))
+    kept, starts, normed, pos = [], [], [], 0
+    for s, e in spans:
+        n = _norm(text[s:e])
+        if n:
+            kept.append((s, e))
+            starts.append(pos)
+            normed.append(n)
+            pos += len(n) + 1
+    flat, pos, chosen = " ".join(normed), 0, []
+    for frag in _parts(passage):
+        i, n = _find(frag, flat, pos)
+        if i < 0:
+            return passage
+        first, last = bisect.bisect_right(starts, i) - 1, bisect.bisect_right(starts, i + n - 1) - 1
+        chosen += [k for k in range(first, last + 1) if k not in chosen]
+        pos = i + n
+    out, prev = [], None
+    for k in sorted(chosen):
+        if prev is not None:
+            out.append(" " if k == prev + 1 or not text[kept[prev][1]:kept[k][0]].strip() else " \u2026 ")
+        out.append(" ".join(text[kept[k][0]:kept[k][1]].split()))
+        prev = k
+    return "".join(out) or passage
 
 
 _WORD = re.compile(r"[^\W\d_]{2,}")  # a word: two or more letters
@@ -133,6 +187,7 @@ def _cite(con, cite, where, cited_ids):
             raise ToolError(f"{where}: passage not found word for word in {obs['id']} ({obs.get('url') or obs['source']}): "
                             f"{passage[:160]!r}. Quote it exactly, using '...' for omissions; read_record(id, find=...) "
                             "shows the stored text.")
+        passage = whole_sentences(passage, obs["text"])  # what is stored and shown is the whole sentence quoted from
         checked = True
     elif obs["data"].get("unchecked"):
         if passage not in obs["data"].setdefault("passages", []):

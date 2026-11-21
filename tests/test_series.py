@@ -2,6 +2,7 @@
 read stores, and that every declared series builds its table and the views across series. Each series is tried
 against its publisher by tests/live_series.py."""
 import datetime as dt
+import json
 import os
 import tempfile
 import unittest
@@ -278,6 +279,41 @@ class SingleAudits(unittest.TestCase):
 
 
 class Citations(unittest.TestCase):
+    TEXT = ("Item 2. Results of Operations\n\nNearly all our revenue results from sales in the\nUnited States, but we also "
+            "have limited sales of replacement batteries in the U.K. to hospitals enrolled in our study. We had 40 implants "
+            "at 24 hospitals.\n\n| Average selling price in ending backlog | $ | 143,191 | $ | 137,634 | 4.0 | %\n"
+            "| Total backlog | $ | 2,900.0 | $ | 3,100.0 | (6.5) | %\n\nThe petition names the Company. Commerce will "
+            "examine all known producers.")
+
+    def test_a_cited_passage_is_stored_as_the_whole_sentences_it_falls_in(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, DISTRESS_DB=str(Path(folder) / "test.db"),
+                                                                    DISTRESS_RUN_ID="test"):
+            with db.connect() as con:
+                db.put_observation(con, {"id": "obs_q", "kind": "record", "source": "edgar_filing_documents",
+                                         "retrieved_at": "2026-11-21", "url": "https://example.org/10q", "text": self.TEXT})
+            cases = {
+                "Nearly all our revenue results from sales in the":
+                    "Nearly all our revenue results from sales in the United States, but we also have limited sales of "
+                    "replacement batteries in the U.K. to hospitals enrolled in our study.",
+                "Average selling price in ending backlog | $ | 143,191":
+                    "| Average selling price in ending backlog | $ | 143,191 | $ | 137,634 | 4.0 | %",
+                "The petition names the Company ... all known producers":
+                    "The petition names the Company. Commerce will examine all known producers.",
+                "Nearly all our revenue ... We had 40 implants":
+                    "Nearly all our revenue results from sales in the United States, but we also have limited sales of "
+                    "replacement batteries in the U.K. to hospitals enrolled in our study. We had 40 implants at 24 hospitals.",
+                "Nearly all our revenue ... The petition names":
+                    "Nearly all our revenue results from sales in the United States, but we also have limited sales of "
+                    "replacement batteries in the U.K. to hospitals enrolled in our study. \u2026 The petition names the Company.",
+            }
+            for given, stored in cases.items():
+                with self.subTest(given=given):
+                    tools.record_finding({"kind": "fact", "statement": "The filing states this.", "evidence": [{"observation_id": "obs_q", "passage": given}]})
+                    with db.connect() as con:
+                        got = json.loads(con.execute("SELECT evidence FROM findings ORDER BY rowid DESC LIMIT 1").fetchone()[0])[0]
+                    self.assertEqual(got["passage"], stored)
+                    self.assertTrue(tools.quoted(got["passage"], self.TEXT))  # a revision that sends it back is checked the same way
+
     def test_a_url_citation_resolves_to_the_record_holding_the_passage(self):
         url = "https://example.org/ratings.zip"
         with tempfile.TemporaryDirectory() as folder, db.connect(Path(folder) / "test.db") as con:

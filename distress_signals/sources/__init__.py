@@ -21,8 +21,9 @@ A field's type is how it is searched, and the same for every series:
   date                a range                                        FIELD_from, FIELD_until
   amount, number      a range                                        FIELD_min, FIELD_max
   full text           the record's document: matched by the query, returned when the record is read
-A field holds one value, or several where it is marked many. The fields are what a search returns for every
-record; reading a record adds its document.
+A field holds one value, or several where it is marked many. A series kept by its parent (a filer's reported
+figures, a docket's entries) marks the parent's field required, and a search gives it. The fields are what a
+search returns for every record; reading a record adds its document.
 
 An adapter's search takes a Search and returns a page of records. It takes from the Search the filters its
 publisher applies; whatever it leaves, the registry applies to the records it returns, and keeps asking for
@@ -63,6 +64,7 @@ class Field:
     name: str
     type: object  # one of TYPES, or a tuple of the values the field takes
     many: bool = False  # a record can hold several
+    required: bool = False  # the series is read by this field: a search gives it
 
     def __post_init__(self):
         listed = isinstance(self.type, tuple)
@@ -80,9 +82,10 @@ class Field:
         return self.type in ("date", "amount", "number")
 
     def card(self):
+        need = ", required" if self.required else ""
         if self.listed:
-            return f"{self.name} ({' | '.join(self.listed)}{', several' if self.many else ''})"
-        return f"{self.name} ({self.type}{'s' if self.many else ''})"
+            return f"{self.name} ({' | '.join(self.listed)}{', several' if self.many else ''}{need})"
+        return f"{self.name} ({self.type}{'s' if self.many else ''}{need})"
 
     def keys(self):
         """The filter keys this field takes: {key: 'is' | 'lo' | 'hi'}."""
@@ -95,8 +98,8 @@ class Field:
         return {self.name: "is"}
 
 
-def F(name, type, many=False):
-    return Field(name, tuple(type) if isinstance(type, (list, tuple)) else type, many)
+def F(name, type, many=False, required=False):
+    return Field(name, tuple(type) if isinstance(type, (list, tuple)) else type, many, required)
 
 
 @dataclass(frozen=True)
@@ -359,6 +362,9 @@ def _spec(series, query, filters):
                 out.setdefault(f.name, {})[part] = float(value)
             except (TypeError, ValueError):
                 raise SourceError(f"{key} is a number; not {value!r}")
+    missing = [f.name for f in series.fields if f.required and not (out.get(f.name) or {}).get("is")]
+    if missing:
+        raise SourceError(f"{series.id} is read by {' and '.join(missing)}: give {'it' if len(missing) == 1 else 'them'} in filters.")
     return {"q": " ".join((query or "").split()), "f": out}
 
 
@@ -539,11 +545,12 @@ def _row(series, record):
 
 
 def _heading(series, record):
-    """What a record is called: its title, else its first text, else its first name."""
-    for f in sorted(series.fields, key=lambda f: (f.name != "title", f.type != "text")):
-        if f.type in ("text", "name") and record.get(f.name):
-            return _text(record[f.name])[:160]
-    return str(record["id"])
+    """What a record is called: its title; else its first name and its first text."""
+    if record.get("title"):
+        return _text(record["title"])[:160]
+    parts = [next((_text(record[f.name]) for f in series.fields if f.type == kind and record.get(f.name)), None)
+             for kind in ("name", "text")]
+    return " · ".join(p[:100] for p in parts if p) or str(record["id"])
 
 
 def read(ref):

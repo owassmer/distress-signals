@@ -34,7 +34,7 @@ def cases(con, ids=None):
         out.append({"id": row["id"], "row": row, "status": row["status"], "company": current["company"],
                     "event": event, "case": current["case"], "results": current["results"],
                     "condition": outcomes.condition(event, current["case"]),
-                    "baseline_outcomes": outcomes.baseline(event, current["case"]) if outcomes.stated(event) else [],
+                    "open_outcomes": outcomes.open_outcomes(event, current["case"]) if outcomes.stated(event) else [],
                     "cited": cited, "findings": fs,
                     "revisions": db.revisions(con, row["id"])})
     return out
@@ -66,7 +66,7 @@ def _outcome_lines(c):
         by.setdefault(a.get("outcome"), []).append(a["name"].replace("_", " "))
     out = []
     for key, node, _, depth in outcomes.tree(ev):
-        mark = f" (this case: {', '.join(by[key])})" if key in by else " (baseline)" if key in c["baseline_outcomes"] else ""
+        mark = f" (this case: {', '.join(by[key])})" if key in by else ""
         title, text = {"yes": ("Yes", ev["text"]), "no": ("No", "The claim turns out false.")}.get(
             key, (node["title"], node["text"]))
         out.append(f"{'  ' * depth}- **{title}**{mark}: {text}")
@@ -102,8 +102,7 @@ def memo(c):
             f"Baseline: {case['baseline']['description']}. Period {case['period']['start']} to {case['period']['end']}, {cur}.", "",
             "| Version | Under | Revenue in period | Shortfall | Share | Deferred past period | Not recovered | Contribution loss | Cash delayed |",
             "|---|---|---|---|---|---|---|---|---|",
-            f"| baseline | {'; '.join(under(k) for k in c['baseline_outcomes']) or '–'} | "
-            f"{money(res['baseline_revenue'], cur)} | – | – | – | – | – | – |"]
+            f"| baseline | – | {money(res['baseline_revenue'], cur)} | – | – | – | – | – | – |"]
     for r in res["affected"]:
         out.append(f"| {r['name'].replace('_', ' ')} | {under(r['outcome'])} | {money(r['revenue'], cur)} | {money(r['shortfall'], cur)} | "
                    f"{pct(r['share'])} | {money(r['deferred_past_period'], cur)} | {money(r['lost'], cur)} | "

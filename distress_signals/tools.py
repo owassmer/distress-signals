@@ -350,7 +350,7 @@ def _resolve_event(con, e, cited_ids, saving=None):
 
 
 def _check_outcomes(event, case):
-    """Every version names an outcome of the event, and at least one outcome is left to the baseline."""
+    """Every version names an outcome of the event, and the outcomes named lie apart."""
     if not outcomes.stated(event):
         raise ToolError(f"event: {event.get('key')!r} was saved before events carried outcomes. Give it in full, with its "
                         "text (the claim that will turn out true or false), kind, window_end, resolution_source and "
@@ -359,10 +359,11 @@ def _check_outcomes(event, case):
     if gone:
         raise ToolError(f"affected: the event has no outcome {', '.join(repr(k) for k in gone)}. A version's outcome is "
                         f"'yes', 'no' or the key of one of the event's ways. Its outcomes:\n{_outcome_list(event)}")
-    if not outcomes.baseline(event, case):
-        raise ToolError("affected: the versions name every outcome of the event, so none is left to the baseline. The "
-                        "baseline is the stream's revenue under the outcomes no version names, and a shortfall is "
-                        "measured from it: leave the outcome the shortfall is measured from unnamed.")
+    inside = outcomes.overlapping(event, case)
+    if inside:
+        raise ToolError("affected: " + "; ".join(f"{a!r} lies within {b!r}" for a, b in inside) + ". A version's figure "
+                        "is for its outcome as a whole, so the outcomes a case names lie apart: name the outcome whole, "
+                        "or name each of its ways that the case has a figure for.")
 
 
 # ---------- the calculation ----------
@@ -506,7 +507,8 @@ def _save(con, o: Opportunity):
                                                 *case["evidence"], *event.get("evidence", [])])
     return {"opportunity_id": oid, "company_id": company_id, "event_id": event_id, "revision": revision,
             "changed": changed, "condition": outcomes.condition(event, case),
-            "baseline_outcomes": outcomes.baseline(event, case), "results": results, "warnings": warnings,
+            "open_outcomes": outcomes.open_outcomes(event, case), "whole_outcomes": outcomes.whole(event, case),
+            "results": results, "warnings": warnings,
             "unchecked_passages": unchecked, "workspace_results_used": sorted(set(results_used))}
 
 
@@ -661,16 +663,25 @@ def _finding_view(con, f):
 
 
 def _brief(con, row):
-    """A case in brief: who, which stream, over what period, and the shortfall under each outcome it names."""
+    """A case's dated estimate in brief: who, which stream, over what period, the baseline and its reference
+    conditions, and the revenue and shortfall in each world the case names, with the formula behind each.
+    lookup of the case gives the inputs and their bases."""
     c, e = db.get_company(con, row["company_id"]), db.get_event(con, row["event_id"])
-    current = forms.snapshot(db.latest_revision(con, row["id"])["snapshot"])
+    last = db.latest_revision(con, row["id"])
+    current = forms.snapshot(last["snapshot"])
     case, res, event = current["case"], current["results"], forms.event(e["data"])
+    told = outcomes.stated(event)
+    by_name = {a["name"]: a for a in case["affected"]}
     return {"opportunity_id": row["id"], "status": row["status"], "company": c["name"], "event": e["key"],
-            "stream": case["stream"], "period": case["period"], "condition": outcomes.condition(event, case),
-            "baseline_outcomes": outcomes.baseline(event, case) if outcomes.stated(event) else [],
-            "baseline_revenue": res["baseline_revenue"],
-            "shortfalls": [{"outcome": r["outcome"], "version": r["name"], "revenue": r["revenue"],
-                            "shortfall": r["shortfall"], "share": r["share"]} for r in res["affected"]],
+            "stream": case["stream"], "period": case["period"], "estimated": last["saved_at"],
+            "condition": outcomes.condition(event, case),
+            "baseline": {"description": case["baseline"]["description"], "formula": case["baseline"]["revenue"],
+                         "revenue": res["baseline_revenue"]},
+            "worlds": [{"outcome": r["outcome"], "version": r["name"], "description": by_name[r["name"]]["description"],
+                        "formula": by_name[r["name"]]["revenue"], "revenue": r["revenue"], "shortfall": r["shortfall"],
+                        "share": r["share"]} for r in res["affected"]],
+            "open_outcomes": outcomes.open_outcomes(event, case) if told else [],
+            "whole_outcomes": outcomes.whole(event, case) if told else [],
             "priority": row["priority"], "max_shortfall": res["max_shortfall"], "currency": row["currency"],
             "revision": row["revision"], "updated": row["updated"]}
 
@@ -715,7 +726,8 @@ def lookup(id_or_query: str) -> dict:
                     "company_id": company["id"], "company": company["data"],
                     "event_id": ev_row["id"], "event": _event_view(ev_row["data"]),
                     "condition": outcomes.condition(event, case),
-                    "baseline_outcomes": outcomes.baseline(event, case) if outcomes.stated(event) else [],
+                    "open_outcomes": outcomes.open_outcomes(event, case) if outcomes.stated(event) else [],
+                    "whole_outcomes": outcomes.whole(event, case) if outcomes.stated(event) else [],
                     "results": current["results"],
                     "warnings": current["warnings"], "evidence": evidence,
                     "findings": [_finding_view(con, f) for f in fs], "revision": row["revision"],

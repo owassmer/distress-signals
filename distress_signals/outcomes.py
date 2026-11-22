@@ -1,7 +1,6 @@
 """An event's outcomes, read from the event as stored. The outcomes are its two sides, 'yes' and 'no',
-and all their ways; an outcome holds every way within it. A case's versions name outcomes by key. A
-figure given for an outcome holds for every way within it, and a way given its own takes that one; the
-outcomes no version names are the case's baseline."""
+and all their ways. A case's versions name outcomes by key: those are its worlds, each the outcome as a
+whole, and none lies within another. An outcome the case names no revenue for is open."""
 
 from .models import SIDES
 
@@ -72,9 +71,21 @@ def unknown(event, case):
     return [k for k in named(case) if k not in have]
 
 
-def baseline(event, case):
-    """The outcomes left to the case's baseline: the largest outcomes that no version names and that hold no
-    way a version names."""
+def within(event, key):
+    """The keys of every way within an outcome, at any depth."""
+    ix = index(event)
+    return [k for k in ix if any(n["key"] == key for n in path(event, k)[:-1])]
+
+
+def overlapping(event, case):
+    """[(inner, outer)] for each pair of outcomes a case names where one lies within the other."""
+    names = [k for k in named(case) if k in index(event)]
+    return [(a, b) for b in names for a in within(event, b) if a in names]
+
+
+def open_outcomes(event, case):
+    """The outcomes a case names no revenue for: the largest outcomes that it does not name and that hold no
+    way it names."""
     names, ix = set(named(case)), index(event)
     kids = {}
     for k, v in ix.items():
@@ -97,6 +108,14 @@ def baseline(event, case):
     for side in SIDES:
         walk(side)
     return out
+
+
+def whole(event, case):
+    """[{"outcome", "ways"}] for each outcome a case names that has ways: the case's figure is for the outcome
+    as a whole, and each of those ways has a figure once the case names it."""
+    ix = index(event)
+    return [{"outcome": k, "ways": [w["key"] for w in ix[k]["node"].get("ways") or []]}
+            for k in named(case) if k in ix and ix[k]["node"].get("ways")]
 
 
 def condition(event, case):

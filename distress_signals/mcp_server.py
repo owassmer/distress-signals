@@ -131,8 +131,8 @@ def lookup(id_or_query: str) -> dict:
     revisions, and its deal's stage and outcome in the operator's CRM. A company's ID, name, alias or domain
     returns the company with its cases and findings, and its deals in the operator's CRM with their stages
     and outcomes. An event's ID, key or title returns the event with the ways of each side, its findings, and
-    its cases, each with the shortfall it states under each outcome of the event. A finding's or workspace
-    result's ID returns that record."""
+    each case's dated estimate: its baseline, the formula, revenue and shortfall in each world it names, and
+    the outcomes it leaves open. A finding's or workspace result's ID returns that record."""
     return _call("lookup", tools.lookup, id_or_query)
 
 
@@ -155,14 +155,14 @@ def save_opportunity(opportunity: Opportunity) -> dict:
     is given in full or by ID (with its id, the object edits that company); the event by key or ID, or in full,
     which saves its definition: the claim that will turn out true or false, its window, the record that will
     show how it turned out, and the ways of each side. Each affected version names the outcome of the event it
-    holds under, and the outcomes no version names are the baseline. A definition given in full keeps every
-    outcome another saved case names. Each input's provenance is checked: a source passage must be the section of
+    is for, taken as a whole; the outcomes a case names lie apart, and an outcome no version names is open. A
+    definition given in full keeps every outcome another saved case names. Each input's provenance is checked: a source passage must be the section of
     text that states the figure, never the number alone, and appear word for word in the stored record; a
     derived value must appear in the workspace result. The results are computed
     from the inputs and formulas. opportunity_id revises a case; a different company, event or stream_key is
     a different case. A saved case goes in front of the operator in their CRM at once, and a revision or a
     withdrawal updates it there. Returns the IDs, the revision, the condition as read from the event, the
-    baseline's outcomes, the results and any warnings."""
+    outcomes left open, the outcomes named whole that have ways, the results and any warnings."""
     return _call("save_opportunity", tools.save_opportunity, opportunity.model_dump(mode="json"))
 
 

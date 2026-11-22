@@ -1,6 +1,6 @@
 """An event's outcomes and the cases that name them, through the save and lookup tools on a store of their
-own: which outcomes a version can name, what is left to the baseline, what a revised event keeps, and how
-the condition reads."""
+own: which outcomes a version can name, which are left open, what a figure for an outcome covers when the
+outcome is refined, what a revised event keeps, and how the condition reads."""
 import copy
 import os
 import tempfile
@@ -60,7 +60,8 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(rows["cut"]["outcome"], "keeps-flying")
         self.assertAlmostEqual(rows["cut"]["shortfall"], 4.5)       # 100 * 0.3 * 0.3 * (1 - 0.5)
         self.assertAlmostEqual(rows["exit"]["shortfall"], 17.0)     # 100 * 0.3 * (1 - 0.5) + 2
-        self.assertEqual(out["baseline_outcomes"], ["no"])          # the No side is what no version names
+        self.assertEqual(out["open_outcomes"], ["no"])              # the case says nothing about the No side
+        self.assertEqual(out["whole_outcomes"], [])
         self.assertEqual(out["condition"], EVENT["yes_ways"][0]["text"] + " Or: " + EVENT["yes_ways"][1]["text"])
 
     def test_an_outcome_the_event_lacks_is_refused(self):
@@ -74,21 +75,29 @@ class Outcomes(unittest.TestCase):
         self.assertIsNone(db.get_event(con, "carrier-filing"))             # the refused save stored nothing
         con.close()
 
-    def test_one_outcome_is_left_to_the_baseline(self):
-        both = case()
-        both["affected"][0]["outcome"], both["affected"][1]["outcome"] = "yes", "no"
-        with self.assertRaises(tools.ToolError) as e:
-            tools.save_opportunity(both)
-        self.assertIn("none is left to the baseline", str(e.exception))
-
-    def test_a_figure_for_an_outcome_holds_for_its_ways(self):
+    def test_zero_is_stated_and_the_rest_is_open(self):
+        # A world whose revenue equals the baseline's is named with that revenue: a shortfall of zero, stated.
+        full = case()
+        full["affected"].append({"name": "carries_on", "outcome": "no", "description": "It flies its schedule.",
+                                 "timeline": "All year.", "revenue": "pax_rev"})
+        out = tools.save_opportunity(full)
+        rows = {r["name"]: r for r in out["results"]["affected"]}
+        self.assertEqual(rows["carries_on"]["shortfall"], 0)
+        self.assertEqual(out["open_outcomes"], [])
         event = {**EVENT, "no_ways": [{"key": "refinances", "title": "It refinances", "text": "It refinances out of court."},
                                       {"key": "muddles", "title": "It carries on", "text": "It neither files nor refinances."}]}
         named = lambda *keys: {"affected": [{"outcome": k} for k in keys]}  # noqa: E731
-        self.assertEqual(outcomes.baseline(event, named("yes")), ["no"])
-        self.assertEqual(outcomes.baseline(event, named("stops-flying")), ["keeps-flying", "no"])
-        self.assertEqual(outcomes.baseline(event, named("yes", "stops-flying", "refinances")), ["muddles"])
-        self.assertEqual(outcomes.baseline(event, named("keeps-flying", "stops-flying", "no")), [])
+        self.assertEqual(outcomes.open_outcomes(event, named("yes")), ["no"])
+        self.assertEqual(outcomes.open_outcomes(event, named("stops-flying")), ["keeps-flying", "no"])
+        self.assertEqual(outcomes.open_outcomes(event, named("keeps-flying", "stops-flying", "refinances")), ["muddles"])
+
+    def test_the_outcomes_a_case_names_lie_apart(self):
+        # A figure for the Yes side is for the side as a whole, so it cannot sit beside a figure for one of its ways.
+        both = case()
+        both["affected"][0]["outcome"] = "yes"
+        with self.assertRaises(tools.ToolError) as e:
+            tools.save_opportunity(both)
+        self.assertIn("'stops-flying' lies within 'yes'", str(e.exception))
 
     def test_a_revised_event_keeps_the_outcomes_saved_cases_name(self):
         first = tools.save_opportunity(case())["opportunity_id"]
@@ -101,8 +110,11 @@ class Outcomes(unittest.TestCase):
             {"name": "early_exit", "outcome": "stops-early", "description": "It leaves in spring.", "timeline": "From spring.",
              "revenue": "pax_rev - pax_rev * share * (1 - replaced) - unpaid"}])
         out = tools.save_opportunity(second)
-        self.assertEqual(out["baseline_outcomes"], ["keeps-flying", "stops-late", "no"])
-        self.assertEqual(tools.lookup(first)["baseline_outcomes"], ["no"])
+        self.assertEqual(out["open_outcomes"], ["keeps-flying", "stops-late", "no"])
+        # The first case's figure stays the figure for the outcome as a whole; its new ways have none yet.
+        seen = tools.lookup(first)
+        self.assertEqual(seen["open_outcomes"], ["no"])
+        self.assertEqual(seen["whole_outcomes"], [{"outcome": "stops-flying", "ways": ["stops-early", "stops-late"]}])
         # A definition that leaves out an outcome the first case names is refused, and names the case.
         coarser = copy.deepcopy(EVENT)
         coarser["yes_ways"] = []
@@ -122,9 +134,13 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(seen["event"]["kind"], "hitting")
         self.assertEqual([w["key"] for w in seen["event"]["yes_ways"]], ["keeps-flying", "stops-flying"])
         brief = seen["cases"][0]
-        self.assertEqual(brief["baseline_outcomes"], ["no"])
-        self.assertEqual([(s["outcome"], round(s["shortfall"], 1)) for s in brief["shortfalls"]],
-                         [("keeps-flying", 4.5), ("stops-flying", 17.0)])
+        self.assertEqual(brief["open_outcomes"], ["no"])
+        self.assertEqual(brief["baseline"], {"description": "The carrier flies its current schedule.", "formula": "pax_rev",
+                                             "revenue": 100.0})
+        self.assertEqual([(w["outcome"], round(w["shortfall"], 1), w["formula"]) for w in brief["worlds"]],
+                         [("keeps-flying", 4.5, "pax_rev - pax_rev * share * cut * (1 - replaced)"),
+                          ("stops-flying", 17.0, "pax_rev - pax_rev * share * (1 - replaced) - unpaid")])
+        self.assertTrue(brief["estimated"])
 
     def test_the_memo_reads_the_condition_from_the_event(self):
         oid = tools.save_opportunity(case())["opportunity_id"]
@@ -133,8 +149,9 @@ class Outcomes(unittest.TestCase):
         con.close()
         self.assertIn("The carrier has stopped scheduled passenger service by December 31, 2027.", memo)
         self.assertIn("| exit | It stops flying |", memo)
-        self.assertIn("| baseline | Not: The carrier files or stops flying |", memo)
+        self.assertIn("| baseline | – | $100 |", memo)
         self.assertIn("**It reorganizes and keeps flying** (this case: cut)", memo)
+        self.assertIn("- **No**: The claim turns out false.", memo)
 
     def test_a_case_saved_before_outcomes_reads_with_what_it_holds(self):
         earlier_event = {"key": "old-event", "title": "An old event", "description": "What could happen.",

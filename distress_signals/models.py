@@ -156,19 +156,22 @@ class Input(Strict):
 
 
 class Baseline(Strict):
-    """The stream's revenue over the period under the outcomes of the event that no affected version names."""
-    description: str = Field(description="What the baseline assumes")
+    """The stream's revenue over the period under the reference conditions the case states: the comparison
+    each version's shortfall is measured from."""
+    description: str = Field(description="The reference conditions: what the baseline takes to hold, for the event "
+                                         "and for the background conditions that also enter each version")
     revenue: str = Field(description="Formula: the revenue the company would recognize within the period")
     contribution: str | None = Field(None, description="Formula: that revenue less the costs that change with it")
 
 
 class Affected(Strict):
-    """The stream's revenue over the period under one outcome of the event. Versions under the same outcome
-    differ in what plays out at the company."""
+    """The stream's revenue over the period in one world: an outcome of the event, taken as a whole. Versions
+    that name the same outcome give its revenue under different operating assumptions."""
     name: str = Field(pattern=NAME, description="A short name for this version, in lowercase letters, digits and "
                                                 "underscores")
-    outcome: str = Field(description="The outcome of the event this version holds under: 'yes', 'no' or a way's key. "
-                                     "It holds for every way within that outcome, except a way another version names")
+    outcome: str = Field(description="The outcome of the event this version is for: 'yes', 'no' or a way's key. The "
+                                     "figure is for that outcome as a whole, and the outcomes a case names lie apart: "
+                                     "none lies within another")
     description: str = Field(description="What plays out at the company under this outcome, and for how long")
     timeline: str = Field(description="When the company's work or sales stop, resume and are made up, and when revenue "
                                       "and cash land, relative to the period")
@@ -242,10 +245,12 @@ class Opportunity(Strict):
                                                             "amounts are in whole units of it")
     inputs: dict[str, Input] = Field(description="The figures the formulas use, by name")
     baseline: Baseline
-    affected: list[Affected] = Field(min_length=1, description="The stream's revenue under each outcome of the event "
-                                                               "that changes it. The outcomes they name are the case's "
+    affected: list[Affected] = Field(min_length=1, description="The stream's revenue in each world the case has "
+                                                               "analyzed. The outcomes they name are the case's "
                                                                "condition: what has to happen for this revenue to be "
-                                                               "affected")
+                                                               "affected. A version whose revenue equals the baseline's "
+                                                               "states that the outcome leaves revenue as it is; an "
+                                                               "outcome no version names is open")
     denominator: Denominator | None = None
     case: Reasons = Field(description="Why the company is worth contacting, and when")
     buyer: Person = Field(description="The person to approach")

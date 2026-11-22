@@ -4,9 +4,9 @@ The researcher searches *series* of public records with `search_records` and rea
 series is one kind of record (every Federal Register document, every WARN notice, every federal award), described
 to the researcher by one entry in a catalog: what a record is, who creates and publishes it, its jurisdiction,
 the dates it covers and its fields. [The specification](../SPEC.md#6-sources) describes the design. This page
-lists the 67 series, how each is reached, and the keys some of them need.
+lists the 69 series, how each is reached, and the keys some of them need.
 
-A series that needs a key is in a run's catalog only when the key is set in `.env`. 52 series need none.
+A series that needs a key is in a run's catalog only when the key is set in `.env`. 54 series need none.
 
 ## Keys
 
@@ -500,6 +500,36 @@ nonprofits. The FAC's API (api.data.gov key) applies identifiers, listed values 
 a name; the registry applies the rest. A Single Audit's reporting package (the audited financial statements,
 the schedule of expenditures of federal awards and the auditor's reports) is read from the FAC's address for it,
 which redirects to a copy signed for the moment.
+```
+
+### Airline traffic
+
+`sources/bts_t100.py`
+
+| Series | One record is | Creator; publisher | Needs |
+|---|---|---|---|
+| `t100_domestic_enplanements` | The passengers, freight and mail a U.S. airline enplaned at a U.S. airport on domestic flights in one month and class of service: the sum of its T-100 domestic market rows from that airport | U.S. airlines, reporting on Form 41 Schedule T-100; Bureau of Transportation Statistics (TranStats) | |
+| `t100_domestic_markets` | The passengers, freight and mail a U.S. airline carried from one U.S. airport to another on its flights in one month and class of service (an on-flight market), as reported on Form 41 Schedule T-100 | U.S. airlines, reporting on Form 41 Schedule T-100; Bureau of Transportation Statistics (TranStats) | |
+
+How it is reached:
+
+```
+Two series from the Bureau of Transportation Statistics' T-100 Domestic Market (U.S. Carriers) table: what each
+U.S. airline reports carrying between U.S. airports each month on Form 41 Schedule T-100.
+
+  t100_domestic_markets       each row as BTS publishes it: one airline's passengers, freight and mail enplaned at
+                              one airport and deplaned at another (an on-flight market) in one month and class of
+                              service.
+  t100_domestic_enplanements  the same rows summed by airline, airport of enplanement, month and class of service:
+                              the passengers each airline boarded at each airport, as BTS's airport profiles count
+                              them. The airline is the carrier that operated the flights; a regional airline flying
+                              for a mainline brand reports under its own name.
+
+BTS's bulk files on bts.gov refuse scripted readers; its TranStats download form gives a year of the table, every
+month, as one zipped CSV. A year is downloaded when first asked for and kept in out/sources/t100.db: the two latest
+years are asked for again after a week (BTS adds a month at a time and revises), earlier years after three months.
+Rows that carry no passengers, freight or mail are left out. The U.S.-carriers table is used because the table of
+all carriers holds back its newest three months, and foreign airlines may not carry domestic traffic.
 ```
 
 ### Airport financial reports

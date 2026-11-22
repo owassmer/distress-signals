@@ -343,7 +343,8 @@ The researcher has all of it from the start, and nothing about a series is held 
 under `out/sources/`, and asks the publisher again when its copy has changed or the kept one has aged: SAM.gov's daily file of active
 notices and the current Congress's bill status files (each indexed with SQLite full-text search), GovInfo's
 descriptive metadata, OIRA's review files and meeting pages, the House's meeting pages, the Supreme Court's
-dockets, the Department of War's releases, and the FAA's yearly exports of airports' financial reports, which
+dockets, the Department of War's releases, and BTS's yearly T-100 Domestic Market tables (indexed in SQLite, with each airline's enplanements by airport
+summed from them), the FAA's yearly exports of airports' financial reports, which
 are downloaded in headless Chromium because CATS has no API.
 
 **Any address.** `sources/web.py` reads HTML or a PDF as text, with the page's links, for `read_record`.

@@ -262,6 +262,29 @@ class AirportFilings(unittest.TestCase):
         self.assertEqual([(r["payment_type"], r["amount"]) for r in got], [("Utilities", 137134.0)])
 
 
+class AirlineTraffic(unittest.TestCase):
+    def row(self, airline, origin, dest, passengers, cls="F", month=8, freight=0):
+        return {"YEAR": "2025", "MONTH": str(month), "AIRLINE_ID": {"WN": "19393", "DL": "19790"}[airline], "UNIQUE_CARRIER": airline,
+                "UNIQUE_CARRIER_NAME": {"WN": "Southwest Airlines Co.", "DL": "Delta Air Lines Inc."}[airline], "ORIGIN": origin,
+                "ORIGIN_CITY_NAME": "Dallas, TX", "ORIGIN_STATE_ABR": "TX", "DEST": dest, "DEST_CITY_NAME": "Houston, TX",
+                "DEST_STATE_ABR": "TX", "PASSENGERS": f"{passengers:.2f}", "FREIGHT": f"{freight:.2f}", "MAIL": "", "DISTANCE": "239.00",
+                "CLASS": cls}
+
+    def test_an_airport_s_enplanements_are_the_sum_of_its_markets(self):
+        from distress_signals.sources import bts_t100
+        rows = [self.row("WN", "DAL", "HOU", 1000), self.row("WN", "DAL", "AUS", 400), self.row("WN", "DAL", "AUS", 100),
+                self.row("DL", "DAL", "ATL", 50), self.row("WN", "DAL", "HOU", 0), self.row("WN", "DAL", "ELP", 0, cls="L")]
+        with tempfile.TemporaryDirectory() as folder, patch.object(bts_t100, "DB", Path(folder) / "t100.db"), \
+                patch.object(bts_t100, "_latest_month", return_value=(2025, 12)), patch.object(bts_t100, "_download", return_value=rows):
+            got = sources.search("t100_domestic_enplanements", filters={"year_min": 2025, "year_max": 2025, "airport": "dal"})["records"]
+            markets = sources.search("t100_domestic_markets", filters={"year_min": 2025, "year_max": 2025, "airline_id": "19393"})["records"]
+            read = sources.read(got[0]["record_id"])
+        self.assertEqual([(r["airline"], r["passengers"], r["markets"]) for r in got],
+                         [("Southwest Airlines Co.", 1500.0, 2), ("Delta Air Lines Inc.", 50.0, 1)])
+        self.assertEqual(sorted((r["dest"], r["passengers"]) for r in markets), [("AUS", 500.0), ("HOU", 1000.0)])
+        self.assertIn("DAL Dallas, TX | HOU Houston, TX | Scheduled Passenger/Cargo | 1,000", read["text"])
+
+
 class SingleAudits(unittest.TestCase):
     def test_the_api_is_sent_each_table_s_own_forms(self):
         from distress_signals.sources import fac

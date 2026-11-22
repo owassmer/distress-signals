@@ -337,6 +337,32 @@ class Citations(unittest.TestCase):
                     self.assertEqual(got["passage"], stored)
                     self.assertTrue(tools.quoted(got["passage"], self.TEXT))  # a revision that sends it back is checked the same way
 
+    def test_a_passage_from_rows_is_its_lines_and_a_list_item_gives_up_its_sentences(self):
+        # A list item: the segmenter keeps it whole to the end of its paragraph; its sentences are taken apart.
+        item = ("Intro sentence here.\n\u2022 Criterion 2: The contractor must stay solvent. In 2020 the group was\n"
+                "acquired by a larger company. The organization will continue to operate as a\nsubsidiary of it. "
+                "Key leadership remains.\nAfter the list comes this.")
+        self.assertEqual(tools.whole_sentences("will continue to operate as a", item),
+                         "The organization will continue to operate as a subsidiary of it.")
+        self.assertEqual(tools.whole_sentences("The contractor must stay solvent", item),
+                         "\u2022 Criterion 2: The contractor must stay solvent.")
+        # A record whose document its adapter wrote as rows: the line quoted, whatever punctuation its lines carry.
+        with patch.dict(sources._all or sources.declared(), {WIDGETS.id: WIDGETS}):
+            form = {"kind": "record", "source": "widgets", "data": {"document_rows": True},
+                    "text": "the widget register: widgets:7\nmaker: Acme Works 0\n\nofficer: Joseph H.\ndue_date: 02/16/2027\n"
+                            "comment_end: 12/18/2026\nreviewer: Jane Q."}
+            self.assertEqual(tools.whole_sentences("due_date: 02/16/2027", form["text"], tools._rows_until(form)), "due_date: 02/16/2027")
+            self.assertEqual(tools.whole_sentences("due_date: 02/16/2027", form["text"]),          # the sentence rule alone
+                             "officer: Joseph H. due_date: 02/16/2027 comment_end: 12/18/2026 reviewer: Jane Q.")
+            # The fields a record's heading is followed by are rows; its document, after the blank line, is prose.
+            prose = {"kind": "record", "source": "widgets", "data": {},
+                     "text": "the widget register: widgets:7\nmaker: Acme Works 0\nkind: gear\n\nThis widget was made in the\nspring. It is a gear."}
+            until = tools._rows_until(prose)
+            self.assertEqual(tools.whole_sentences("kind: gear", prose["text"], until), "kind: gear")
+            self.assertEqual(tools.whole_sentences("was made in the", prose["text"], until), "This widget was made in the spring.")
+            self.assertEqual(tools._rows_until({**prose, "kind": "result_set"}), len(prose["text"]))
+        self.assertEqual(tools._rows_until({"kind": "page", "source": "example.org", "data": {}, "text": prose["text"]}), 0)
+
     def test_a_url_citation_resolves_to_the_record_holding_the_passage(self):
         url = "https://example.org/ratings.zip"
         with tempfile.TemporaryDirectory() as folder, db.connect(Path(folder) / "test.db") as con:

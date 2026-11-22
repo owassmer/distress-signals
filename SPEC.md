@@ -158,8 +158,9 @@ returns it to the active queue.
   version names is open: the save and `lookup` return those as `open_outcomes`.
 - When an outcome a case names is given ways, the case's figure stays the figure for the outcome as a whole.
   The save and `lookup` return such outcomes with their ways as `whole_outcomes`.
-- The case's condition is the outcomes its versions name, read from the event: the save, `lookup`, the memo
-  and the deal all show it in the event's words.
+- The case's condition is the outcomes under which a version's revenue differs from the baseline's, read from
+  the event: the save, `lookup`, the memo and the deal all show it in the event's words. An outcome named at
+  the baseline's revenue is no part of it.
 
 ### Findings
 

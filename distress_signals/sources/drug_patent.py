@@ -25,7 +25,7 @@ from urllib.parse import quote, urlsplit
 import requests
 
 from ..util import SourceError, http_json, session, stable_id
-from . import F, Series, outline, page, web
+from . import F, Series, outline, page, as_rows, web
 
 FDA = "https://api.fda.gov/drug"
 ORANGE_BOOK = "https://www.fda.gov/media/76860/download?attachment"
@@ -226,7 +226,7 @@ def _read_application(app):
         raise SourceError(f"Drugs@FDA has no application {app}")
     item = data["results"][0]
     record = _application(item)
-    return {**record, "document": "\n".join(outline({"products": item.get("products"), "submissions": item.get("submissions")})),
+    return {**record, "document": as_rows(outline({"products": item.get("products"), "submissions": item.get("submissions")})),
             "published": record["latest_action_date"]}
 
 

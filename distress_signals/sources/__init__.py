@@ -566,11 +566,13 @@ def read(ref):
         head = [f"{series.title}: {series.id}:{record['id']}"] + _lines(series, record)
         if record.get("url"):
             head.append(f"url: {record['url']}")
+        in_rows = isinstance(record.get("document"), Rows)
         document = (record.get("document") or "").strip()
         return {"kind": "record", "source": series.id, "native_id": str(record["id"]), "url": record.get("url"),
                 "published": record.get("published"), "text": "\n".join(head) + ("\n\n" + document if document else ""),
                 "rows": {series.id: [_row(series, record)]},
                 "data": {"title": f"{_heading(series, record)} ({series.title})", "links": record.get("links") or [],
+                         **({"document_rows": True} if in_rows else {}),
                          "fields": {f.name: record.get(f.name) for f in series.fields if f.type != "full text"}}}
     given = {}
     for k, v in parse_qsl(rest, keep_blank_values=False):
@@ -606,6 +608,15 @@ def again(observation):
             return observation["native_id"]
         return f"{observation['source']}:{observation['native_id']}"
     return None
+
+
+class Rows(str):
+    """A record's document whose every line is a row: a label with its value, as outline() writes them."""
+
+
+def as_rows(lines):
+    """A document made of rows, one to a line. A passage quoted from it is kept as whole lines."""
+    return Rows("\n".join(lines))
 
 
 def outline(value, depth=0, skip=()):

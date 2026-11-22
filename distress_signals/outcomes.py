@@ -118,9 +118,12 @@ def whole(event, case):
             for k in named(case) if k in ix and ix[k]["node"].get("ways")]
 
 
-def condition(event, case):
-    """What has to happen for the case's revenue to be affected: the outcomes its versions name, in the
-    event's words. A case saved before events carried outcomes reads with the condition it stated."""
+def condition(event, case, results):
+    """What has to happen for the case's revenue to be affected: the outcomes under which a version's revenue
+    differs from the baseline's, in the event's words. An outcome a version names at the baseline's revenue is
+    stated as leaving revenue as it is, so it is no part of the condition. A case saved before events carried
+    outcomes reads with the condition it stated."""
     if not stated(event) or not named(case):
         return case.get("condition") or ""
-    return " Or: ".join(sentence(event, k) for k in named(case) if k in index(event))
+    moved = {r["outcome"] for r in results["affected"] if r["shortfall"]}
+    return " Or: ".join(sentence(event, k) for k in named(case) if k in index(event) and k in moved)

@@ -22,7 +22,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from ..util import Missing, SourceError, http_json, session, to_date, to_float, today
-from . import F, Series, outline, page, web
+from . import F, Series, outline, page, as_rows, web
 
 FERC_API = "https://elibrary.ferc.gov/eLibrarywebapi/api"
 FERC = "https://elibrary.ferc.gov/eLibrary"
@@ -372,7 +372,7 @@ def _read_deactivation(key):
             f = r["_fields"]
             links = [{"text": k, "url": v} for k, v in f.items() if isinstance(v, str) and v.startswith("http")]
             links.append({"text": "Notices and PJM's responses", "url": PJM_NOTICES})
-            return {**{k: v for k, v in r.items() if k != "_fields"}, "document": "\n".join(outline(f)), "links": links}
+            return {**{k: v for k, v in r.items() if k != "_fields"}, "document": as_rows(outline(f)), "links": links}
     raise SourceError("PJM's export no longer has this unit's entry")
 
 

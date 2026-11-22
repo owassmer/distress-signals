@@ -27,7 +27,7 @@ from remotezip import RemoteZip
 
 from .. import names
 from ..util import SourceError, http_json, to_float
-from . import F, Series, outline, page
+from . import F, Series, outline, page, as_rows
 
 VIEWER = "https://eqrreportviewer.ferc.gov/"
 USAC = "https://opendata.usac.org/resource"
@@ -125,7 +125,7 @@ def _read_erate(key):
         url = pdf.get("url") if isinstance(pdf, dict) else pdf
         if url:
             links.append({"text": f"FCC Form 471 PDF ({f['form_version']})", "url": url})
-    return {**_frn(row), "document": "\n".join(outline(row)), "links": links}
+    return {**_frn(row), "document": as_rows(outline(row)), "links": links}
 
 
 # ---------- city and county contracts ----------

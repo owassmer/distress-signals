@@ -115,8 +115,8 @@ outcome as a whole. Each way has its own figure once the case names it. The oper
 hold throughout an outcome while its ways have different shortfalls, because an input takes a different
 value in each.
 
-**The condition.** What has to happen for the company's revenue to be affected is the worlds the case
-names. It is read from the event, in the event's words.
+**The condition.** What has to happen for the company's revenue to be affected is the worlds whose revenue
+differs from the baseline's. It is read from the event, in the event's words.
 
 **Concentration, dependency, shortfall.** A reported concentration establishes the scale of a dependency
 and says where to look. The dependency says how an outcome reaches the stream. The shortfall is what the

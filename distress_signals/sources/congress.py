@@ -31,7 +31,7 @@ from bs4 import BeautifulSoup
 
 from .. import names
 from ..util import OUT, SourceError, Unreadable, session, today
-from . import F, Series, newest, outline, page, web
+from . import F, Series, newest, outline, page, as_rows, web
 
 GOVINFO = "https://www.govinfo.gov"
 BILLS_DB = OUT / "sources" / "bills.db"
@@ -216,7 +216,7 @@ def _read_bill(key):
     links = [{"text": f"Text: {_clean(x.findtext('type'))}", "url": x.findtext("formats/item/url")}
              for x in b.findall("textVersions/item") if x.findtext("formats/item/url")]
     links += [{"text": _clean(x.findtext("title")), "url": x.findtext("url")} for x in b.findall("cboCostEstimates/item") if x.findtext("url")]
-    return {**fields, "document": "\n".join(outline(record)), "links": links}
+    return {**fields, "document": as_rows(outline(record)), "links": links}
 
 
 def _bills_span(series):
@@ -519,7 +519,7 @@ def _read_senate(key):
         raise SourceError(f"The Senate's schedule no longer lists meeting {key}")
     links = [{"text": "Video", "url": m["_raw"]["video_url"]}] if m["_raw"].get("video_url") else []
     return {**{k: v for k, v in m.items() if k != "_raw"}, "links": links,
-            "document": "\n".join(outline({k.replace("_", " "): v for k, v in m["_raw"].items() if not k.endswith("iso_8601")}))}
+            "document": as_rows(outline({k.replace("_", " "): v for k, v in m["_raw"].items() if not k.endswith("iso_8601")}))}
 
 
 def _senate_span(series):

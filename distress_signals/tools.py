@@ -93,25 +93,50 @@ def quoted(passage, text):
     return True
 
 
-def whole_sentences(passage, text):
-    """The passage as the whole sentences of the text it falls in, by sentencex (a line broken inside a sentence
-    does not end it), with each sentence's whitespace made single spaces; where lines run without sentence
-    punctuation, as the rows of a table or a form do, each line is its own. Where the passage
-    omits text between them ('...'), the sentences either side are joined by ' \u2026 '. The passage as given where
-    it cannot be placed in the sentences."""
+def _sentences(text, base=0):
+    """[(start, end)] of the text's sentences by sentencex, each offset by `base`. sentencex keeps a list item
+    whole, from its marker to the end of its paragraph, however many sentences it holds; a unit that divides
+    once its first word is set aside is such an item, and its sentences are taken from the rest."""
     from sentencex import segment
-    spans, at = [], 0
+    out, at = [], 0
     for s in segment("en", text):
         start = text.find(s, at) if s else -1
         if start < 0:
             continue
         at = start + len(s)
+        body = s.lstrip()
+        first = body.split(None, 1)
+        rest = first[1] if len(first) == 2 else ""
+        inner = _sentences(rest, at - len(rest)) if rest and len(list(segment("en", rest))) > 1 else None
+        if inner:
+            out.append((base + start, inner[0][1]))  # the marker stays with the item's first sentence
+            out += inner[1:]
+        else:
+            out.append((base + start, base + at))
+    return out
+
+
+def _rows(text, start, end):
+    """[(start, end)] of the lines of text[start:end]."""
+    out, line = [], start
+    for row in text[start:end].split("\n"):
+        out.append((line, line + len(row)))
+        line += len(row) + 1
+    return out
+
+
+def whole_sentences(passage, text, rows_until=0):
+    """The passage as the whole sentences of the text it falls in, by sentencex (a line broken inside a sentence
+    does not end it), with each sentence's whitespace made single spaces. Where the text is rows, each line is its
+    own: the first `rows_until` characters, which the caller knows to be rows (the fields of a record of a series,
+    the records of a result set), and lines that run without sentence punctuation, as the rows of a table or a
+    form do. Where the passage omits text between them ('...'), the sentences either side are joined by ' \u2026 '.
+    The passage as given where it cannot be placed in the sentences."""
+    spans = _rows(text, 0, rows_until) if rows_until else []
+    for start, at in _sentences(text[rows_until:], rows_until):
+        s = text[start:at]
         if "\n" in s.strip() and not s.rstrip().rstrip("\"')]\u201d\u2019").endswith((".", "!", "?", ":", ";")):
-            # lines that end in no sentence punctuation are rows of a table or a form: each line is its own
-            line = start
-            for row in s.split("\n"):
-                spans.append((line, line + len(row)))
-                line += len(row) + 1
+            spans += _rows(text, start, at)  # lines that end in no sentence punctuation are rows of a table or a form
         else:
             spans.append((start, at))
     kept, starts, normed, pos = [], [], [], 0
@@ -146,6 +171,21 @@ def has_text(passage):
     """A cited passage is the section of text that states the claim: at least three words, so never a
     number alone."""
     return len(_WORD.findall(passage or "")) >= 3
+
+
+def _rows_until(obs):
+    """How far into an observation's text every line is a row by construction: all of a result set, whose lines
+    are its records; all of a record whose adapter wrote its document as rows (sources.as_rows); and otherwise the
+    fields of a record of a series, which sources.read writes under the record's heading, one to a line, before
+    the blank line its document follows."""
+    text = obs["text"]
+    if obs["kind"] == "result_set" or (obs.get("data") or {}).get("document_rows"):
+        return len(text)
+    series = sources.declared().get(obs["source"])
+    if obs["kind"] == "record" and series and text.startswith(f"{series.title}: {series.id}:"):
+        end = text.find("\n\n")
+        return len(text) if end < 0 else end
+    return 0
 
 
 def _cite(con, cite, where, cited_ids):
@@ -187,7 +227,7 @@ def _cite(con, cite, where, cited_ids):
             raise ToolError(f"{where}: passage not found word for word in {obs['id']} ({obs.get('url') or obs['source']}): "
                             f"{passage[:160]!r}. Quote it exactly, using '...' for omissions; read_record(id, find=...) "
                             "shows the stored text.")
-        passage = whole_sentences(passage, obs["text"])  # what is stored and shown is the whole sentence quoted from
+        passage = whole_sentences(passage, obs["text"], _rows_until(obs))  # stored and shown: the whole sentence quoted from
         checked = True
     elif obs["data"].get("unchecked"):
         if passage not in obs["data"].setdefault("passages", []):
@@ -506,7 +546,7 @@ def _save(con, o: Opportunity):
     unchecked = sum(not c["checked"] for c in [*(i["source"] for i in case["inputs"].values() if i.get("source")),
                                                 *case["evidence"], *event.get("evidence", [])])
     return {"opportunity_id": oid, "company_id": company_id, "event_id": event_id, "revision": revision,
-            "changed": changed, "condition": outcomes.condition(event, case),
+            "changed": changed, "condition": outcomes.condition(event, case, results),
             "open_outcomes": outcomes.open_outcomes(event, case), "whole_outcomes": outcomes.whole(event, case),
             "results": results, "warnings": warnings,
             "unchecked_passages": unchecked, "workspace_results_used": sorted(set(results_used))}
@@ -674,7 +714,7 @@ def _brief(con, row):
     by_name = {a["name"]: a for a in case["affected"]}
     return {"opportunity_id": row["id"], "status": row["status"], "company": c["name"], "event": e["key"],
             "stream": case["stream"], "period": case["period"], "estimated": last["saved_at"],
-            "condition": outcomes.condition(event, case),
+            "condition": outcomes.condition(event, case, res),
             "baseline": {"description": case["baseline"]["description"], "formula": case["baseline"]["revenue"],
                          "revenue": res["baseline_revenue"]},
             "worlds": [{"outcome": r["outcome"], "version": r["name"], "description": by_name[r["name"]]["description"],
@@ -725,7 +765,7 @@ def lookup(id_or_query: str) -> dict:
                     **({"format_notes": current["notes"]} if current["notes"] else {}),
                     "company_id": company["id"], "company": company["data"],
                     "event_id": ev_row["id"], "event": _event_view(ev_row["data"]),
-                    "condition": outcomes.condition(event, case),
+                    "condition": outcomes.condition(event, case, current["results"]),
                     "open_outcomes": outcomes.open_outcomes(event, case) if outcomes.stated(event) else [],
                     "whole_outcomes": outcomes.whole(event, case) if outcomes.stated(event) else [],
                     "results": current["results"],

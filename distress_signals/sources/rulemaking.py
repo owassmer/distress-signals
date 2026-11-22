@@ -29,7 +29,7 @@ import requests
 from bs4 import BeautifulSoup, Comment
 
 from ..util import OUT, Missing, SourceError, Unreadable, http_json, session, today
-from . import F, Series, newest, outline, page, web
+from . import F, Series, newest, outline, page, as_rows, web
 
 REGS = "https://api.regulations.gov/v4"
 REGS_PAGE = 250
@@ -117,7 +117,7 @@ def _search_dockets(s):
 
 def _read_docket(key):
     d = _regs(f"dockets/{key}")["data"]
-    return {**_docket(d), "document": "\n".join(outline(d["attributes"], skip=("highlightedContent", "displayProperties"))),
+    return {**_docket(d), "document": as_rows(outline(d["attributes"], skip=("highlightedContent", "displayProperties"))),
             "links": [{"text": "The docket's documents on Regulations.gov", "url": f"https://www.regulations.gov/docket/{key}/document"}]}
 
 
@@ -192,7 +192,7 @@ def _search_comments(s):
 def _read_comment(key):
     got = _regs(f"comments/{key}", {"include": "attachments"})
     d = got["data"]
-    return {**_comment(d), "document": "\n".join(outline(d["attributes"], skip=SKIP)),
+    return {**_comment(d), "document": as_rows(outline(d["attributes"], skip=SKIP)),
             "links": _files(d, got.get("included") or ()), "published": _day(d["attributes"].get("postedDate"))}
 
 
@@ -293,7 +293,7 @@ def _read_review(key):
         hit = next((r for r in _file_reviews(name, year) if r["id"] == key), None)
         if hit:
             labels = {k.replace("_", " ").capitalize(): v for k, v in hit["_raw"].items()}
-            return {**{k: v for k, v in hit.items() if k != "_raw"}, "document": "\n".join(outline(labels)),
+            return {**{k: v for k, v in hit.items() if k != "_raw"}, "document": as_rows(outline(labels)),
                     "links": [{"text": f"OIRA's reviews of RIN {rin}", "url": hit["url"]}]}
     raise SourceError(f"OIRA's files have no review of {rin} received {received}")
 

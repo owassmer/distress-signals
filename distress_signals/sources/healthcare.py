@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
 from ..util import OUT, SourceError, http_json, session, to_date
-from . import F, Series, outline, page, web
+from . import F, Series, outline, page, as_rows, web
 
 TRIALS = "https://clinicaltrials.gov/api/v2/studies"
 COVERAGE = "https://api.coverage.cms.gov/v1"
@@ -103,7 +103,7 @@ def _read_study(nct):
     except Exception as e:
         raise SourceError(f"ClinicalTrials.gov has no study {nct!r}: {type(e).__name__}: {str(e)[:120]}")
     record = _study(study)
-    return {**record, "document": "\n".join(outline(study, skip=("contactsLocationsModule", "derivedSection"))),
+    return {**record, "document": as_rows(outline(study, skip=("contactsLocationsModule", "derivedSection"))),
             "published": record["last_update_posted"]}
 
 
@@ -190,7 +190,7 @@ def _analyses():
 def _read_analysis(key):
     for r in _analyses():
         if r["id"] == key:
-            return {**{k: v for k, v in r.items() if k != "_sheet"}, "document": "\n".join(outline(r["_sheet"])),
+            return {**{k: v for k, v in r.items() if k != "_sheet"}, "document": as_rows(outline(r["_sheet"])),
                     "published": r["last_updated"]}
     raise SourceError(f"medicare_coverage_analyses has no record {key!r}")
 

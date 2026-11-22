@@ -33,7 +33,7 @@ def cases(con, ids=None):
         event = forms.event(ev_row["data"])
         out.append({"id": row["id"], "row": row, "status": row["status"], "company": current["company"],
                     "event": event, "case": current["case"], "results": current["results"],
-                    "condition": outcomes.condition(event, current["case"]),
+                    "condition": outcomes.condition(event, current["case"], current["results"]),
                     "open_outcomes": outcomes.open_outcomes(event, current["case"]) if outcomes.stated(event) else [],
                     "cited": cited, "findings": fs,
                     "revisions": db.revisions(con, row["id"])})

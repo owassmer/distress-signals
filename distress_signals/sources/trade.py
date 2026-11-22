@@ -20,7 +20,7 @@ from xml.etree import ElementTree
 import requests
 
 from ..util import Missing, SourceError, session
-from . import F, Series, outline, page, web
+from . import F, Series, outline, page, as_rows, web
 
 IDS = "https://ids.usitc.gov/investigations.json"
 EDIS = "https://edis.usitc.gov/data"
@@ -154,7 +154,7 @@ def _read_investigation(native):
         raise SourceError(f"USITC investigation {native} is not in the current export")
     links = [{"text": d.get("Document Title") or "Investigation document", "url": d["Document Link"]}
              for d in record.get("Investigation Documents") or [] if d.get("Document Link")]
-    return {**_investigation(record), "document": "\n".join(outline(record)), "links": links}
+    return {**_investigation(record), "document": as_rows(outline(record)), "links": links}
 
 
 def _investigations_span(series):

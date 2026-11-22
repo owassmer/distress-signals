@@ -84,6 +84,9 @@ class Outcomes(unittest.TestCase):
         rows = {r["name"]: r for r in out["results"]["affected"]}
         self.assertEqual(rows["carries_on"]["shortfall"], 0)
         self.assertEqual(out["open_outcomes"], [])
+        # The world at the baseline is no part of what has to happen for revenue to be affected.
+        self.assertEqual(out["condition"], EVENT["yes_ways"][0]["text"] + " Or: " + EVENT["yes_ways"][1]["text"])
+        self.assertNotIn("turns out false", tools.lookup(out["opportunity_id"])["condition"])
         event = {**EVENT, "no_ways": [{"key": "refinances", "title": "It refinances", "text": "It refinances out of court."},
                                       {"key": "muddles", "title": "It carries on", "text": "It neither files nor refinances."}]}
         named = lambda *keys: {"affected": [{"outcome": k} for k in keys]}  # noqa: E731
@@ -163,7 +166,8 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(forms.event(earlier_event)["window_end"], "2027-02-16")
         self.assertIn("Saved before events carried outcomes", notes[0])
         self.assertIn("The agency says no.", notes[0])
-        self.assertEqual(outcomes.condition(forms.event(earlier_event), current), "The agency says no.")
+        self.assertEqual(outcomes.condition(forms.event(earlier_event), current, forms._results(current)[0]),
+                         "The agency says no.")
         # Saving it again by its event's key asks for the event in full.
         con = db.connect()
         with db.write(con):

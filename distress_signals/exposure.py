@@ -1,5 +1,5 @@
-"""Exposure arithmetic: the revenue at stake if a condition occurs. The researcher states inputs, a
-baseline and the affected versions; this computes every result. A formula is an expression over input
+"""Exposure arithmetic: the revenue at stake under each outcome a case names. The researcher states inputs,
+a baseline and the affected versions, each under an outcome of the event; this computes every result. A formula is an expression over input
 names: numbers, + - * /, parentheses, min() and max(). Nothing else is evaluated.
 
 compute() is the one calculation, used by calculate_exposure, save_opportunity and every read of a
@@ -54,7 +54,7 @@ def evaluate(formula, values):
 
 
 def compute(inputs, baseline, affected, denominator=None):
-    """inputs {name: value}; baseline {revenue, contribution?}; affected [{name, revenue,
+    """inputs {name: value}; baseline {revenue, contribution?}; affected [{name, outcome, revenue,
     deferred_past_period?, contribution?, cash_delayed?}]; denominator {label, formula} or None.
     Returns (results, warnings); raises FormulaError for a formula that can't be computed."""
     if not affected:
@@ -76,7 +76,7 @@ def compute(inputs, baseline, affected, denominator=None):
         deferred = opt(a, "deferred_past_period")
         lost = shortfall - deferred if deferred is not None else None
         con = opt(a, "contribution")
-        rows.append({"name": a["name"], "revenue": rev, "shortfall": shortfall,
+        rows.append({"name": a["name"], "outcome": a.get("outcome"), "revenue": rev, "shortfall": shortfall,
                      "share": shortfall / den if den else None, "deferred_past_period": deferred, "lost": lost,
                      "lost_share": lost / den if den and lost is not None else None,
                      "contribution_loss": base_con - con if con is not None and base_con is not None else None,

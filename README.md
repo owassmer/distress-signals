@@ -8,7 +8,7 @@ Distress Signals is an autonomous prospecting agent for brokers and advisers who
 
 The agent follows leads through [company filings, contracts, regulatory notices, payment records](docs/data-sources.md), and the open web. For each prospect, it identifies the part of the business at risk and explains how and when sales could fall.
 
-Claude builds a revenue model for each opportunity. Python calculates the shortfall under each scenario. The deal memo shows which figures are reported, calculated, or assumed and links to the supporting records.
+Each event is stated as a claim that will turn out true or false, with the ways each side can turn out. Claude builds a revenue model for each opportunity, and Python calculates the shortfall under each outcome it names. The deal memo shows which figures are reported, calculated, or assumed and links to the supporting records.
 
 ## Setting it up
 

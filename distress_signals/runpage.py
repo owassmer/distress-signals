@@ -525,7 +525,7 @@ function caseView() {
     + `<a href="#found/${esc(f.oid)}">Research entry · ${clock(f.el)}</a>`
     + (c.deal ? `<a href="${esc(c.deal)}" target="_blank" rel="noopener">Open in HubSpot</a>` : "") + `</div><div class="doc2">`
     + sec("Exposure", p(c.why_matters) + p(c.dependency))
-    + sec("Event and timing", (eventLabel(c) ? `<p class="event-label">${eventLabel(c)}</p>` : "") + p(c.event_description) + p(c.event_timing))
+    + sec("Event and timing", (eventLabel(c) ? `<p class="event-label">${eventLabel(c)}</p>` : "") + p(c.event_text) + p(c.event_description) + p(c.event_timing) + p(c.resolution_source ? "Shown by: " + c.resolution_source : ""))
     + sec("Revenue scenarios", p(c.condition) + scenarios(c) + p(c.timing))
     + sec("Model inputs", (c.inputs || []).map(x => { const [v, u] = fmtVal(x);
         return `<div class="inp"><div class="iv"><b>${esc(v)}</b><span>${esc(x.name)}</span></div><div><span class="badge ${x.kind}">${KIND[x.kind] || x.kind}</span>`

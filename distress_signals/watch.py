@@ -11,6 +11,7 @@ leaves out links into the operator's HubSpot.
   python -m distress_signals export-run RUN_ID [--public] [--out FILE]
 """
 
+import collections
 import datetime as dt
 import html
 import json
@@ -20,7 +21,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import activityview, db, example_review, findingsview, hubspot, sources
+from . import activityview, db, example_review, findingsview, hubspot, outcomes, sources
 from .feed import _result_text, _search_label, _search_result
 from .runpage import CHART_JS, FAVICON, FOUND_JS, ICONS, LEADS_HTML, PACE, PAGE, PAGE_STEPS, SHELL_STYLE, STYLE
 from .util import OUT, load_env
@@ -370,10 +371,22 @@ def _case_details(oids, public=False):
             cited = c.get("cited") or {}
             url_of = lambda oid: (cited.get(oid) or {}).get("url") if oid else None  # noqa: E731
             scen = {a["name"]: a for a in case.get("affected") or []}
+            shared = collections.Counter(r.get("outcome") for r in res.get("affected") or [])
+            known = outcomes.index(ev) if outcomes.stated(ev) else {}
+
+            def scenario_label(r):
+                """The outcome a version holds under; with its own name where several versions share the outcome."""
+                if r.get("outcome") not in known:
+                    return title_label(r["name"])
+                under = outcomes.label(ev, r["outcome"])
+                return under if shared[r["outcome"]] == 1 else f"{under} · {title_label(r['name'])}"
+
             out[c["id"]] = {
                 "oid": c["id"], "status": c["status"], "company": c["company"]["name"],
                 "company_id": c["row"]["company_id"], "stream": title_label(case.get("stream_key")),
-                "event": ev.get("title"), "event_date": ev.get("date"), "dependency": case.get("dependency"),
+                "event": ev.get("title"), "event_date": ev.get("window_end"), "date_label": "Decided on or by",
+                "event_text": ev.get("text"), "resolution_source": ev.get("resolution_source"),
+                "dependency": case.get("dependency"),
                 "why_now": case["case"].get("why_now"), "stake": res.get("max_shortfall"), "share": res.get("max_share"),
                 "of": (res.get("denominator") or {}).get("label"), "denominator_value": (res.get("denominator") or {}).get("value"),
                 "currency": case.get("currency"),
@@ -381,11 +394,11 @@ def _case_details(oids, public=False):
                 "who": ", ".join(x for x in (buyer.get("name"), buyer.get("title")) if x) or buyer.get("role"),
                 "opening": (case.get("outreach") or {}).get("draft"),
                 "deal": None if public else _deal_url(c["id"]),
-                "why_matters": case["case"].get("why_matters"), "condition": case.get("condition"), "timing": case.get("timing"),
+                "why_matters": case["case"].get("why_matters"), "condition": c["condition"], "timing": case.get("timing"),
                 "event_description": ev.get("description"), "event_timing": ev.get("timing"),
                 "period_start": case["period"]["start"], "period_end": case["period"]["end"],
                 "baseline": {"revenue": res.get("baseline_revenue"), "description": (case.get("baseline") or {}).get("description")},
-                "scenarios": [{"label": title_label(r["name"]), "description": (scen.get(r["name"]) or {}).get("description"),
+                "scenarios": [{"label": scenario_label(r), "description": (scen.get(r["name"]) or {}).get("description"),
                                "revenue": r.get("revenue"), "shortfall": r.get("shortfall"), "share": r.get("share")}
                               for r in res.get("affected") or []],
                 "inputs": [_input(k, x, url_of) for k, x in (case.get("inputs") or {}).items()],

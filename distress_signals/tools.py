@@ -24,7 +24,7 @@ import unicodedata
 
 from pydantic import ValidationError
 
-from . import db, exposure, forms, names
+from . import db, exposure, forms, names, outcomes
 from .models import Calculation, Event, Finding, Opportunity
 from . import sources
 from .sources import web
@@ -309,10 +309,17 @@ def _principal_check(company):
 
 # ---------- events ----------
 
-def _resolve_event(con, e, cited_ids):
+def _outcome_list(event):
+    """The event's outcomes, one to a line, each way under the outcome it lies within."""
+    return "\n".join(f"{'  ' * d}{k}: {n['title']}" for k, n, _, d in outcomes.tree(event))
+
+
+def _resolve_event(con, e, cited_ids, saving=None):
     """(event ID, event data). A saved key or ID reads the event; an event given in full is saved,
-    replacing the saved definition of the same key. No figure depends on the event's text, so the other
-    cases on it read the revised definition from then on."""
+    replacing the saved definition of the same key. The other cases on the event read the revised
+    definition from then on, so it keeps every outcome one of them names: an outcome's key is its
+    identity, and a finer distinction is drawn by giving the outcome ways. `saving` is the case being
+    saved with the event, whose own versions are checked against the new definition."""
     if isinstance(e, str):
         row = db.get_event(con, e)
         if not row:
@@ -328,15 +335,40 @@ def _resolve_event(con, e, cited_ids):
         raise ToolError(f"event: id {given} belongs to a different event than key {data['key']!r}. The key stays the "
                         "same when an event is revised; keep the saved key, or leave id out to save a new event.")
     data["evidence"] = [_cite(con, c, f"event.evidence[{i}]", cited_ids) for i, c in enumerate(data["evidence"])]
+    data = forms.event(data)
+    if row:
+        left = [(r["id"], gone) for r in db.opportunities(con, "event_id=? AND status='active'", (eid,))
+                if r["id"] != saving and (gone := outcomes.unknown(data, r["case_json"]))]
+        if left:
+            raise ToolError(f"event: saved cases on {data['key']!r} state revenue under outcomes this definition leaves "
+                            "out: " + "; ".join(f"{oid} under {', '.join(gone)}" for oid, gone in left) + ". An outcome's "
+                            "key stays the same when its wording is revised, and a finer distinction is drawn by giving "
+                            "the outcome ways. Keep those outcomes, or revise those cases first.")
     if not row or forms.event(row["data"]) != data:
         db.put_event(con, eid, data["key"], data["title"], data)
     return eid, data
 
 
+def _check_outcomes(event, case):
+    """Every version names an outcome of the event, and at least one outcome is left to the baseline."""
+    if not outcomes.stated(event):
+        raise ToolError(f"event: {event.get('key')!r} was saved before events carried outcomes. Give it in full, with its "
+                        "text (the claim that will turn out true or false), kind, window_end, resolution_source and "
+                        "the ways of each side.")
+    gone = outcomes.unknown(event, case)
+    if gone:
+        raise ToolError(f"affected: the event has no outcome {', '.join(repr(k) for k in gone)}. A version's outcome is "
+                        f"'yes', 'no' or the key of one of the event's ways. Its outcomes:\n{_outcome_list(event)}")
+    if not outcomes.baseline(event, case):
+        raise ToolError("affected: the versions name every outcome of the event, so none is left to the baseline. The "
+                        "baseline is the stream's revenue under the outcomes no version names, and a shortfall is "
+                        "measured from it: leave the outcome the shortfall is measured from unnamed.")
+
+
 # ---------- the calculation ----------
 
 def _key_date(event, case):
-    return event.get("date") or case["case"].get("why_now_date")
+    return event.get("window_end") or case["case"].get("why_now_date")
 
 
 def _derive(case):
@@ -434,9 +466,10 @@ def _save(con, o: Opportunity):
                             "different exposure without opportunity_id.")
     elif existing:
         warnings.append(f"Revised the saved case {oid} for this company, event and stream_key.")
-    event_id, event = _resolve_event(con, o.event, cited_ids)
+    event_id, event = _resolve_event(con, o.event, cited_ids, saving=oid)
 
     case = o.model_dump(mode="json", exclude={"opportunity_id", "company", "event", "change_note"})
+    _check_outcomes(event, case)
     for name, inp in case["inputs"].items():
         if inp.get("source"):
             inp["source"] = _cite(con, inp["source"], f"inputs.{name}.source", cited_ids)
@@ -472,8 +505,9 @@ def _save(con, o: Opportunity):
     unchecked = sum(not c["checked"] for c in [*(i["source"] for i in case["inputs"].values() if i.get("source")),
                                                 *case["evidence"], *event.get("evidence", [])])
     return {"opportunity_id": oid, "company_id": company_id, "event_id": event_id, "revision": revision,
-            "changed": changed, "results": results, "warnings": warnings, "unchecked_passages": unchecked,
-            "workspace_results_used": sorted(set(results_used))}
+            "changed": changed, "condition": outcomes.condition(event, case),
+            "baseline_outcomes": outcomes.baseline(event, case), "results": results, "warnings": warnings,
+            "unchecked_passages": unchecked, "workspace_results_used": sorted(set(results_used))}
 
 
 # ---------- findings ----------
@@ -603,6 +637,7 @@ def _editable(oid, current):
     """The saved case in the exact form save_opportunity accepts: company and event by ID, store-set
     fields removed."""
     case = copy.deepcopy(current["case"])
+    case.pop("condition", None)
     for inp in case["inputs"].values():
         if inp.get("source"):
             inp["source"].pop("checked", None)
@@ -626,13 +661,18 @@ def _finding_view(con, f):
 
 
 def _brief(con, row):
+    """A case in brief: who, which stream, over what period, and the shortfall under each outcome it names."""
     c, e = db.get_company(con, row["company_id"]), db.get_event(con, row["event_id"])
     current = forms.snapshot(db.latest_revision(con, row["id"])["snapshot"])
-    res = current["results"]
+    case, res, event = current["case"], current["results"], forms.event(e["data"])
     return {"opportunity_id": row["id"], "status": row["status"], "company": c["name"], "event": e["key"],
-            "stream": current["case"]["stream"], "condition": current["case"]["condition"], "priority": row["priority"],
-            "max_shortfall": res["max_shortfall"], "currency": row["currency"], "revision": row["revision"],
-            "updated": row["updated"]}
+            "stream": case["stream"], "period": case["period"], "condition": outcomes.condition(event, case),
+            "baseline_outcomes": outcomes.baseline(event, case) if outcomes.stated(event) else [],
+            "baseline_revenue": res["baseline_revenue"],
+            "shortfalls": [{"outcome": r["outcome"], "version": r["name"], "revenue": r["revenue"],
+                            "shortfall": r["shortfall"], "share": r["share"]} for r in res["affected"]],
+            "priority": row["priority"], "max_shortfall": res["max_shortfall"], "currency": row["currency"],
+            "revision": row["revision"], "updated": row["updated"]}
 
 
 UPDATE = ("Edit 'opportunity' and pass it to save_opportunity with a change_note. To edit the company or the event, put "
@@ -659,7 +699,7 @@ def lookup(id_or_query: str) -> dict:
             current["company"] = {"id": company["id"], **company["data"]}
             current["event"] = {"id": ev_row["id"], **forms.event(ev_row["data"])}
             titles = {o["id"]: o for o in db.cited(con, q)}
-            case = current["case"]
+            case, event = current["case"], current["event"]
             evidence = [{"at": f"inputs.{k}", "passage": v["source"]["passage"], "checked": v["source"].get("checked"),
                          "observation_id": v["source"]["observation_id"]}
                         for k, v in case["inputs"].items() if v.get("source")]
@@ -673,13 +713,16 @@ def lookup(id_or_query: str) -> dict:
             return {"opportunity": _editable(q, current), "status": row["status"],
                     **({"format_notes": current["notes"]} if current["notes"] else {}),
                     "company_id": company["id"], "company": company["data"],
-                    "event_id": ev_row["id"], "event": _event_view(ev_row["data"]), "results": current["results"],
+                    "event_id": ev_row["id"], "event": _event_view(ev_row["data"]),
+                    "condition": outcomes.condition(event, case),
+                    "baseline_outcomes": outcomes.baseline(event, case) if outcomes.stated(event) else [],
+                    "results": current["results"],
                     "warnings": current["warnings"], "evidence": evidence,
                     "findings": [_finding_view(con, f) for f in fs], "revision": row["revision"],
                     **({"crm": {k: v for k, v in (row["progress"] or {}).items() if k in ("stage", "outcome", "outcome_note")}}
                        if row["progress"] else {}),
                     "updated": row["updated"], "how_to_update": UPDATE,
-                    "revisions": [r | {"change_note": forms.note(r["change_note"])} for r in db.revisions(con, q)[-8:]]}
+                    "revisions": db.revisions(con, q)[-8:]}
         if q.startswith("co_"):
             c = db.get_company(con, q)
             if not c:

@@ -67,17 +67,74 @@ class Company(Strict):
 
 # ---------- event ----------
 
+SIDES = ("yes", "no")
+
+
+class Way(Strict):
+    """One way a side of an event can turn out, stated as a claim of its own."""
+    key: str = Field(pattern=SLUG, description="A short identifier for this outcome, in lowercase letters, digits and "
+                                               "hyphens, unique within the event; it stays the same when the wording "
+                                               "is revised")
+    title: str = Field(description="This outcome, in a few words")
+    text: str = Field(description="What would make it true")
+    window_end: dt.date | None = Field(None, description="The date it is decided on or by, where that differs from "
+                                                         "its parent's")
+    resolution_source: str | None = Field(None, description="The record that will show whether it happened, where that "
+                                                            "differs from its parent's")
+    ways: list[Way] = Field(default=[], description="The ways this outcome can itself turn out, where what follows for "
+                                                    "a company differs between them. They exclude one another and "
+                                                    "together make up this outcome")
+
+
+Way.model_rebuild()
+
+
 class Event(Strict):
-    """An upcoming event outside the companies' control. Several companies can depend on the same event
-    in different ways; each case states the condition that affects its own revenue."""
+    """An upcoming event outside the companies' control, stated as a claim that will turn out true or false.
+    Its outcomes are its two sides, 'yes' (the claim is true) and 'no' (it is false), and all their ways.
+    Several companies can depend on the same event; each case names the outcomes that change its own revenue."""
     id: str | None = Field(None, description="The saved event's ID; when given, it must be the event the key names")
     key: str = Field(pattern=SLUG, description="A short identifier for the event, in lowercase letters, digits and "
                                                "hyphens; it stays the same when the event is revised")
-    title: str = Field(description="The event, in a few words")
-    description: str = Field(description="What could happen, and what decides whether it does")
-    date: dt.date | None = Field(None, description="The date it is decided or begins")
-    timing: str | None = Field(None, description="When it could happen, and how long it could last")
-    evidence: list[Cite] = Field(default=[], description="Passages that establish what the event is and when it happens")
+    title: str = Field(description="The claim, in a few words")
+    text: str = Field(description="The claim in full: what would make the event true")
+    description: str = Field(description="Who or what decides it, and how")
+    kind: Literal["scheduled_decision", "hitting", "level_at_date"] = Field(
+        description="scheduled_decision: a decision scheduled on window_end; hitting: true where it happens at any "
+                    "time through window_end; level_at_date: a level on window_end")
+    window_start: dt.date | None = Field(None, description="For a hitting event, the first day it counts from")
+    window_end: dt.date = Field(description="The date it is decided on or by")
+    timing: str | None = Field(None, description="The steps between now and window_end, each with its date and how "
+                                                 "firm that date is")
+    resolution_source: str = Field(description="The record that will show how it turned out: its publisher, and the "
+                                               "document, docket or data it will appear in")
+    yes_ways: list[Way] = Field(default=[], description="The ways the 'yes' side can turn out, where what follows for a "
+                                                        "company differs between them. A side's ways exclude one "
+                                                        "another and together make up the side. Left empty, the side "
+                                                        "is one outcome")
+    no_ways: list[Way] = Field(default=[], description="The ways the 'no' side can turn out, by the same rule")
+    evidence: list[Cite] = Field(default=[], description="Passages that establish what the event is, when it is "
+                                                         "decided, and what bears on how it turns out")
+
+    @model_validator(mode="after")
+    def _outcomes(self):
+        seen = set(SIDES)
+
+        def walk(ways, within):
+            if len(ways) == 1:
+                raise ValueError(f"'{within}' has one way, {ways[0].key!r}. The ways of an outcome exclude one another "
+                                 f"and together make up the outcome, so one way alone is the outcome itself: give the "
+                                 f"other ways '{within}' can turn out, or leave '{within}' whole")
+            for w in ways:
+                if w.key in seen:
+                    raise ValueError(f"outcome key {w.key!r} is used twice; 'yes' and 'no' are the sides' keys, and each "
+                                     "way's key is unique within the event")
+                seen.add(w.key)
+                walk(w.ways, w.key)
+
+        walk(self.yes_ways, "yes")
+        walk(self.no_ways, "no")
+        return self
 
 
 # ---------- opportunity ----------
@@ -99,18 +156,20 @@ class Input(Strict):
 
 
 class Baseline(Strict):
-    """The company's revenue over the period if the event doesn't affect it."""
+    """The stream's revenue over the period under the outcomes of the event that no affected version names."""
     description: str = Field(description="What the baseline assumes")
     revenue: str = Field(description="Formula: the revenue the company would recognize within the period")
     contribution: str | None = Field(None, description="Formula: that revenue less the costs that change with it")
 
 
 class Affected(Strict):
-    """The company's revenue over the period if the condition occurs. A case can model more than one
-    version of its condition."""
+    """The stream's revenue over the period under one outcome of the event. Versions under the same outcome
+    differ in what plays out at the company."""
     name: str = Field(pattern=NAME, description="A short name for this version, in lowercase letters, digits and "
                                                 "underscores")
-    description: str = Field(description="This version of the condition: what happens, and for how long")
+    outcome: str = Field(description="The outcome of the event this version holds under: 'yes', 'no' or a way's key. "
+                                     "It holds for every way within that outcome, except a way another version names")
+    description: str = Field(description="What plays out at the company under this outcome, and for how long")
     timeline: str = Field(description="When the company's work or sales stop, resume and are made up, and when revenue "
                                       "and cash land, relative to the period")
     revenue: str = Field(description="Formula: the revenue the company would recognize within the period, including "
@@ -175,16 +234,18 @@ class Opportunity(Strict):
     stream_key: str = Field(pattern=SLUG, description="A short identifier for the affected revenue stream, in lowercase "
                                                       "letters, digits and hyphens")
     stream: str = Field(description="The revenue stream that depends on the event")
-    condition: str = Field(description="What has to happen for this revenue to be affected")
-    dependency: str = Field(description="Why the company earns less if that happens: the contract, customer, program, "
-                                        "facility or channel through which it reaches revenue")
+    dependency: str = Field(description="Why the company earns less under the outcomes the versions name: the contract, "
+                                        "customer, program, facility or channel through which they reach revenue")
     timing: str = Field(description="When the company would feel the effect")
     period: Period
     currency: str = Field(pattern=r"^[A-Z]{3}$", description="The currency of the amounts of money, as an ISO code; "
                                                             "amounts are in whole units of it")
     inputs: dict[str, Input] = Field(description="The figures the formulas use, by name")
     baseline: Baseline
-    affected: list[Affected] = Field(min_length=1, description="Each version of the condition the case models")
+    affected: list[Affected] = Field(min_length=1, description="The stream's revenue under each outcome of the event "
+                                                               "that changes it. The outcomes they name are the case's "
+                                                               "condition: what has to happen for this revenue to be "
+                                                               "affected")
     denominator: Denominator | None = None
     case: Reasons = Field(description="Why the company is worth contacting, and when")
     buyer: Person = Field(description="The person to approach")

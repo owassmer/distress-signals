@@ -630,7 +630,7 @@ python -m distress_signals ledgers [--verify]
 |---|---|
 | `config/mandate.md` | The mandate |
 | `config/offering.local.md` | The operator's offering, when supplied (gitignored) |
-| `config/briefs/` | Briefs, each used only when selected |
+| `config/briefs/` | Briefs, each used only when selected. One named `*.local.md` is the operator's own (gitignored) |
 | `config/exclude.yaml`, `exclude.local.yaml` | Companies left aside |
 | `config/ledgers.yaml`, `config/legistar.yaml` | The payment ledgers; the city and county councils on Legistar |
 | `docs/model.md` | The model: propositions and their links, the case, its worlds and figures, the bases, the seam with event-risk, the cases the build passes, and which parts are built |

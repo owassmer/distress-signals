@@ -10,3 +10,4 @@ distress.db
 distress.db-wal
 distress.db-shm
 config/*.local.md
+config/briefs/*.local.md

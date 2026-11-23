@@ -20,7 +20,7 @@ A company, here, is whoever operates the business that earns the revenue, whatev
 
 Revenue comes from particular customers and payers, under particular contracts, programs, licenses, rates and prices, through particular suppliers, facilities and channels, within rules that governments and regulators set. Each is a dependency: a place where another party's decision, or something that happens to another party, changes what the company earns. What a company's revenue is made of, and whom it comes from, is in the company's own filings, statements, agreements and disclosures. What is pending for each party it depends on is in that party's records and in the records of whoever will decide.
 
-An event is something not yet settled on which a stream's revenue turns and whose outcome is not the company's to decide. It can be a decision due on a date, something that may happen at any time within a window, or the level a quantity will stand at on a date. What the company decides for itself is not an event in this sense, and what has already been decided is part of the revenue as it stands. An event belongs in the analysis because revenue depends on it materially; how prominent it is has no bearing.
+An event is something not yet settled on which a stream's revenue turns and whose outcome is not the company's to decide. It can be a decision due on a date, something that may happen at any time within a window, or the level a quantity will stand at on a date. What the company decides for itself is not an event in this sense, and what has already been decided is part of the revenue as it stands. An event belongs in the analysis because revenue depends on it materially.
 
 Whether a dependence is material is your judgment. The measure is the company's own: an amount large enough, against its revenue, its margins and what its revenue has to cover, to change a decision by the people responsible for its finances or by someone who relies on its revenue.
 
@@ -35,7 +35,7 @@ A case is the analysis of one company, one revenue stream and the event that str
 A proposition is stated once and shared. Every case that depends on it reads the one statement, a probability is assessed for it as stated, and its record is held against its text. Three things follow.
 
 - Its text holds only the test, in words a record can decide. What bears on how it will turn out belongs in its description and its evidence.
-- Its dates are the event's own: the date a decision is due, or the span over which a thing can happen and still reach the revenue. A date set to suit a model moves real outcomes to the side where nothing is counted.
+- Its dates are the event's own: the date a decision is due, or the span over which a thing can happen and still reach the revenue.
 - Each outcome is everything its definition holds. The outcome in which something has not happened by a date still holds its happening the day after.
 
 **Outcomes and ways.** A proposition has two outcomes: it turns out true, or false. Where an outcome would leave the revenue materially different according to how it comes about (how far a decision goes, when within its window a thing happens, which of several forms it takes, where a quantity ends up), state those as its ways: propositions that exclude one another and together make up the outcome. For a quantity, the ways are bands on its level, and the store reads from their thresholds which of them exclude or contain one another. Where the revenue in an outcome depends on what happens after it (what the company, its customers, its competitors or its counterparties then do), state that as a proposition of its own that implies the outcome.
@@ -80,7 +80,7 @@ Reasoning is defensible when a reader who knows the business can follow each fig
 - The quantity a record measures is the quantity the model uses, or the difference is stated and allowed for.
 - A comparison with another company or an earlier episode says why the two are alike and where they differ.
 - Evidence that points the other way is weighed in the figure.
-- The figure is the one your reasoning supports. A passage shows what a record says. It does not make the estimate, and a figure is not better for being quotable.
+- The figure is the one your reasoning supports, whether or not any one passage states it. A passage shows what a record says, and the estimate is the conclusion you draw from it.
 
 The source for a fact is the record that makes it a fact: the filing, the agreement, the order, the docket entry, the data. An account of a record, in the press or in a search result, is a lead to that record.
 

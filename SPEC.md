@@ -635,7 +635,7 @@ python -m distress_signals ledgers [--verify]
 
 | File | Holds |
 |---|---|
-| `config/system.md` | What the analyst is told in every session: the work, an assignment, the subject, a case, evidence, the store, the tools |
+| `config/system.md` | What the analyst is told in every session: the role, the work, a case, the store and the tools |
 | `config/briefs/` | Briefs, each used only when selected. One named `*.local.md` is the operator's own (gitignored) |
 | `config/exclude.yaml`, `exclude.local.yaml` | Companies left aside |
 | `config/ledgers.yaml`, `config/legistar.yaml` | The payment ledgers; the city and county councils on Legistar |

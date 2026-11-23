@@ -65,8 +65,14 @@ _MARKS = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '
                         "\u2014": "-", "\u2212": "-", "\u00a0": " "})
 
 
+def unseen(s):
+    """Text without the characters that print nothing: zero-width spaces and joiners, word joiners, soft hyphens
+    (Unicode's format characters), which pages carry between words."""
+    return "".join(c for c in s if unicodedata.category(c) != "Cf")
+
+
 def _norm(s):
-    s = unicodedata.normalize("NFKC", s or "").translate(_MARKS)
+    s = unseen(unicodedata.normalize("NFKC", s or "")).translate(_MARKS)
     return re.sub(r"\s+", " ", s).strip().casefold()
 
 
@@ -160,7 +166,7 @@ def whole_sentences(passage, text, rows_until=0):
     for k in sorted(chosen):
         if prev is not None:
             out.append(" " if k == prev + 1 or not text[kept[prev][1]:kept[k][0]].strip() else " \u2026 ")
-        out.append(" ".join(text[kept[k][0]:kept[k][1]].split()))
+        out.append(" ".join(unseen(text[kept[k][0]:kept[k][1]]).split()))
         prev = k
     return "".join(out) or passage
 

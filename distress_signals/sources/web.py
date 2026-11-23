@@ -4,6 +4,7 @@ import io
 import logging
 import os
 import re
+import unicodedata
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse
 
@@ -66,6 +67,7 @@ class _Text(HTMLParser):
 
 
 def _tidy(text):
+    text = "".join(c for c in text if unicodedata.category(c) != "Cf")  # zero-width spaces and joiners print nothing
     lines = [" ".join(line.split()) for line in text.splitlines()]
     text = "\n".join(lines)
     return re.sub(r"\n{3,}", "\n\n", text).strip()

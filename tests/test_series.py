@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from distress_signals import db, sources, tools, watch
-from distress_signals.sources import F, Series, page
+from distress_signals.sources import F, Series, page, web
 from distress_signals.util import SourceError
 
 MADE = [{"id": str(n), "url": f"https://example.org/widgets/{n}", "widget_id": str(n), "maker": f"Acme Works {n % 7}",
@@ -363,6 +363,14 @@ class Citations(unittest.TestCase):
             self.assertEqual(tools.whole_sentences("was made in the", prose["text"], until), "This widget was made in the spring.")
             self.assertEqual(tools._rows_until({**prose, "kind": "result_set"}), len(prose["text"]))
         self.assertEqual(tools._rows_until({"kind": "page", "source": "example.org", "data": {}, "text": prose["text"]}), 0)
+
+    def test_characters_that_print_nothing_are_no_part_of_a_passage(self):
+        text = "The chief executive told Reuters \u200bin \u200cOctober that the airline was not in \u200btalks with creditors \u2060and had no plans to restructure."
+        plain = "told Reuters in October that the airline was not in talks with creditors"
+        self.assertTrue(tools.quoted(plain, text))
+        kept = tools.whole_sentences(plain, text)
+        self.assertEqual(kept, "The chief executive told Reuters in October that the airline was not in talks with creditors and had no plans to restructure.")
+        self.assertEqual(web._tidy("talks\u200b with\u2060 creditors"), "talks with creditors")
 
     def test_a_url_citation_resolves_to_the_record_holding_the_passage(self):
         url = "https://example.org/ratings.zip"

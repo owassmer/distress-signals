@@ -60,8 +60,16 @@ def _rests_on(a, cited):
     return " ".join(parts)
 
 
+def figure(v, unit, cur):
+    """(a figure, the rest of its unit): as money where the unit is the currency or begins with it ('USD per
+    year'), and otherwise in plain digits, to four significant digits below a thousand."""
+    if unit == cur or unit.startswith(cur + " "):
+        return money(v, cur), unit[len(cur):].strip()
+    return (f"{v:,.0f}" if abs(v) >= 1000 else f"{v:,.4g}"), unit
+
+
 def _shown(v, unit, cur):
-    return money(v, cur) if unit == cur else f"{v:,.4g} {unit}"
+    return " ".join(x for x in figure(v, unit, cur) if x)
 
 
 def _input_line(name, inp, cur, cited):

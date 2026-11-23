@@ -377,7 +377,7 @@ def _case_details(oids, public=False):
             def changed(r):
                 """The inputs that take another value in a world, each with its value there."""
                 cur = case["currency"]
-                return "; ".join(f"{title_label(k)} {briefs.money(v, cur) if case['inputs'][k]['unit'] == cur else f'{v:,.4g}'}"
+                return "; ".join(f"{title_label(k)} {briefs.figure(v, case['inputs'][k]['unit'], cur)[0]}"
                                  for k, v in r["values"].items())
 
             out[c["id"]] = {

@@ -477,6 +477,14 @@ class Model(unittest.TestCase):
         self.assertIn('| `program_revenue` | $100 | assumed | The program\'s fiscal 2026 revenue, carried into the period. '
                       '"In fiscal 2026 the Company recognized $100 of revenue under the program."', memo)
 
+    def test_figures_read_in_plain_digits(self):
+        for (v, unit), said in (((120174241.0, "USD per year"), "$120.2M per year"), ((2496000.0, "USD"), "$2.5M"),
+                                ((3327905.0, "enplaned passengers"), "3,327,905 enplaned passengers"),
+                                ((9999.9, "passengers"), "10,000 passengers"), ((0.264, "share of passengers"), "0.264 share of passengers"),
+                                ((0.05, "share"), "0.05 share"), ((82.9, "USD per square foot"), "$83 per square foot")):
+            with self.subTest(v=v, unit=unit):
+                self.assertEqual(briefs._shown(v, unit, "USD"), said)
+
     def test_a_finding_can_concern_a_proposition_and_withdraw_a_case(self):
         cid = self.save()["case_id"]
         out = tools.record_finding({"kind": "conclusion", "statement": "The agency has funded the program for two years.",

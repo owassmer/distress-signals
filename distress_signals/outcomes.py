@@ -1,6 +1,6 @@
 """An event's outcomes, read from the event as stored. The outcomes are its two sides, 'yes' and 'no',
-and all their ways. A case's versions name outcomes by key: those are its worlds, each the outcome as a
-whole, and none lies within another. An outcome the case names no revenue for is open."""
+and all their ways. A case gives its inputs' values by outcome, each outcome by its key; an outcome's
+values hold in its ways."""
 
 from .models import SIDES
 
@@ -26,27 +26,18 @@ def index(event):
     return {k: {"node": n, "parent": p, "depth": d} for k, n, p, d in tree(event)}
 
 
-def stated(event):
-    """Whether the event is stated as a claim with outcomes (the current form)."""
-    return bool(event.get("text") and event.get("kind"))
-
-
-def path(event, key):
-    """The outcome and the outcomes it lies within, outermost first: [node, ...]."""
-    ix, out = index(event), []
-    while key:
-        out.append(ix[key]["node"])
-        key = ix[key]["parent"]
-    return out[::-1]
+def within(event):
+    """{key: the key of the outcome it lies within, or None for a side}."""
+    return {k: p for k, _, p, _ in tree(event)}
 
 
 def label(event, key):
     """An outcome in a few words: the event's title for the Yes side, its title negated for the No side, and
     a way's own title."""
     if key == "yes":
-        return event.get("title") or ""
+        return event["title"]
     if key == "no":
-        return f"Not: {event.get('title') or ''}"
+        return f"Not: {event['title']}"
     return index(event)[key]["node"]["title"]
 
 
@@ -54,76 +45,25 @@ def sentence(event, key):
     """What would make an outcome true, in the event's words: the claim for the Yes side, the claim turning
     out false for the No side, and a way's own text."""
     if key == "yes":
-        return event.get("text") or ""
+        return event["text"]
     if key == "no":
-        return f"This turns out false: {event.get('text') or ''}"
+        return f"This turns out false: {event['text']}"
     return index(event)[key]["node"]["text"]
 
 
-def named(case):
-    """The outcome keys a case's versions name, in the order first named."""
-    return list(dict.fromkeys(a["outcome"] for a in case["affected"] if a.get("outcome")))
+def named(event, case):
+    """The outcomes a case gives values for, in the event's order."""
+    return [k for k, _, _, _ in tree(event) if k in case["by_outcome"]]
 
 
 def unknown(event, case):
-    """The outcome keys a case's versions name that the event doesn't have."""
+    """The outcome keys a case gives values for that the event doesn't have."""
     have = index(event)
-    return [k for k in named(case) if k not in have]
-
-
-def within(event, key):
-    """The keys of every way within an outcome, at any depth."""
-    ix = index(event)
-    return [k for k in ix if any(n["key"] == key for n in path(event, k)[:-1])]
-
-
-def overlapping(event, case):
-    """[(inner, outer)] for each pair of outcomes a case names where one lies within the other."""
-    names = [k for k in named(case) if k in index(event)]
-    return [(a, b) for b in names for a in within(event, b) if a in names]
-
-
-def open_outcomes(event, case):
-    """The outcomes a case names no revenue for: the largest outcomes that it does not name and that hold no
-    way it names."""
-    names, ix = set(named(case)), index(event)
-    kids = {}
-    for k, v in ix.items():
-        kids.setdefault(v["parent"], []).append(k)
-
-    def touched(key):
-        return key in names or any(touched(c) for c in kids.get(key, []))
-
-    out = []
-
-    def walk(key):
-        if key in names:
-            return
-        if not touched(key):
-            out.append(key)
-            return
-        for c in kids.get(key, []):
-            walk(c)
-
-    for side in SIDES:
-        walk(side)
-    return out
-
-
-def whole(event, case):
-    """[{"outcome", "ways"}] for each outcome a case names that has ways: the case's figure is for the outcome
-    as a whole, and each of those ways has a figure once the case names it."""
-    ix = index(event)
-    return [{"outcome": k, "ways": [w["key"] for w in ix[k]["node"].get("ways") or []]}
-            for k in named(case) if k in ix and ix[k]["node"].get("ways")]
+    return [k for k in case["by_outcome"] if k not in have]
 
 
 def condition(event, case, results):
-    """What has to happen for the case's revenue to be affected: the outcomes under which a version's revenue
-    differs from the baseline's, in the event's words. An outcome a version names at the baseline's revenue is
-    stated as leaving revenue as it is, so it is no part of the condition. A case saved before events carried
-    outcomes reads with the condition it stated."""
-    if not stated(event) or not named(case):
-        return case.get("condition") or ""
-    moved = {r["outcome"] for r in results["affected"] if r["shortfall"]}
-    return " Or: ".join(sentence(event, k) for k in named(case) if k in index(event) and k in moved)
+    """What has to happen for the case's revenue to be affected: the outcomes it gives values for, where
+    the revenue differs from the baseline's, in the event's words."""
+    moved = {r["outcome"] for r in results["outcomes"] if r["shortfall"]}
+    return " Or: ".join(sentence(event, k) for k in named(event, case) if k in moved)

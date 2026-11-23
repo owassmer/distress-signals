@@ -131,38 +131,44 @@ def lookup(id_or_query: str) -> dict:
     revisions, and its deal's stage and outcome in the operator's CRM. A company's ID, name, alias or domain
     returns the company with its cases and findings, and its deals in the operator's CRM with their stages
     and outcomes. An event's ID, key or title returns the event with the ways of each side, its findings, and
-    each case's dated estimate: its baseline, the formula, revenue and shortfall in each world it names, and
-    the outcomes it leaves open. A finding's or workspace result's ID returns that record."""
+    each case's dated estimate: its revenue formula, its baseline, and the values, revenue and shortfall in
+    each outcome it gives values for. A finding's or workspace result's ID returns that record."""
     return _call("lookup", tools.lookup, id_or_query)
 
 
-@server.tool()
-def calculate_exposure(case: Calculation) -> dict:
-    """Calculate the revenue at stake without saving: inputs (each with a value, a unit, and exactly one of
-    source, derived or assumption), a baseline, one or more affected versions, each under an outcome of the
-    event, and an optional denominator. Formulas use input names, numbers, + - * /, parentheses, min() and max().
+MODEL = """The model is one revenue formula over input names: numbers, + - * /, parentheses, min() and max(). Each input
+has a unit, its value in the baseline, and one basis: source (the passage that states it), result (the cell of a
+saved compute result, which the store reads) or assumption (the reasoning, with the passages and saved results it
+rests on). by_outcome gives, for each outcome of the event that changes the revenue, the inputs that take another
+value there, each with what that value rests on. An outcome's values hold in its ways, and a way gives the values
+that differ further.
 
-    For each affected version it returns the revenue within the period, the shortfall against the baseline,
-    the shortfall as a share of the denominator, revenue deferred past the period and the revenue lost (both
-    only where the deferral is given), the contribution loss (where both baseline and version give
-    contribution), and cash delayed. save_opportunity runs the same calculation."""
+The baseline is the formula at the inputs' values. For each outcome in by_outcome the store returns the revenue
+within the period, the shortfall against the baseline, the shortfall as a share of the denominator, revenue deferred
+past the period and the revenue lost (both only where the deferral's formula is given), the contribution loss
+(where the contribution formula is given), and cash delayed."""
+
+
+@server.tool(description="Calculate the revenue at stake without saving, from a draft of a case's model. "
+                         "save_opportunity runs the same calculation.\n\n" + MODEL)
+def calculate_exposure(case: Calculation) -> dict:
     return _call("calculate_exposure", tools.calculate_exposure, case.model_dump(mode="json"))
 
 
-@server.tool()
+@server.tool(description="""Save a case for contacting a company: one company, one event, one affected revenue stream.
+The company is given in full or by ID (with its id, the object edits that company); the event by key or ID, or in
+full, which saves its definition: the claim that will turn out true or false, its window, the record that will show
+how it turned out, and the ways of each side, each a claim stated the same way. A definition given in full keeps
+every outcome another saved case gives values for.
+
+""" + MODEL + """
+
+Each basis is checked: a passage is the section of text that states the figure, never the number alone, and appears
+word for word in the stored record; a result cell is one row of a saved result. opportunity_id revises a case; a
+different company, event or stream_key is a different case. A saved case goes in front of the operator in their CRM
+at once, and a revision or a withdrawal updates it there. Returns the IDs, the revision, the condition as read from
+the event, the results and any warnings.""")
 def save_opportunity(opportunity: Opportunity) -> dict:
-    """Save a case for contacting a company: one company, one event, one affected revenue stream. The company
-    is given in full or by ID (with its id, the object edits that company); the event by key or ID, or in full,
-    which saves its definition: the claim that will turn out true or false, its window, the record that will
-    show how it turned out, and the ways of each side. Each affected version names the outcome of the event it
-    is for, taken as a whole; the outcomes a case names lie apart, and an outcome no version names is open. A
-    definition given in full keeps every outcome another saved case names. Each input's provenance is checked: a source passage must be the section of
-    text that states the figure, never the number alone, and appear word for word in the stored record; a
-    derived value must appear in the workspace result. The results are computed
-    from the inputs and formulas. opportunity_id revises a case; a different company, event or stream_key is
-    a different case. A saved case goes in front of the operator in their CRM at once, and a revision or a
-    withdrawal updates it there. Returns the IDs, the revision, the condition as read from the event, the
-    outcomes left open, the outcomes named whole that have ways, the results and any warnings."""
     return _call("save_opportunity", tools.save_opportunity, opportunity.model_dump(mode="json"))
 
 

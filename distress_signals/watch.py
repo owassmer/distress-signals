@@ -11,7 +11,6 @@ leaves out links into the operator's HubSpot.
   python -m distress_signals export-run RUN_ID [--public] [--out FILE]
 """
 
-import collections
 import datetime as dt
 import html
 import json
@@ -178,9 +177,8 @@ def outcome(name, i, text, is_error):
             return {"status": "ok", "meta": f"Event record · {k} associated case{'s' if k != 1 else ''}"}
         return {"status": "ok", "meta": "Saved record returned"}
     if name == "calculate_exposure":
-        scenarios = (out.get("results") or {}).get("affected") or []
-        n = len(scenarios)
-        return {"status": "ok", "meta": f"{n} scenario{'s' if n != 1 else ''} compared with baseline" if n else None}
+        n = len((out.get("results") or {}).get("outcomes") or [])
+        return {"status": "ok", "meta": f"{n} outcome{'s' if n != 1 else ''} compared with baseline" if n else None}
     if name == "save_opportunity":
         o, res = i.get("opportunity") or {}, out.get("results") or {}
         company = _company_name(out.get("company_id") or o.get("company"))
@@ -349,12 +347,16 @@ def _assignment(run):
 
 
 def _input(name, x, url_of):
-    """One figure behind a case, with its provenance: reported (the passage), derived (the calculation) or assumed."""
-    src = x.get("source") or {}
-    kind = "reported" if x.get("source") else "derived" if x.get("derived") else "assumed"
+    """One figure behind a case, with its basis: reported (the passage), derived (the result cell the store read) or
+    assumed (the reasoning, and the first passage it rests on)."""
+    kind = "reported" if x.get("source") else "derived" if x.get("result") else "assumed"
+    a, cell = x.get("assumption") or {}, x.get("result") or {}
+    src = x.get("source") or next(iter(a.get("evidence") or []), {})
+    how = a.get("note") if kind == "assumed" else (
+        f"{cell['result_id']}, {cell['column']}" + "".join(f", {k} {v}" for k, v in cell["row"].items()) if cell else None)
     return {"name": title_label(name), "value": x.get("value"), "unit": x.get("unit"), "note": x.get("note"), "kind": kind,
             "passage": src.get("passage"), "checked": src.get("checked"), "url": url_of(src.get("observation_id")),
-            "how": (x.get("derived") or {}).get("note") if kind == "derived" else x.get("assumption")}
+            "how": how}
 
 
 def _case_details(oids, public=False):
@@ -370,16 +372,10 @@ def _case_details(oids, public=False):
             case, ev, res, buyer = c["case"], c["event"], c["results"], c["case"]["buyer"]
             cited = c.get("cited") or {}
             url_of = lambda oid: (cited.get(oid) or {}).get("url") if oid else None  # noqa: E731
-            scen = {a["name"]: a for a in case.get("affected") or []}
-            shared = collections.Counter(r.get("outcome") for r in res.get("affected") or [])
-            known = outcomes.index(ev) if outcomes.stated(ev) else {}
 
-            def scenario_label(r):
-                """The outcome a version holds under; with its own name where several versions share the outcome."""
-                if r.get("outcome") not in known:
-                    return title_label(r["name"])
-                under = outcomes.label(ev, r["outcome"])
-                return under if shared[r["outcome"]] == 1 else f"{under} · {title_label(r['name'])}"
+            def changed(key):
+                """The inputs an outcome gives another value, each with its value there."""
+                return "; ".join(f"{title_label(k)} {g['value']:,.4g}" for k, g in (case["by_outcome"].get(key) or {}).items())
 
             out[c["id"]] = {
                 "oid": c["id"], "status": c["status"], "company": c["company"]["name"],
@@ -397,10 +393,10 @@ def _case_details(oids, public=False):
                 "why_matters": case["case"].get("why_matters"), "condition": c["condition"], "timing": case.get("timing"),
                 "event_description": ev.get("description"), "event_timing": ev.get("timing"),
                 "period_start": case["period"]["start"], "period_end": case["period"]["end"],
-                "baseline": {"revenue": res.get("baseline_revenue"), "description": (case.get("baseline") or {}).get("description")},
-                "scenarios": [{"label": scenario_label(r), "description": (scen.get(r["name"]) or {}).get("description"),
+                "baseline": {"revenue": res.get("baseline_revenue"), "description": None},
+                "scenarios": [{"label": outcomes.label(ev, r["outcome"]), "description": changed(r["outcome"]),
                                "revenue": r.get("revenue"), "shortfall": r.get("shortfall"), "share": r.get("share")}
-                              for r in res.get("affected") or []],
+                              for r in res.get("outcomes") or []],
                 "inputs": [_input(k, x, url_of) for k, x in (case.get("inputs") or {}).items()],
                 "evidence": [{"passage": e.get("passage"), "supports": e.get("supports"), "checked": e.get("checked"), "url": url_of(e.get("observation_id"))}
                              for e in case.get("evidence") or []],

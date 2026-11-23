@@ -1,14 +1,18 @@
-"""Exposure arithmetic: the revenue at stake under each outcome a case names. The researcher states inputs,
-a baseline and the affected versions, each under an outcome of the event; this computes every result. A formula is an expression over input
-names: numbers, + - * /, parentheses, min() and max(). Nothing else is evaluated.
+"""Exposure arithmetic: the revenue at stake in each outcome a case gives values for. The researcher
+states one revenue formula, the inputs at their values in the baseline, and for each outcome of the event
+that changes the revenue, the inputs that take another value there; this computes every result. A formula
+is an expression over input names: numbers, + - * /, parentheses, min() and max(). Nothing else is
+evaluated.
 
 compute() is the one calculation, used by calculate_exposure, save_opportunity and every read of a
 saved case.
 
-Revenue is what the company recognizes within the period, work or sales made up within the period
-included. The shortfall is the baseline's revenue less the affected version's. Revenue deferred past the
-period is recognized later; lost revenue is the shortfall less that deferral, and is reported only when
-the deferral is stated, because otherwise later recovery is unknown. Cash delayed is a timing effect on
+The baseline is the formula at the inputs' values. An outcome's revenue is the formula with that outcome's
+values in place of the baseline's; an outcome's values hold in its ways, and a way's own are applied over
+them. Revenue is what the company recognizes within the period, work or sales made up within the period
+included. The shortfall is the baseline's revenue less the outcome's. Revenue deferred past the period is
+recognized later; lost revenue is the shortfall less that deferral, and is reported only when the
+deferral is stated, because otherwise later recovery is unknown. Cash delayed is a timing effect on
 collections, reported apart."""
 
 import ast
@@ -53,13 +57,14 @@ def evaluate(formula, values):
     return ev(tree)
 
 
-def compute(inputs, baseline, affected, denominator=None):
-    """inputs {name: value}; baseline {revenue, contribution?}; affected [{name, outcome, revenue,
-    deferred_past_period?, contribution?, cash_delayed?}]; denominator {label, formula} or None.
-    Returns (results, warnings); raises FormulaError for a formula that can't be computed."""
-    if not affected:
-        raise ValueError("give at least one affected version")
-    warnings = []
+def compute(inputs, formulas, by_outcome, denominator=None, within=None):
+    """inputs {name: value}; formulas {revenue, contribution?, deferred_past_period?, cash_delayed?};
+    by_outcome {outcome key: {input name: value}}; denominator {label, formula} or None; within {outcome
+    key: the key of the outcome it lies within, or None}, from the event. Returns (results, warnings);
+    raises FormulaError for a formula that can't be computed."""
+    if not by_outcome:
+        raise ValueError("give the inputs' values in at least one outcome")
+    within, warnings = within or {}, []
     den = None
     if denominator:
         den = evaluate(denominator["formula"], inputs)
@@ -67,30 +72,34 @@ def compute(inputs, baseline, affected, denominator=None):
             raise FormulaError(f"denominator {denominator['formula']!r} is {den}, not positive")
     else:
         warnings.append("No denominator, so the shortfall isn't expressed as a share.")
-    opt = lambda s, k: evaluate(s[k], inputs) if s.get(k) else None
-    base_rev, base_con = evaluate(baseline["revenue"], inputs), opt(baseline, "contribution")
+    opt = lambda k, values: evaluate(formulas[k], values) if formulas.get(k) else None  # noqa: E731
+    base_rev, base_con = evaluate(formulas["revenue"], inputs), opt("contribution", inputs)
     rows = []
-    for a in affected:
-        rev = evaluate(a["revenue"], inputs)
+    for key in by_outcome:
+        above, at = [], within.get(key)
+        while at is not None:          # the outcomes this one lies within, nearest first
+            above.append(at)
+            at = within.get(at)
+        values = dict(inputs)
+        for k in [*reversed(above), key]:
+            values.update(by_outcome.get(k) or {})
+        rev = evaluate(formulas["revenue"], values)
         shortfall = base_rev - rev
-        deferred = opt(a, "deferred_past_period")
+        deferred, con = opt("deferred_past_period", values), opt("contribution", values)
         lost = shortfall - deferred if deferred is not None else None
-        con = opt(a, "contribution")
-        rows.append({"name": a["name"], "outcome": a.get("outcome"), "revenue": rev, "shortfall": shortfall,
+        rows.append({"outcome": key, "revenue": rev, "shortfall": shortfall,
                      "share": shortfall / den if den else None, "deferred_past_period": deferred, "lost": lost,
                      "lost_share": lost / den if den and lost is not None else None,
-                     "contribution_loss": base_con - con if con is not None and base_con is not None else None,
-                     "cash_delayed": opt(a, "cash_delayed")})
+                     "contribution_loss": base_con - con if con is not None else None,
+                     "cash_delayed": opt("cash_delayed", values)})
         if shortfall < 0:
-            warnings.append(f"{a['name']}: revenue is higher than the baseline (shortfall {shortfall:,.0f}).")
+            warnings.append(f"{key}: revenue is higher than the baseline (shortfall {shortfall:,.0f}).")
         if deferred is not None and deferred > shortfall + 1e-6:
-            warnings.append(f"{a['name']}: revenue deferred past the period ({deferred:,.0f}) is more than the shortfall "
+            warnings.append(f"{key}: revenue deferred past the period ({deferred:,.0f}) is more than the shortfall "
                             f"within it ({shortfall:,.0f}); the deferral is part of that shortfall.")
-        if con is not None and base_con is None:
-            warnings.append(f"{a['name']}: contribution is given but the baseline has none.")
     worst = max(rows, key=lambda r: r["shortfall"])
     known = [r["lost"] for r in rows if r["lost"] is not None]
     return {"baseline_revenue": base_rev, "baseline_contribution": base_con,
             "denominator": {"label": denominator["label"], "value": den} if denominator else None,
-            "affected": rows, "worst": worst["name"], "max_shortfall": worst["shortfall"], "max_share": worst["share"],
+            "outcomes": rows, "worst": worst["outcome"], "max_shortfall": worst["shortfall"], "max_share": worst["share"],
             "max_lost": max(known) if known else None}, warnings

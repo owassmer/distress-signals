@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -38,12 +38,6 @@ class Cite(Strict):
         return self
 
 
-class Derived(Strict):
-    """A figure computed in the workspace."""
-    result_id: str = Field(description="The saved compute result whose rows contain the value")
-    note: str | None = Field(None, description="Which value in the result, and what it measures")
-
-
 class Person(Strict):
     role: str = Field(description="What this person is responsible for: the affected business, or its financial exposure")
     name: str | None = Field(None, description="The person's name, as a public business source gives it")
@@ -68,22 +62,25 @@ class Company(Strict):
 # ---------- event ----------
 
 SIDES = ("yes", "no")
+Kind = Literal["scheduled_decision", "hitting", "level_at_date"]
+KIND = ("scheduled_decision: a decision scheduled on window_end; hitting: true where it happens at any time through "
+        "window_end; level_at_date: a level on window_end")
 
 
 class Way(Strict):
-    """One way a side of an event can turn out, stated as a claim of its own."""
+    """One way an outcome can turn out: a claim of its own, stated as the event is."""
     key: str = Field(pattern=SLUG, description="A short identifier for this outcome, in lowercase letters, digits and "
                                                "hyphens, unique within the event; it stays the same when the wording "
                                                "is revised")
-    title: str = Field(description="This outcome, in a few words")
-    text: str = Field(description="What would make it true")
-    window_end: dt.date | None = Field(None, description="The date it is decided on or by, where that differs from "
-                                                         "its parent's")
-    resolution_source: str | None = Field(None, description="The record that will show whether it happened, where that "
-                                                            "differs from its parent's")
-    ways: list[Way] = Field(default=[], description="The ways this outcome can itself turn out, where what follows for "
-                                                    "a company differs between them. They exclude one another and "
-                                                    "together make up this outcome")
+    title: str = Field(description="The claim, in a few words")
+    text: str = Field(description="The claim in full: what would make it true")
+    kind: Kind = Field(description=KIND)
+    window_start: dt.date | None = Field(None, description="For a hitting claim, the first day it counts from")
+    window_end: dt.date = Field(description="The date it is decided on or by")
+    resolution_source: str = Field(description="The record that will show whether it turned out true: its publisher, "
+                                               "and the document, docket or data it will appear in")
+    ways: list[Way] = Field(default=[], description="The ways this outcome can itself turn out. They exclude one another "
+                                                    "and together make up this outcome")
 
 
 Way.model_rebuild()
@@ -92,26 +89,25 @@ Way.model_rebuild()
 class Event(Strict):
     """An upcoming event outside the companies' control, stated as a claim that will turn out true or false.
     Its outcomes are its two sides, 'yes' (the claim is true) and 'no' (it is false), and all their ways.
-    Several companies can depend on the same event; each case names the outcomes that change its own revenue."""
+    Several companies can depend on the same event; each case gives its inputs' values in the outcomes that
+    change its own revenue."""
     id: str | None = Field(None, description="The saved event's ID; when given, it must be the event the key names")
     key: str = Field(pattern=SLUG, description="A short identifier for the event, in lowercase letters, digits and "
                                                "hyphens; it stays the same when the event is revised")
     title: str = Field(description="The claim, in a few words")
     text: str = Field(description="The claim in full: what would make the event true")
     description: str = Field(description="Who or what decides it, and how")
-    kind: Literal["scheduled_decision", "hitting", "level_at_date"] = Field(
-        description="scheduled_decision: a decision scheduled on window_end; hitting: true where it happens at any "
-                    "time through window_end; level_at_date: a level on window_end")
-    window_start: dt.date | None = Field(None, description="For a hitting event, the first day it counts from")
+    kind: Kind = Field(description=KIND)
+    window_start: dt.date | None = Field(None, description="For a hitting claim, the first day it counts from")
     window_end: dt.date = Field(description="The date it is decided on or by")
     timing: str | None = Field(None, description="The steps between now and window_end, each with its date and how "
                                                  "firm that date is")
     resolution_source: str = Field(description="The record that will show how it turned out: its publisher, and the "
                                                "document, docket or data it will appear in")
     yes_ways: list[Way] = Field(default=[], description="The ways the 'yes' side can turn out, where what follows for a "
-                                                        "company differs between them. A side's ways exclude one "
-                                                        "another and together make up the side. Left empty, the side "
-                                                        "is one outcome")
+                                                        "company differs between them, each a claim of its own. A "
+                                                        "side's ways exclude one another and together make up the "
+                                                        "side. Left empty, the side is one outcome")
     no_ways: list[Way] = Field(default=[], description="The ways the 'no' side can turn out, by the same rule")
     evidence: list[Cite] = Field(default=[], description="Passages that establish what the event is, when it is "
                                                          "decided, and what bears on how it turns out")
@@ -139,60 +135,62 @@ class Event(Strict):
 
 # ---------- opportunity ----------
 
+class Assumption(Strict):
+    """What an assumed value rests on."""
+    note: str = Field(min_length=10, description="The reasoning: why this value, and why what it rests on applies here")
+    evidence: list[Cite] = Field(default=[], description="Passages the assumption rests on")
+    results: list[str] = Field(default=[], description="Saved compute results the assumption rests on")
+
+
+class Cell(Strict):
+    """One value of a saved compute result. The store reads it."""
+    result_id: str = Field(description="The saved compute result")
+    column: str = Field(description="The column that holds the value")
+    row: dict[str, Any] = Field(default={}, description="Where the result has several rows: one or more of its columns "
+                                                        "with the values that pick out one row")
+
+
 class Input(Strict):
-    """A figure the calculation uses, with exactly one provenance."""
-    value: float = Field(description="The figure. An amount of money is in whole units of the case's currency")
+    """A figure the formulas use, with exactly one basis. Its value is its value in the baseline."""
     unit: str = Field(description="What the figure counts or measures")
-    source: Cite | None = Field(None, description="Reported: the passage that states the figure")
-    derived: Derived | None = Field(None, description="Derived: the workspace result that computes the figure")
-    assumption: str | None = Field(None, description="Assumed: the reasoning behind the figure")
+    value: float | None = Field(None, description="The figure. An amount of money is in whole units of the case's "
+                                                  "currency. Leave it out where result gives it: the store reads it")
+    source: Cite | None = Field(None, description="Observed in words: the passage that states the figure")
+    result: Cell | None = Field(None, description="Observed by query: the cell of a saved compute result that holds the "
+                                                  "figure")
+    assumption: Assumption | None = Field(None, description="Assumed: what the figure rests on")
     note: str | None = Field(None, description="Anything else a reader needs to interpret the figure")
 
     @model_validator(mode="after")
-    def _provenance(self):
-        if sum(x is not None for x in (self.source, self.derived, self.assumption)) != 1:
-            raise ValueError("give exactly one of source (reported), derived (workspace result) or assumption")
+    def _basis(self):
+        if sum(x is not None for x in (self.source, self.result, self.assumption)) != 1:
+            raise ValueError("give exactly one of source (observed in words), result (observed by query) or assumption")
+        if self.value is None and self.result is None:
+            raise ValueError("give the value")
         return self
 
 
-class Baseline(Strict):
-    """The stream's revenue over the period under the reference conditions the case states: the comparison
-    each version's shortfall is measured from."""
-    description: str = Field(description="The reference conditions: what the baseline takes to hold, for the event "
-                                         "and for the background conditions that also enter each version")
-    revenue: str = Field(description="Formula: the revenue the company would recognize within the period")
-    contribution: str | None = Field(None, description="Formula: that revenue less the costs that change with it")
+class Given(Strict):
+    """An input's value in one outcome of the event."""
+    value: float = Field(description="The input's value in that outcome")
+    assumption: Assumption = Field(description="What that value rests on")
 
 
-class Affected(Strict):
-    """The stream's revenue over the period in one world: an outcome of the event, taken as a whole. Versions
-    that name the same outcome give its revenue under different operating assumptions."""
-    name: str = Field(pattern=NAME, description="A short name for this version, in lowercase letters, digits and "
-                                                "underscores")
-    outcome: str = Field(description="The outcome of the event this version is for: 'yes', 'no' or a way's key. The "
-                                     "figure is for that outcome as a whole, and the outcomes a case names lie apart: "
-                                     "none lies within another")
-    description: str = Field(description="What plays out at the company under this outcome, and for how long")
-    timeline: str = Field(description="When the company's work or sales stop, resume and are made up, and when revenue "
-                                      "and cash land, relative to the period")
-    revenue: str = Field(description="Formula: the revenue the company would recognize within the period, including "
-                                     "work or sales made up within it")
-    deferred_past_period: str | None = Field(None, description="Formula: revenue the company would recognize after the "
-                                                               "period instead of within it. Leave out when later "
-                                                               "recovery is unknown")
-    contribution: str | None = Field(None, description="Formula: that revenue less the costs that change with it")
-    cash_delayed: str | None = Field(None, description="Formula: cash the company would collect later than it otherwise "
-                                                       "would; a timing effect, not lost revenue")
+FORMULAS = ("revenue", "contribution", "deferred_past_period", "cash_delayed")
 
 
-def check_structure(inputs, affected):
-    """The rules inputs and affected versions follow, for a calculation and a saved case alike."""
+def check_structure(inputs, by_outcome):
+    """The rules inputs and the values given by outcome follow, for a calculation and a saved case alike."""
     bad = [k for k in inputs if not IDENT.match(k)]
     if bad:
         raise ValueError(f"input names must be identifiers: {bad}")
-    names = [a.name for a in affected]
-    if len(set(names)) != len(names):
-        raise ValueError("the names of the affected versions must be unique")
+    for outcome, values in by_outcome.items():
+        if not values:
+            raise ValueError(f"by_outcome.{outcome}: give the inputs that take another value in this outcome")
+        unknown = [k for k in values if k not in inputs]
+        if unknown:
+            raise ValueError(f"by_outcome.{outcome}: no input named {', '.join(unknown)}; an outcome gives another value "
+                             "to an input the case states")
 
 
 class Period(Strict):
@@ -230,27 +228,36 @@ class Evidence(Cite):
 
 
 class Opportunity(Strict):
-    """A case for contacting a company: one company, one event, one affected revenue stream."""
+    """A case for contacting a company: one company, one event, one affected revenue stream. Its model is one
+    revenue formula over its inputs, and the inputs' values in each outcome of the event that changes them."""
     opportunity_id: str | None = Field(None, description="The saved case's ID, when revising it")
     company: Company | str = Field(description="The company, in full or by saved ID")
     event: Event | str = Field(description="The event, in full or by saved key or ID")
     stream_key: str = Field(pattern=SLUG, description="A short identifier for the affected revenue stream, in lowercase "
                                                       "letters, digits and hyphens")
     stream: str = Field(description="The revenue stream that depends on the event")
-    dependency: str = Field(description="Why the company earns less under the outcomes the versions name: the contract, "
-                                        "customer, program, facility or channel through which they reach revenue")
+    dependency: str = Field(description="Why the company earns less in those outcomes: the contract, customer, "
+                                        "program, facility or channel through which they reach revenue")
     timing: str = Field(description="When the company would feel the effect")
     period: Period
     currency: str = Field(pattern=r"^[A-Z]{3}$", description="The currency of the amounts of money, as an ISO code; "
                                                             "amounts are in whole units of it")
-    inputs: dict[str, Input] = Field(description="The figures the formulas use, by name")
-    baseline: Baseline
-    affected: list[Affected] = Field(min_length=1, description="The stream's revenue in each world the case has "
-                                                               "analyzed. The outcomes they name are the case's "
-                                                               "condition: what has to happen for this revenue to be "
-                                                               "affected. A version whose revenue equals the baseline's "
-                                                               "states that the outcome leaves revenue as it is; an "
-                                                               "outcome no version names is open")
+    revenue: str = Field(description="Formula: the revenue the company would recognize within the period, including "
+                                     "work or sales made up within it. At the inputs' values it gives the baseline; "
+                                     "with an outcome's values, the revenue in that outcome")
+    contribution: str | None = Field(None, description="Formula: that revenue less the costs that change with it")
+    deferred_past_period: str | None = Field(None, description="Formula: revenue the company would recognize after the "
+                                                               "period instead of within it. Leave out when later "
+                                                               "recovery is unknown")
+    cash_delayed: str | None = Field(None, description="Formula: cash the company would collect later than it otherwise "
+                                                       "would; a timing effect, not lost revenue")
+    inputs: dict[str, Input] = Field(description="The figures the formulas use, by name, each at its value in the "
+                                                 "baseline")
+    by_outcome: dict[str, dict[str, Given]] = Field(
+        min_length=1, description="For each outcome of the event that changes this revenue, by the outcome's key ('yes', "
+                                  "'no' or a way's key): the inputs that take another value there. An outcome's values "
+                                  "hold in its ways, and a way gives the values that differ further. These outcomes are "
+                                  "the case's condition: what has to happen for this revenue to be affected")
     denominator: Denominator | None = None
     case: Reasons = Field(description="Why the company is worth contacting, and when")
     buyer: Person = Field(description="The person to approach")
@@ -261,20 +268,36 @@ class Opportunity(Strict):
 
     @model_validator(mode="after")
     def _consistent(self):
-        check_structure(self.inputs, self.affected)
+        check_structure(self.inputs, self.by_outcome)
         return self
 
 
 class Calculation(Strict):
     """A draft of the parts calculate_exposure needs."""
-    inputs: dict[str, Input] = Field(description="The figures the formulas use, by name")
-    baseline: Baseline
-    affected: list[Affected] = Field(min_length=1)
+    event: Event | str | None = Field(None, description="The event, in full or by saved key or ID. With it, each outcome "
+                                                        "named is checked against the event, and an outcome's values "
+                                                        "hold in its ways")
+    revenue: str = Field(description="Formula: the revenue the company would recognize within the period, including "
+                                     "work or sales made up within it. At the inputs' values it gives the baseline; "
+                                     "with an outcome's values, the revenue in that outcome")
+    contribution: str | None = Field(None, description="Formula: that revenue less the costs that change with it")
+    deferred_past_period: str | None = Field(None, description="Formula: revenue the company would recognize after the "
+                                                               "period instead of within it. Leave out when later "
+                                                               "recovery is unknown")
+    cash_delayed: str | None = Field(None, description="Formula: cash the company would collect later than it otherwise "
+                                                       "would; a timing effect, not lost revenue")
+    inputs: dict[str, Input] = Field(description="The figures the formulas use, by name, each at its value in the "
+                                                 "baseline")
+    by_outcome: dict[str, dict[str, Given]] = Field(
+        min_length=1, description="For each outcome of the event that changes this revenue, by the outcome's key ('yes', "
+                                  "'no' or a way's key): the inputs that take another value there. An outcome's values "
+                                  "hold in its ways, and a way gives the values that differ further. These outcomes are "
+                                  "the case's condition: what has to happen for this revenue to be affected")
     denominator: Denominator | None = None
 
     @model_validator(mode="after")
     def _consistent(self):
-        check_structure(self.inputs, self.affected)
+        check_structure(self.inputs, self.by_outcome)
         return self
 
 

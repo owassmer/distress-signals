@@ -4,12 +4,13 @@ JSON-able values and raises ToolError with a message the researcher can act on.
   search_records, read_record     public records and stored observations
   compute                         SQL over the retrieved records, saved results the case can cite
   record_finding                  research kept before (and beside) a case; can withdraw a case
-  lookup                     saved cases, companies, events, findings and results, in current form
+  lookup                          saved cases, companies, events, findings and results
   calculate_exposure              the calculation save runs, on a draft
-  save_opportunity                validate, check provenance, compute, store, revise
+  save_opportunity                validate, check each basis, compute, store, revise
 
-The analyst owns the economic judgment; code observes and computes. Every input in a case carries
-one provenance (reported, derived or assumed) and the store checks the first two."""
+The analyst owns the economic judgment; code observes and computes. Every input in a case has one basis:
+a passage the store checks in its record, a cell of a saved result the store reads, or an assumption with
+what it rests on."""
 
 import bisect
 import copy
@@ -25,7 +26,7 @@ import unicodedata
 from pydantic import ValidationError
 
 from . import db, exposure, forms, names, outcomes
-from .models import Calculation, Event, Finding, Opportunity
+from .models import FORMULAS, Calculation, Event, Finding, Opportunity
 from . import sources
 from .sources import web
 from .util import SourceError, exclusions, now_iso
@@ -240,18 +241,63 @@ def _cite(con, cite, where, cited_ids):
     return {"observation_id": obs["id"], "passage": passage, "checked": checked}
 
 
-def _derived(con, name, inp, used):
-    """A derived input's value must be a value in the workspace result it names."""
-    rid = inp["derived"]["result_id"]
+def _cell(con, name, inp, used):
+    """An input observed by query: the store reads its value from the cell of the saved result it names.
+    A value given with it is the same figure, or the save says how the two differ."""
+    cell = inp["result"]
+    rid, where = cell["result_id"], f"inputs.{name}.result"
     r = db.get_result(con, rid)
     if not r:
-        raise ToolError(f"inputs.{name}.derived: no saved result {rid!r}; save one with compute(save_as=...)")
-    cells = [v for row in r["rows"] for v in row if isinstance(v, (int, float)) and not isinstance(v, bool)]
-    v = inp["value"]
-    if not any(abs(c - v) <= max(abs(c) * 1e-6, 0.005) for c in cells):
-        raise ToolError(f"inputs.{name}: value {v} isn't in result {rid} ({r['name']}); its first rows: "
-                        f"{json.dumps(r['rows'][:3])[:300]}")
+        raise ToolError(f"{where}: no saved result {rid!r}; save one with compute(save_as=...)")
+    cols = r["columns"]
+    missing = [c for c in (cell["column"], *cell["row"]) if c not in cols]
+    if missing:
+        raise ToolError(f"{where}: {rid} ({r['name']}) has no column {missing[0]!r}; its columns: {', '.join(cols)}")
+    rows = [row for row in r["rows"] if all(row[cols.index(k)] == v for k, v in cell["row"].items())]
+    if len(rows) != 1:
+        raise ToolError(f"{where}: the row given picks out {len(rows)} of the {len(r['rows'])} rows of {rid} "
+                        f"({r['name']}). Give in row the columns and values that pick out one; its first rows: "
+                        f"{json.dumps([dict(zip(cols, x)) for x in r['rows'][:3]], default=str)[:400]}")
+    v = rows[0][cols.index(cell["column"])]
+    if not isinstance(v, (int, float)) or isinstance(v, bool):
+        raise ToolError(f"{where}: {cell['column']} in that row of {rid} is {v!r}, not a number")
+    given = inp.get("value")
+    if given is not None and abs(given - v) > max(abs(v) * 1e-6, 0.005):
+        raise ToolError(f"inputs.{name}: the value given is {given}, and the cell it names in {rid} holds {v}. Leave "
+                        "the value out for the store to read, or name the cell that holds it.")
+    inp["value"] = float(v)
     used.append(rid)
+
+
+def _assumption(con, a, where, cited_ids, used):
+    """What an assumed value rests on: each passage checked in its record, each result one that is saved."""
+    a["evidence"] = [_cite(con, c, f"{where}.evidence[{i}]", cited_ids) for i, c in enumerate(a.get("evidence") or [])]
+    for rid in a.get("results") or []:
+        if not db.get_result(con, rid):
+            raise ToolError(f"{where}.results: no saved result {rid!r}")
+        used.append(rid)
+
+
+def _provenance(con, case, cited_ids, used):
+    """Check the basis of every input and of every value given by outcome, in place."""
+    for name, inp in case["inputs"].items():
+        if inp.get("source"):
+            inp["source"] = _cite(con, inp["source"], f"inputs.{name}.source", cited_ids)
+        elif inp.get("result"):
+            _cell(con, name, inp, used)
+        else:
+            _assumption(con, inp["assumption"], f"inputs.{name}.assumption", cited_ids, used)
+    for outcome, values in case["by_outcome"].items():
+        for name, given in values.items():
+            _assumption(con, given["assumption"], f"by_outcome.{outcome}.{name}.assumption", cited_ids, used)
+
+
+def _cites(case, event):
+    """Every passage a case and its event quote, each as stored."""
+    out = [i["source"] for i in case["inputs"].values() if i.get("source")]
+    out += [c for i in case["inputs"].values() if i.get("assumption") for c in i["assumption"]["evidence"]]
+    out += [c for values in case["by_outcome"].values() for g in values.values() for c in g["assumption"]["evidence"]]
+    return out + list(case["evidence"]) + list(event.get("evidence") or [])
 
 
 def _need_observation(con, oid, where, cited_ids):
@@ -354,19 +400,27 @@ def _outcome_list(event):
     return "\n".join(f"{'  ' * d}{k}: {n['title']}" for k, n, _, d in outcomes.tree(event))
 
 
+def _event_data(data):
+    """An event as stored: its fields as stated, a way's unstated fields left out."""
+    def way(w):
+        return {k: v for k, v in w.items() if k != "ways" and v is not None} | {"ways": [way(x) for x in w.get("ways") or []]}
+    return {k: v for k, v in data.items() if v is not None and k not in ("yes_ways", "no_ways")} | {
+        "yes_ways": [way(w) for w in data.get("yes_ways") or []], "no_ways": [way(w) for w in data.get("no_ways") or []],
+        "evidence": data.get("evidence") or []}
+
+
 def _resolve_event(con, e, cited_ids, saving=None):
     """(event ID, event data). A saved key or ID reads the event; an event given in full is saved,
     replacing the saved definition of the same key. The other cases on the event read the revised
-    definition from then on, so it keeps every outcome one of them names: an outcome's key is its
+    definition from then on, so it keeps every outcome one of them gives values for: an outcome's key is its
     identity, and a finer distinction is drawn by giving the outcome ways. `saving` is the case being
-    saved with the event, whose own versions are checked against the new definition."""
+    saved with the event, whose own outcomes are checked against the new definition."""
     if isinstance(e, str):
         row = db.get_event(con, e)
         if not row:
             raise ToolError(f"event: no saved event {e!r}. Give the event in full, or a key or ID from lookup.")
-        data = forms.event(row["data"])
-        cited_ids += [c["observation_id"] for c in data.get("evidence") or []]
-        return row["id"], data
+        cited_ids += [c["observation_id"] for c in row["data"].get("evidence") or []]
+        return row["id"], row["data"]
     data = e.model_dump(mode="json")
     given = data.pop("id", None)
     row = db.get_event(con, data["key"])
@@ -375,35 +429,26 @@ def _resolve_event(con, e, cited_ids, saving=None):
         raise ToolError(f"event: id {given} belongs to a different event than key {data['key']!r}. The key stays the "
                         "same when an event is revised; keep the saved key, or leave id out to save a new event.")
     data["evidence"] = [_cite(con, c, f"event.evidence[{i}]", cited_ids) for i, c in enumerate(data["evidence"])]
-    data = forms.event(data)
+    data = _event_data(data)
     if row:
         left = [(r["id"], gone) for r in db.opportunities(con, "event_id=? AND status='active'", (eid,))
                 if r["id"] != saving and (gone := outcomes.unknown(data, r["case_json"]))]
         if left:
-            raise ToolError(f"event: saved cases on {data['key']!r} state revenue under outcomes this definition leaves "
-                            "out: " + "; ".join(f"{oid} under {', '.join(gone)}" for oid, gone in left) + ". An outcome's "
+            raise ToolError(f"event: saved cases on {data['key']!r} give values for outcomes this definition leaves "
+                            "out: " + "; ".join(f"{oid} for {', '.join(gone)}" for oid, gone in left) + ". An outcome's "
                             "key stays the same when its wording is revised, and a finer distinction is drawn by giving "
                             "the outcome ways. Keep those outcomes, or revise those cases first.")
-    if not row or forms.event(row["data"]) != data:
+    if not row or row["data"] != data:
         db.put_event(con, eid, data["key"], data["title"], data)
     return eid, data
 
 
 def _check_outcomes(event, case):
-    """Every version names an outcome of the event, and the outcomes named lie apart."""
-    if not outcomes.stated(event):
-        raise ToolError(f"event: {event.get('key')!r} was saved before events carried outcomes. Give it in full, with its "
-                        "text (the claim that will turn out true or false), kind, window_end, resolution_source and "
-                        "the ways of each side.")
+    """Every outcome a case gives values for is an outcome of its event."""
     gone = outcomes.unknown(event, case)
     if gone:
-        raise ToolError(f"affected: the event has no outcome {', '.join(repr(k) for k in gone)}. A version's outcome is "
-                        f"'yes', 'no' or the key of one of the event's ways. Its outcomes:\n{_outcome_list(event)}")
-    inside = outcomes.overlapping(event, case)
-    if inside:
-        raise ToolError("affected: " + "; ".join(f"{a!r} lies within {b!r}" for a, b in inside) + ". A version's figure "
-                        "is for its outcome as a whole, so the outcomes a case names lie apart: name the outcome whole, "
-                        "or name each of its ways that the case has a figure for.")
+        raise ToolError(f"by_outcome: the event has no outcome {', '.join(repr(k) for k in gone)}. An outcome is 'yes', "
+                        f"'no' or the key of one of the event's ways. Its outcomes:\n{_outcome_list(event)}")
 
 
 # ---------- the calculation ----------
@@ -412,11 +457,10 @@ def _key_date(event, case):
     return event.get("window_end") or case["case"].get("why_now_date")
 
 
-def _derive(case):
-    """The one calculation path, on the stored form of inputs, baseline, affected and denominator."""
+def _derive(event, case):
+    """The one calculation path, on the stored forms of a case and its event."""
     try:
-        return exposure.compute({k: v["value"] for k, v in case["inputs"].items()}, case["baseline"], case["affected"],
-                                case.get("denominator"))
+        return forms.results(event, case)
     except ValueError as e:
         raise ToolError(str(e))
 
@@ -442,7 +486,25 @@ def _write(con, oid, row_ids, case, results, event, snapshot, change_note, last)
 def calculate_exposure(case: dict) -> dict:
     """Run the calculation save_opportunity runs, on a draft."""
     c = _validate(Calculation, case)
-    results, warnings = _derive(c.model_dump(mode="json"))
+    draft = c.model_dump(mode="json", exclude={"event"})
+    con = db.connect()
+    try:
+        event = None
+        if isinstance(c.event, str):
+            row = db.get_event(con, c.event)
+            if not row:
+                raise ToolError(f"event: no saved event {c.event!r}. Give the event in full, or a key or ID from lookup.")
+            event = row["data"]
+        elif c.event:
+            event = _event_data(c.event.model_dump(mode="json", exclude={"id"}))
+        if event:
+            _check_outcomes(event, draft)
+        for name, inp in draft["inputs"].items():
+            if inp.get("result"):
+                _cell(con, name, inp, [])
+    finally:
+        con.close()
+    results, warnings = _derive(event, draft)
     return {"results": results, "warnings": warnings}
 
 
@@ -511,11 +573,7 @@ def _save(con, o: Opportunity):
 
     case = o.model_dump(mode="json", exclude={"opportunity_id", "company", "event", "change_note"})
     _check_outcomes(event, case)
-    for name, inp in case["inputs"].items():
-        if inp.get("source"):
-            inp["source"] = _cite(con, inp["source"], f"inputs.{name}.source", cited_ids)
-        elif inp.get("derived"):
-            _derived(con, name, inp, results_used)
+    _provenance(con, case, cited_ids, results_used)
     case["evidence"] = [_cite(con, ev, f"evidence[{i}]", cited_ids) | {"supports": ev["supports"]}
                         for i, ev in enumerate(case["evidence"])]
     if case["buyer"].get("observation_id"):
@@ -531,7 +589,7 @@ def _save(con, o: Opportunity):
         if money.search(inp["unit"]) and scaled.search(inp["unit"]):
             warnings.append(f"inputs.{name}: its unit is '{inp['unit']}', but amounts of money are in whole units of "
                             f"{o.currency}, so the results read {inp['value']:,} as {o.currency} {inp['value']:,}.")
-    results, calc_warnings = _derive(case)
+    results, calc_warnings = _derive(event, case)
     warnings += calc_warnings
     snapshot = {"company": {"id": company_id, **company}, "event": {"id": event_id, **event},
                 "case": case, "results": results}
@@ -543,11 +601,9 @@ def _save(con, o: Opportunity):
     if existing and existing.get("status") == "withdrawn":
         db.set_status(con, oid, "active")
         warnings.append(f"{oid} was withdrawn; saving it returns it to the active queue.")
-    unchecked = sum(not c["checked"] for c in [*(i["source"] for i in case["inputs"].values() if i.get("source")),
-                                                *case["evidence"], *event.get("evidence", [])])
+    unchecked = sum(not c["checked"] for c in _cites(case, event))
     return {"opportunity_id": oid, "company_id": company_id, "event_id": event_id, "revision": revision,
             "changed": changed, "condition": outcomes.condition(event, case, results),
-            "open_outcomes": outcomes.open_outcomes(event, case), "whole_outcomes": outcomes.whole(event, case),
             "results": results, "warnings": warnings,
             "unchecked_passages": unchecked, "workspace_results_used": sorted(set(results_used))}
 
@@ -679,18 +735,14 @@ def _editable(oid, current):
     """The saved case in the exact form save_opportunity accepts: company and event by ID, store-set
     fields removed."""
     case = copy.deepcopy(current["case"])
-    case.pop("condition", None)
-    for inp in case["inputs"].values():
-        if inp.get("source"):
-            inp["source"].pop("checked", None)
-    for ev in case["evidence"]:
-        ev.pop("checked", None)
+    for c in _cites(case, {}):
+        c.pop("checked", None)
     return {"opportunity_id": oid, "company": current["company"]["id"], "event": current["event"]["id"], **case,
             "change_note": ""}
 
 
 def _event_view(data):
-    e = forms.event(data)
+    e = copy.deepcopy(data)
     e["evidence"] = [{k: v for k, v in c.items() if k != "checked"} for c in e.get("evidence") or []]
     return e
 
@@ -703,25 +755,19 @@ def _finding_view(con, f):
 
 
 def _brief(con, row):
-    """A case's dated estimate in brief: who, which stream, over what period, the baseline and its reference
-    conditions, and the revenue and shortfall in each world the case names, with the formula behind each.
-    lookup of the case gives the inputs and their bases."""
+    """A case's dated estimate in brief: who, which stream, over what period, the revenue formula, the
+    baseline, and the revenue and shortfall in each outcome the case gives values for. lookup of the case
+    gives the inputs and their bases."""
     c, e = db.get_company(con, row["company_id"]), db.get_event(con, row["event_id"])
     last = db.latest_revision(con, row["id"])
-    current = forms.snapshot(last["snapshot"])
-    case, res, event = current["case"], current["results"], forms.event(e["data"])
-    told = outcomes.stated(event)
-    by_name = {a["name"]: a for a in case["affected"]}
+    current = forms.snapshot(last["snapshot"], e["data"])
+    case, res, event = current["case"], current["results"], e["data"]
     return {"opportunity_id": row["id"], "status": row["status"], "company": c["name"], "event": e["key"],
             "stream": case["stream"], "period": case["period"], "estimated": last["saved_at"],
-            "condition": outcomes.condition(event, case, res),
-            "baseline": {"description": case["baseline"]["description"], "formula": case["baseline"]["revenue"],
-                         "revenue": res["baseline_revenue"]},
-            "worlds": [{"outcome": r["outcome"], "version": r["name"], "description": by_name[r["name"]]["description"],
-                        "formula": by_name[r["name"]]["revenue"], "revenue": r["revenue"], "shortfall": r["shortfall"],
-                        "share": r["share"]} for r in res["affected"]],
-            "open_outcomes": outcomes.open_outcomes(event, case) if told else [],
-            "whole_outcomes": outcomes.whole(event, case) if told else [],
+            "condition": outcomes.condition(event, case, res), "revenue": case["revenue"],
+            "baseline_revenue": res["baseline_revenue"],
+            "outcomes": [{"outcome": r["outcome"], "values": {k: g["value"] for k, g in case["by_outcome"][r["outcome"]].items()},
+                          "revenue": r["revenue"], "shortfall": r["shortfall"], "share": r["share"]} for r in res["outcomes"]],
             "priority": row["priority"], "max_shortfall": res["max_shortfall"], "currency": row["currency"],
             "revision": row["revision"], "updated": row["updated"]}
 
@@ -744,30 +790,33 @@ def lookup(id_or_query: str) -> dict:
             row = db.get_opportunity(con, q)
             if not row:
                 raise ToolError(f"no saved case {q!r}")
-            current = forms.snapshot(db.latest_revision(con, q)["snapshot"])
-            company = db.get_company(con, row["company_id"])
             ev_row = db.get_event(con, row["event_id"])
+            current = forms.snapshot(db.latest_revision(con, q)["snapshot"], ev_row["data"])
+            company = db.get_company(con, row["company_id"])
             current["company"] = {"id": company["id"], **company["data"]}
-            current["event"] = {"id": ev_row["id"], **forms.event(ev_row["data"])}
             titles = {o["id"]: o for o in db.cited(con, q)}
-            case, event = current["case"], current["event"]
-            evidence = [{"at": f"inputs.{k}", "passage": v["source"]["passage"], "checked": v["source"].get("checked"),
-                         "observation_id": v["source"]["observation_id"]}
-                        for k, v in case["inputs"].items() if v.get("source")]
-            evidence += [{"at": f"evidence[{i}]", "passage": e["passage"], "checked": e.get("checked"),
-                          "supports": e["supports"], "observation_id": e["observation_id"]}
-                         for i, e in enumerate(case["evidence"])]
+            case, event = current["case"], ev_row["data"]
+
+            def passages(at, cites, **more):
+                return [{"at": at, "passage": c["passage"], "checked": c.get("checked"), **more,
+                         "observation_id": c["observation_id"]} for c in cites]
+
+            evidence = []
+            for k, v in case["inputs"].items():
+                evidence += passages(f"inputs.{k}", [v["source"]] if v.get("source") else (v.get("assumption") or {}).get("evidence") or [])
+            for o, values in case["by_outcome"].items():
+                for k, g in values.items():
+                    evidence += passages(f"by_outcome.{o}.{k}", g["assumption"]["evidence"])
+            for i, e in enumerate(case["evidence"]):
+                evidence += passages(f"evidence[{i}]", [e], supports=e["supports"])
             for e in evidence:
                 o = titles.get(e["observation_id"]) or {}
                 e["source"] = {"title": (o.get("data") or {}).get("title"), "url": o.get("url"), "kind": o.get("kind")}
             fs = db.findings(con, "opportunity_id=? OR company_id=?", (q, row["company_id"]))
             return {"opportunity": _editable(q, current), "status": row["status"],
-                    **({"format_notes": current["notes"]} if current["notes"] else {}),
                     "company_id": company["id"], "company": company["data"],
                     "event_id": ev_row["id"], "event": _event_view(ev_row["data"]),
                     "condition": outcomes.condition(event, case, current["results"]),
-                    "open_outcomes": outcomes.open_outcomes(event, case) if outcomes.stated(event) else [],
-                    "whole_outcomes": outcomes.whole(event, case) if outcomes.stated(event) else [],
                     "results": current["results"],
                     "warnings": current["warnings"], "evidence": evidence,
                     "findings": [_finding_view(con, f) for f in fs], "revision": row["revision"],

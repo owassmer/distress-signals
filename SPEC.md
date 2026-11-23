@@ -231,15 +231,15 @@ parallel.
 
 ### What the analyst is told
 
-The system prompt is `config/system.md` (`agent.system`), the same in every session but for three things it
-is given: the role its first sentence names (`agent.ROLE`, or `AGENT_ROLE`), today's date, and how long the
-session may run. It is written as an assignment to a practitioner, and each passage says what a thing is, how
+The system prompt is `config/system.md` (`agent.system`), the same in every session but for two things it
+is given: the role its first sentence names (`agent.ROLE`, or `AGENT_ROLE` for a trial of another) and today's
+date. It is written as an assignment to a practitioner, and each passage says what a thing is, how
 it works and why, once:
 
 | Section | Holds |
 |---|---|
-| Opening | The work: what a company's revenue would be in each way an unsettled event can turn out. What a figure means, and how the analysis is used |
-| An assignment | The forms an assignment takes and what the work is in each; working alone; the session's length; earlier work in the store |
+| Opening | The role, in the order the work runs: an underwriter and a forensic accountant. The work: what a company's revenue would be in each way an unsettled event can turn out. What a figure is (an estimate conditional on one outcome) and the standard it is held to: what the company's books would bear out if that outcome happened |
+| An assignment | The forms an assignment takes and what the work is in each; working alone; earlier work in the store |
 | Revenue that depends on an event | A company, a revenue stream, a dependency, an event; materiality as the analyst's judgment by the company's own measure; why an unlikely outcome is worked out |
 | A case | Propositions and why they are shared; outcomes and ways; the model; the period; worlds; the figures; an illustration with placeholders, which a test computes |
 | From records to an estimate | Observation, inference and assumption; a figure's basis in two parts; what makes the reasoning defensible; primary records |
@@ -257,8 +257,12 @@ definition the analyst reads of that field, and a tool's description says what t
 and refuses.
 
 It says that what the analyst knows about events ends at its training cutoff, before today, and that the
-records the tools reach are current. It says how long the session may run: with no length stated, a run saw
-today's date, the clock time on each record read and an end point, and supplied a short length itself.
+records the tools reach are current.
+
+It gives the practitioner's own purpose and nothing of ours: who weights the figures by probability, who compares
+them, what protection is sized against them and who takes them to the company are uses, and a use named in the
+context becomes what the analyst works toward. How much work a session does follows from the standard its figures
+are held to. The launcher's time limit guards the run and is no part of the assignment.
 
 Claude Code adds its own parts:
 - an identity line, before the system prompt: "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
@@ -280,7 +284,7 @@ The MCP server gives no instructions of its own.
 - The model from `AGENT_MODEL` (default `opus`) and its reasoning effort from `AGENT_EFFORT` (default `xhigh`),
   passed as `--effort`, as the event-risk and scenario-ledger analysts set it. Runs left at the CLI's default
   effort reasoned little and stopped short. The model thinks adaptively. `--timeout` in minutes: 180 for
-  `research`, 60 for `refresh`. The system prompt states the limit. A run stopped at its limit loses its final answer, though its saved cases remain.
+  `research`, 60 for `refresh`. A run stopped at its limit loses its final answer, though its saved cases remain.
   `MCP_TOOL_TIMEOUT` of 10 minutes, and `CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH` so the catalog of series
   arrives whole (section 6).
 - Before the prompt, a `set_max_thinking_tokens` control request sets `thinking_display` to `summarized`,

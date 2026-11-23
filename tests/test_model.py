@@ -533,9 +533,8 @@ class Model(unittest.TestCase):
                       '$100 of revenue under the program." (https://example.org/annual-report) Fiscal 2026 is the last year', memo)
 
     def test_what_the_analyst_reads_is_what_the_store_does(self):
-        text = agent.system(limit=3 * 3600, role="a forensic accountant")
-        self.assertTrue(text.startswith("You are a forensic accountant.\n"))
-        self.assertIn("A session may run for up to 3 hours", text)
+        text = agent.system()
+        self.assertTrue(text.startswith("You are an underwriter and a forensic accountant.\n"))
         self.assertNotIn("{", text.split("An illustration")[0])                        # every placeholder is filled
         for name in agent.TOOL_NAMES:
             self.assertIn(f"`{name}`", text)

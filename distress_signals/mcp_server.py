@@ -93,8 +93,7 @@ def read_record(id_or_url: str, find: str | None = None, offset: int = 0, fresh:
     matches, one line each, up to 25,000 records. Both fill the series' table in the workspace. The text
     comes 12,000 characters at a time (next_offset continues it), with the document's links. find takes terms
     separated by '|' and returns the passages around each match instead (plain text, any letter case). A
-    stored record is reused; fresh reads its source again and updates the same record. A page whose publisher
-    refuses automated readers, or whose text a script draws, cannot be read."""
+    stored record is reused; fresh reads its source again and updates the same record."""
     return _call("read_record", tools.read_record, id_or_url, find, offset, fresh)
 
 
@@ -139,15 +138,14 @@ def record_finding(finding: Finding, propositions: list[Proposition] = []) -> di
 
 @server.tool()
 def lookup(id_or_query: str) -> dict:
-    """Return what is saved, by ID, key or name. Nothing is searched by subject: a name that matches nothing saved
-    is refused.
+    """Return what is saved under an ID, a key or a name: a case, a finding or a saved result by its ID; a
+    proposition by its key or its exact title; a company by its ID, name, alias or domain.
 
     A case's ID returns the case in the form save_case takes, with its status, its company, the propositions it
     reads, its worlds and their figures, the passages it cites with their sources, its findings and its revisions.
     A proposition's key, or its exact title, returns it in full with its ways and links, what its level fields say,
-    its findings, and each case that reads it: the case's formula, given values and worlds. A company's ID, name,
-    alias or domain returns the company with its cases and findings. A finding's or a saved result's ID returns
-    that record.
+    its findings, and each case that reads it: the case's formula, given values and worlds. A company returns
+    with its cases and findings.
 
     The operator keeps a deal for each case in its CRM and records there what a conversation with the company
     established. A case shows its deal's stage and that outcome, and a company shows the operator's deals with it."""
@@ -157,12 +155,12 @@ def lookup(id_or_query: str) -> dict:
 DEFINED = "'A case' and 'From records to an estimate' in your instructions define each part."
 
 
-@server.tool(description="""Compute a draft of a case's model and save nothing: its worlds, each input's value in each
-world, and every figure, as save_case computes them. It takes the model part of a case: events, the formulas,
+@server.tool(description="""Compute a draft of a case's model: its worlds, each input's value in each world, and every
+figure, as save_case computes them, with the store left as it was. It takes the model part of a case: events, the formulas,
 inputs, given values and denominator.
 
 """ + DEFINED + """ is an expression over input names: numbers, + - * /, parentheses, min() and max(). A figure read
-from a result cell is read by the store. A draft's quotations are not checked; save_case checks them.
+from a result cell is read by the store. Quotations are checked when the case is saved.
 
 It returns the propositions the draft reads, the baseline, the condition, and each world with the propositions true
 and false in it, the inputs that take another value there, the revenue within the period, the shortfall and its share
@@ -170,7 +168,7 @@ of the denominator, revenue deferred past the period and the revenue lost (both 
 given), the contribution loss (where the contribution formula is given) and cash delayed. It refuses what save_case
 refuses of a model, with the reason.
 
-""" + PROPOSITIONS + " In a draft they are used for the calculation and left unsaved.")
+""" + PROPOSITIONS + " A draft uses them for the calculation alone.")
 def calculate_exposure(case: Draft, propositions: list[Proposition] = []) -> dict:
     return _call("calculate_exposure", tools.calculate_exposure, case.model_dump(mode="json"),
                  [p.model_dump(mode="json", exclude_none=True) for p in propositions])

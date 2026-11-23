@@ -71,7 +71,7 @@ def research(seed_kind="mandate", seed=None, brief=None, question=None, case_id=
         log.write_text(f"{now_iso()} run {rid}: {seed_kind} {seed}\n")
         model = model or llm.MODEL
         principal = case["company"]["name"] if case else (seed if seed_kind == "company" else None)
-        system, text = agent.system(timeout), agent.prompt(seed_kind, seed, _brief_text(brief), question, case, lead)
+        system, text = agent.system(), agent.prompt(seed_kind, seed, _brief_text(brief), question, case, lead)
         print(f"{rid}: {seed_kind}{' ' + repr(seed) if seed else ''}; transcript in {events.relative_to(ROOT)} "
               f"(readable: python -m distress_signals transcript {rid})", flush=True)
         failed = sources.observe()  # coverage and jurisdictions, read from the data once a day

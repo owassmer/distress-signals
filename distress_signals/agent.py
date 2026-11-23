@@ -1,5 +1,5 @@
 """What the analyst is told. The system prompt is config/system.md, the same in every session but for its
-role, today's date and the session's limit. A session's prompt is its assignment: an open search, or a
+role and today's date. A session's prompt is its assignment: an open search, or a
 company, an event, a source, a brief or a lead the operator selects, or a saved case to refresh."""
 
 import json
@@ -11,16 +11,17 @@ TOOL_NAMES = ("search_records", "read_record", "compute", "record_finding", "loo
               "save_case")
 TOOLS = ["WebSearch", "WebFetch", *(f"mcp__ds__{n}" for n in TOOL_NAMES)]
 
-ROLE = "a forensic accountant"  # the practitioner the system prompt's first sentence names; AGENT_ROLE gives another
+# The practitioner the system prompt's first sentence names, in the order the work runs: what can happen to the
+# revenue and how the event is defined, then what each outcome would cost. AGENT_ROLE gives another, for a trial.
+ROLE = "an underwriter and a forensic accountant"
 
 RESULT = {"type": "object", "required": ["case_ids", "summary", "follow_on_leads"], "properties": {
     "case_ids": {"type": "array", "items": {"type": "string"}, "description": "The cases saved or revised in this session"},
     "summary": {"type": "string", "description": "What the session established and what that rests on: each case with "
                                                  "its company, its event and the revenue in its outcomes; for a group "
                                                  "of companies or an open search, which companies and dependencies were "
-                                                 "examined and in which records; what was left to judgment and how it "
-                                                 "was decided; and what the assignment asked that the records did not "
-                                                 "establish"},
+                                                 "examined and in which records; and what was left to judgment and "
+                                                 "how it was decided"},
     "follow_on_leads": {"type": "array", "description": "Companies or events outside this assignment that the research "
                                                         "found reason to examine",
                         "items": {
@@ -35,21 +36,12 @@ RESULT = {"type": "object", "required": ["case_ids", "summary", "follow_on_leads
                                                   "domain": {"type": "string", "description": "Its website domain"}}}}}}}}
 
 
-def _limit(seconds):
-    minutes = round(seconds / 60)
-    hours, rest = divmod(minutes, 60)
-    return f"{hours} hour{'s' if hours != 1 else ''}" if hours and not rest else f"{minutes} minutes"
-
-
-def system(limit=3 * 3600, role=None):
-    """The system prompt: config/system.md with the role its first sentence names, today's date, and how long
-    the session may run (`limit`, in seconds). It names no company, event or series: whatever the context names,
-    the analyst reaches for. A company the operator excludes is refused where a case or finding is saved."""
+def system(role=None):
+    """The system prompt: config/system.md with the role its first sentence names and today's date. It names no
+    company, event or series: whatever the context names, the analyst reaches for. A company the operator
+    excludes is refused where a case or finding is saved."""
     text = (CONFIG / "system.md").read_text().strip()
-    for key, value in (("{role}", role or os.environ.get("AGENT_ROLE") or ROLE), ("{today}", today().isoformat()),
-                       ("{limit}", _limit(limit))):
-        text = text.replace(key, value)
-    return text
+    return text.replace("{role}", role or os.environ.get("AGENT_ROLE") or ROLE).replace("{today}", today().isoformat())
 
 
 ASSIGNMENTS = {

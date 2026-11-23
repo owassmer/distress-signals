@@ -116,7 +116,7 @@ def main():
         elif a.lead:
             r = pipeline.research("lead", a.lead, lead_id=a.lead, **kw)
         elif a.brief:
-            r = pipeline.research("brief", a.brief, **kw)
+            r = pipeline.research("brief", pipeline._brief_text(a.brief), **kw)  # the run is named for the brief's text
         else:
             r = pipeline.research("mandate", **kw)
         report(r)

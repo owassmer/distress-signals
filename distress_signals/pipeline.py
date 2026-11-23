@@ -72,6 +72,8 @@ def research(seed_kind="mandate", seed=None, brief=None, question=None, case_id=
         model = model or llm.MODEL
         principal = case["company"]["name"] if case else (seed if seed_kind == "company" else None)
         system, text = agent.system(), agent.prompt(seed_kind, seed, _brief_text(brief), question, case, lead)
+        print(f"{rid}: {seed_kind}{' ' + repr(seed) if seed else ''}; transcript in {events.relative_to(ROOT)} "
+              f"(readable: python -m distress_signals transcript {rid})", flush=True)
         failed = sources.observe()  # coverage and jurisdictions, read from the data once a day
         if failed:
             print(f"{rid}: coverage not read for {', '.join(sorted(failed))}; the catalog keeps the last reading", flush=True)
@@ -83,8 +85,6 @@ def research(seed_kind="mandate", seed=None, brief=None, question=None, case_id=
                               f"{principal or 'no company'}.\n\n"
                               f"Series, in the order its catalog lists them: {', '.join(order)}.\n\n"
                               f"## System prompt\n\n{system}\n\n## Prompt\n\n{text}\n")
-        print(f"{rid}: {seed_kind}{' ' + repr(seed) if seed else ''}; transcript in {events.relative_to(ROOT)} "
-              f"(readable: python -m distress_signals transcript {rid})", flush=True)
         cfg = _mcp_config(rid, log, principal)
         try:
             out, stats = llm.ask(system, text, agent.RESULT, events, model=model, timeout=timeout, tools=agent.TOOLS,

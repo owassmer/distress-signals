@@ -376,7 +376,9 @@ def _case_details(oids, public=False):
 
             def changed(r):
                 """The inputs that take another value in a world, each with its value there."""
-                return "; ".join(f"{title_label(k)} {v:,.4g}" for k, v in r["values"].items())
+                cur = case["currency"]
+                return "; ".join(f"{title_label(k)} {briefs.money(v, cur) if case['inputs'][k]['unit'] == cur else f'{v:,.4g}'}"
+                                 for k, v in r["values"].items())
 
             out[c["id"]] = {
                 "oid": c["id"], "status": c["status"], "company": c["company"]["name"],
@@ -395,7 +397,7 @@ def _case_details(oids, public=False):
                 "event_description": of_events("description"), "event_timing": of_events("timing"),
                 "period_start": case["period"]["start"], "period_end": case["period"]["end"],
                 "baseline": {"revenue": res.get("baseline_revenue"), "description": None},
-                "scenarios": [{"label": r["label"], "description": changed(r),
+                "scenarios": [{"label": r["label"], "summary": r["label"], "description": changed(r),
                                "revenue": r.get("revenue"), "shortfall": r.get("shortfall"), "share": r.get("share")}
                               for r in res.get("worlds") or []],
                 "inputs": [_input(k, x, url_of) for k, x in (case.get("inputs") or {}).items()]

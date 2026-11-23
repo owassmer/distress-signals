@@ -1,9 +1,10 @@
 # The model
 
-distress-signals finds the companies whose revenue depends on an upcoming event outside their control. For
-each one it says how the event reaches the business, how much revenue is at stake in which outcomes, who
-is responsible for it, and why the conversation is timely. An operator uses it to decide whom to contact
-and why.
+distress-signals establishes how a company's revenue depends on an upcoming event outside its control. For
+each company and event it says how the event reaches the business, what the revenue would be over a stated
+period in each way the event can turn out, and who at the company is responsible for it. The figures are
+used while the event is open: weighted by each outcome's probability, compared across companies, set against
+protection that pays in an outcome, and put to the people who run the company's finances.
 
 The analyst states a few kinds of thing: propositions, the links between them, and for each case one
 formula, its inputs, and the values those inputs take given outcomes. Code computes every figure from
@@ -29,7 +30,7 @@ holds today.
 | Baseline | The stream's revenue over the period: the formula at the inputs' values |
 | Shortfall | Baseline revenue less the stream's revenue in a world |
 | Condition | The worlds in which the revenue differs from the baseline, in the propositions' words |
-| Case | One company, one revenue stream, and the event or events it depends on: the formula, the inputs, the given values, the person responsible, and why to reach out now |
+| Case | One company, one revenue stream, and the event or events it depends on: the formula, the inputs, the given values, and the person responsible |
 | Estimate | A case as it stood on a date. Every saved revision of a case is an estimate |
 | Conversation outcome | What the operator records on a deal after contacting the company. Everywhere else, "outcome" means an outcome of a proposition |
 
@@ -95,13 +96,14 @@ key identify it, and its deal is named for them.
 A given value names the propositions it is given by key: `given` for those that are true, `given_not`
 for those that are false. One condition can set several inputs.
 
-**The rest of the case.** The dependency, the mechanism through which the events reach the stream. When
-the company would feel the effect. The person responsible for the affected business or its financial
-exposure. Why the exposure warrants a conversation, why now, and the date that makes it timely. An opening
-that person could answer from their knowledge of the business. What the operator or the analyst does next.
+**The rest of the case.** The dependency, the mechanism through which the events reach the stream. When an
+outcome's effect reaches the revenue. The person responsible for the affected business or the company's
+finances, with the record that names them. An opening to that person is written after the analysis, from
+the saved case, and is no part of it.
 
-**Three dates.** A proposition's window says when it is decided. The case's period says when the revenue
-is counted. The case's why-now date is the date that makes the conversation timely.
+**Two dates.** A proposition's window says when it is decided, and it is the event's own. The case's period
+says when the revenue is counted. Where an event can happen at different times within its window, when it
+happens changes how much of the period it reaches, and that is a difference between ways.
 
 ## 4. Worlds and figures
 
@@ -143,7 +145,7 @@ least half of its program work as a subcontractor within a year of a non-renewal
 ```
 revenue = program_revenue * share_kept
 
-inputs         program_revenue   100    assumed: this year's figure in the annual report, carried into the period
+inputs         program_revenue   100    read from the annual report for this year, and carried into the period by an assumption
                share_kept        1      assumed: funding continues at this year's level
 
 given values   given not program-renewal    share_kept = 0
@@ -166,15 +168,26 @@ so it gives the value. The condition is the last four worlds.
 
 Every figure opens to what it rests on.
 
-| A value is | It opens to | Who writes the value |
-|---|---|---|
-| Observed in words | The passage that states it, checked word for word against the stored record | The analyst |
-| Observed by query | One cell of a saved result: the result, the column, and the columns that pick out the row | The store, which reads the cell |
-| Assumed | The reasoning, and the passages and saved results it rests on | The analyst |
+A figure's basis has two parts, one or both.
 
-An input's value is its value over the case's period. A figure a record states for an earlier period,
-carried into the case's period, is assumed, and rests on that record. A given value is assumed, and opens
-the same way. A computed figure opens to the formula and the values it took in that world.
+| Part | It opens to | Who writes the value |
+|---|---|---|
+| Where the figure is read, in words (`source`) | The passage that states it, checked word for word against the stored record | The analyst |
+| Where the figure is read, by query (`result`) | One cell of a saved result: the result, the column, and the columns that pick out the row | The store, which reads the cell |
+| The assumption by which it holds (`assumption`) | The reasoning, and the passages and saved results it rests on | The analyst |
+
+A figure is read in one place. Which parts a figure has says what kind of figure it is:
+
+| The figure | Its basis |
+|---|---|
+| A record states this quantity, for this company, over the case's period | Where it is read |
+| A record states it for another period, another company or another quantity: a proxy | Where it is read, and the assumption that carries it over |
+| No record states it | The assumption |
+
+An input's value is its value over the case's period, as things stand. A given value has the same basis: the
+terms of an agreement can state a value for an outcome, a result can hold a measured rate that an
+assumption carries to this case, and otherwise the value rests on its assumption. A computed figure opens to
+the formula and the values it took in that world.
 
 ## 6. What the analyst states and learns
 

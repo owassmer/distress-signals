@@ -40,7 +40,7 @@ line tool signed in to a Claude account, and a HubSpot account with a private ap
 
 ## Using HubSpot
 
-On a company record, use **Distress run** to search for new prospects, investigate that company, or find businesses exposed to a particular event. Each case appears as a **Proposed** deal with the research memo and draft outreach.
+On a company record, use **Distress run** to search for new prospects, investigate that company, or find businesses exposed to a particular event. Each case appears as a **Proposed** deal with the research memo.
 
 Use **Refresh this case** on a deal to check whether the exposure has changed. Record the result of a conversation in **Distress outcome** so the agent can refer to it the next time it researches that company. [HubSpot reference](SPEC.md#9-hubspot)
 
@@ -62,8 +62,7 @@ Watch the agent work at http://localhost:8790 while the services are running. [C
 
 | File | Holds |
 |---|---|
-| `config/mandate.md` | Criteria for identifying prospects |
-| `config/offering.local.md` | Your firm’s products and services (optional, kept local) |
+| `config/system.md` | What the analyst is told in every session |
 | `config/exclude.yaml`, `config/exclude.local.yaml` | Companies to leave out |
 | `config/ledgers.yaml` | The state and local government payment ledgers |
 

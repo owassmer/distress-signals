@@ -20,7 +20,9 @@ from .util import load_env
 
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
-server = MCPServer("ds")  # no server instructions: the analyst sees them, and the tool descriptions say what each does
+# No server instructions: the analyst would read them. config/system.md says what a case is and why; each tool's
+# description says what the call takes, does, returns and refuses, once.
+server = MCPServer("ds")
 
 
 def _log(name, args, outcome, started):
@@ -84,22 +86,23 @@ server.tool(description=SEARCH)(search_records)
 
 @server.tool()
 def read_record(id_or_url: str, find: str | None = None, offset: int = 0, fresh: bool = False) -> dict:
-    """Read a record and store it, so its passages can be cited. Takes a record_id or a result_set from
-    search_records, a web address (HTML or PDF), or the observation_id of a record already read.
+    """Read a record and store it, so that its passages can be quoted and checked. Takes a record_id or a
+    result_set from search_records, a web address (HTML or PDF), or the observation_id of a record already read.
 
     A record_id returns the record's fields and its document. A result_set returns every record the search
     matches, one line each, up to 25,000 records. Both fill the series' table in the workspace. The text
     comes 12,000 characters at a time (next_offset continues it), with the document's links. find takes terms
     separated by '|' and returns the passages around each match instead (plain text, any letter case). A
-    stored record is reused; fresh reads its source again and updates the same record."""
+    stored record is reused; fresh reads its source again and updates the same record. A page whose publisher
+    refuses automated readers, or whose text a script draws, cannot be read."""
     return _call("read_record", tools.read_record, id_or_url, find, offset, fresh)
 
 
 COMPUTE = """Run one read-only SQLite query over the records read with read_record and the findings and results
 recorded with record_finding and compute. Returns the columns and up to 200 rows. save_as stores the result (up
-to 2,000 rows) under a result_id; an input observed by query names one cell of it, which the store reads, and an
-assumption names the results it rests on. SQLite's date functions (date, julianday, strftime) work on the date columns. A query stops
-after 15 seconds.
+to 2,000 rows) under a result_id. A figure of a case can be read from one cell of a saved result, which the
+store reads, and an assumption or a finding names the saved results it rests on. SQLite's date functions (date,
+julianday, strftime) work on the date columns. A query stops after 15 seconds.
 
 Each series is a table of the same name, with one row for each of its records read: a column for each field in
 its entry under search_records, and record_id, url and observation_id (the read that holds the record's
@@ -115,18 +118,20 @@ def compute(sql: str, save_as: str | None = None, note: str | None = None) -> di
     return _call("compute", tools.compute, sql, save_as, note)
 
 
-PROPOSITIONS = """propositions gives in full each proposition the call introduces or revises: a claim that will turn out
-true or false, with its window and, where a record will show it, its resolution source; its ways nested in it; and
-the keys of the propositions it implies or implies not. A proposition given in full takes the place of the saved one
-with the same key, its ways with it, and keeps every proposition a saved case reads."""
+PROPOSITIONS = """propositions gives in full each proposition the call introduces or revises, its ways nested in it.
+One given in full takes the place of the saved one with the same key, its ways with it."""
 
 
-@server.tool(description="""Record what the research has established or set aside: a fact (with the passage that states
-it), an inference or conclusion (with the passages or workspace results it rests on), an open question, or a company,
-dependency or lead dropped and why. It can concern a company, a proposition or a case. With withdraw_case, it also
-withdraws that case from the queue; the finding is the record of why.
+@server.tool(description="""Keep something the research established apart from a case's own figures: a fact a record
+states, an inference or a conclusion with the passages and saved results it rests on, a question the records reached
+did not settle, or a company, dependency or event examined and set aside, with the reason. Say which company,
+proposition or case it concerns. Looking up that company, proposition or case returns the finding; one that
+concerns none of them is returned only by its own ID.
 
-""" + PROPOSITIONS)
+With withdraw_case, the call also withdraws that case, and the finding is the record of why the revenue no longer
+depends on the event as the case states.
+
+""" + PROPOSITIONS + """ Each other active case that reads a proposition the call revises is computed again.""")
 def record_finding(finding: Finding, propositions: list[Proposition] = []) -> dict:
     return _call("record_finding", tools.record_finding, finding.model_dump(mode="json"),
                  [p.model_dump(mode="json", exclude_none=True) for p in propositions])
@@ -134,56 +139,72 @@ def record_finding(finding: Finding, propositions: list[Proposition] = []) -> di
 
 @server.tool()
 def lookup(id_or_query: str) -> dict:
-    """Look up a record by its ID, key or name. A case's ID returns the case in the form save_case accepts, with
-    its status, company, the propositions it reads, its worlds and their figures, the passages it cites and their
-    sources, its findings, its revisions, and its deal's stage and outcome in the operator's CRM. A proposition's
-    key or title returns it in full with its ways and links, what its level fields say, its findings, and each
-    case that reads it: the case's formula, given values and worlds. A company's ID, name, alias or domain returns
-    the company with its cases and findings, and its deals in the operator's CRM with their stages and outcomes. A
-    finding's or workspace result's ID returns that record."""
+    """Return what is saved, by ID, key or name. Nothing is searched by subject: a name that matches nothing saved
+    is refused.
+
+    A case's ID returns the case in the form save_case takes, with its status, its company, the propositions it
+    reads, its worlds and their figures, the passages it cites with their sources, its findings and its revisions.
+    A proposition's key, or its exact title, returns it in full with its ways and links, what its level fields say,
+    its findings, and each case that reads it: the case's formula, given values and worlds. A company's ID, name,
+    alias or domain returns the company with its cases and findings. A finding's or a saved result's ID returns
+    that record.
+
+    The operator keeps a deal for each case in its CRM and records there what a conversation with the company
+    established. A case shows its deal's stage and that outcome, and a company shows the operator's deals with it."""
     return _call("lookup", tools.lookup, id_or_query)
 
 
-MODEL = """The model is one revenue formula over input names: numbers, + - * /, parentheses, min() and max(). Each input
-has a unit, its value over the period in the baseline, and one basis: source (the passage that states it), result
-(the cell of a saved compute result, which the store reads) or assumption (the reasoning, with the passages and saved
-results it rests on). Each of given_values says: given these propositions true (given) and these false (given_not),
-these inputs take these values, each with what it rests on.
-
-events names the proposition the case is about. The case's worlds are the combinations of its events and of the
-propositions its given values name that the links allow: a way is true only where what it divides is true, exactly
-one of the ways beside one another is true there, and a proposition that implies another is true only where that one
-is. A way named brings the ways beside it. What a company or its counterparties do once an outcome is known is a
-proposition of its own that implies that outcome, so it divides the outcome for this case and leaves the event's
-ways as they are.
-
-The baseline is the formula at the inputs' values. In each world an input takes the value of the one given value
-that holds there and whose worlds lie strictly within those of every other that holds there and sets it; an input
-none sets stands at its own value. For each world the store returns the propositions true and false in it, the inputs
-that take another value there, the revenue within the period, the shortfall against the baseline, the shortfall as a
-share of the denominator, revenue deferred past the period and the revenue lost (both only where the deferral's
-formula is given), the contribution loss (where the contribution formula is given), and cash delayed."""
+DEFINED = "'A case' and 'From records to an estimate' in your instructions define each part."
 
 
-@server.tool(description="Calculate each world's figures without saving, from a draft of a case's model. save_case runs "
-                         "the same calculation.\n\n" + MODEL + "\n\n" + PROPOSITIONS)
+@server.tool(description="""Compute a draft of a case's model and save nothing: its worlds, each input's value in each
+world, and every figure, as save_case computes them. It takes the model part of a case: events, the formulas,
+inputs, given values and denominator.
+
+""" + DEFINED + """ is an expression over input names: numbers, + - * /, parentheses, min() and max(). A figure read
+from a result cell is read by the store. A draft's quotations are not checked; save_case checks them.
+
+It returns the propositions the draft reads, the baseline, the condition, and each world with the propositions true
+and false in it, the inputs that take another value there, the revenue within the period, the shortfall and its share
+of the denominator, revenue deferred past the period and the revenue lost (both where the deferral's formula is
+given), the contribution loss (where the contribution formula is given) and cash delayed. It refuses what save_case
+refuses of a model, with the reason.
+
+""" + PROPOSITIONS + " In a draft they are used for the calculation and left unsaved.")
 def calculate_exposure(case: Draft, propositions: list[Proposition] = []) -> dict:
     return _call("calculate_exposure", tools.calculate_exposure, case.model_dump(mode="json"),
                  [p.model_dump(mode="json", exclude_none=True) for p in propositions])
 
 
-@server.tool(description="""Save a case for contacting a company: one company, one revenue stream, and the event or
-events the stream depends on. The company is given in full or by ID (with its id, the object edits that company).
+@server.tool(description="""Save a case: the analysis of one company, one revenue stream, and the event or events the
+stream depends on.
 
-""" + MODEL + """
+""" + DEFINED + """ The company is given in full or by ID (with its id, the object edits that company). A formula is
+an expression over input names: numbers, + - * /, parentheses, min() and max().
 
-""" + PROPOSITIONS + """
+The store saves the propositions given with the case, checks each basis (a quotation is in its record, word for
+word; a result cell picks out one row, and the store reads the figure from it), computes the worlds and their
+figures, saves the company and the case, and writes a revision where the case changed. Each other active case that
+reads a proposition the call revises is computed again and gets a revision of its own.
 
-Each basis is checked: a passage is the section of text that states the figure, never the number alone, and appears
-word for word in the stored record; a result cell is one row of a saved result. case_id revises a case; a different
-company, events or stream_key is a different case. A saved case goes in front of the operator in their CRM at once,
-and a revision or a withdrawal updates it there. Returns the IDs, the revision, the condition, the worlds with their
-figures, any warnings, and the other saved cases a restated proposition moved.""")
+It returns the case as computed: its ID and revision, the propositions it reads, the baseline, the condition, each
+world with the propositions true and false in it, the inputs that take another value there, its revenue, its
+shortfall and the other figures calculate_exposure returns, any warnings, and the other cases the call moved.
+
+It refuses, with the reason, and saves nothing:
+- a quotation that is not in its record, or a result cell that picks out no row or several;
+- a given value that names a proposition or an input that is not there, or whose condition holds in no world;
+- a world where several given values set one input and none lies within the rest;
+- ways beside one another whose level fields overlap, a way whose values lie outside those of what it divides, or
+  one way alone;
+- a statement of a proposition that leaves out one an active case reads or another proposition is linked to, or
+  that leaves an active case without its figures;
+- a company the operator has excluded, and, in a session assigned one company, a case for another.
+
+case_id revises that case. Without it, a case for the same company, events and stream_key revises the saved one,
+and any other combination is a new case. The operator sees a saved case at once.
+
+""" + PROPOSITIONS)
 def save_case(case: Case, propositions: list[Proposition] = []) -> dict:
     return _call("save_case", tools.save_case, case.model_dump(mode="json"),
                  [p.model_dump(mode="json", exclude_none=True) for p in propositions])

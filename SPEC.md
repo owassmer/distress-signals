@@ -6,21 +6,21 @@ worlds and figures, the bases, and the seam with event-risk. Read it first.
 
 ## 1. What it does
 
-distress-signals is a company research and prospecting tool. It finds operating companies where a
-material share of revenue depends on the outcome of a specific upcoming event outside the company's
-control. The operator uses the research to decide whom to contact and why.
+distress-signals establishes how a company's revenue depends on an upcoming event outside its control: how
+the event reaches the business, and what the revenue would be over a stated period in each way the event can
+turn out. The figures are used while the event is open: weighted by each outcome's probability, compared
+across companies, set against protection that pays in an outcome, and put to the people who run the
+company's finances. The operator works from them in HubSpot.
 
-For each company it recommends, a case states:
+For a company and an event, a case states:
 
 | | |
 |---|---|
 | Condition | What has to happen for the company's revenue to be affected: the worlds in which it differs from the baseline, in the propositions' words |
-| Dependency | Why the company earns less if that happens |
-| Timing | When the company would feel the effect |
+| Dependency | How the event reaches the revenue |
+| Timing | When an outcome's effect reaches the revenue |
 | Exposure | How much of the business is exposed: the revenue at stake in each of those worlds over a stated period, measured from the baseline, from evidence, with the basis for every estimate |
-| Person | Who is responsible for the affected business or its financial exposure |
-| Why now | Why it makes sense to reach out now |
-| Opening | A short draft the person could answer from their knowledge of the business |
+| Person | Who is responsible for the affected business or the company's finances, as a record names them |
 
 Research that isn't a case, or explains one, is kept as findings. A case whose reason for contact goes
 away is withdrawn from the active queue, with the finding that says why.
@@ -59,8 +59,8 @@ flowchart LR
   passage is found in the record, what is stored and shown is the whole of the sentences it falls in (sentencex),
   whatever span the analyst quoted; where lines run without sentence punctuation, as table and form rows do, the
   whole of its lines.
-- **The assignment is what the operator gives.** The analyst is told the mandate, what each tool does,
-  and the operator's offering when one is supplied. A run's prompt is its assignment: the mandate, or a
+- **The assignment is what the operator gives.** The analyst is told what the work is and how the store works
+  (`config/system.md`) and what each tool does. A run's prompt is its assignment: an open search, or a
   subject or brief the operator selects, or the case to refresh. Prior research is retrievable by ID or
   name with `lookup`, and isn't handed to the analyst, or listable by it, as a place to start: the
   workspace holds only what the current run has read and recorded. Worked examples,
@@ -144,14 +144,11 @@ the proposition it is a way of and the side it divides (`worlds.flatten`, `world
 | `currency` | The currency of the revenue figures |
 | `revenue` | The formula for the revenue recognized within the period. At the inputs' values it gives the baseline; at their values in a world, the revenue there |
 | `contribution`, `deferred_past_period`, `cash_delayed` | Formulas over the same inputs, where they apply: revenue less the costs that change with it; revenue recognized after the period instead of within it; cash collected later than it otherwise would be |
-| `inputs` | The figures the formulas use, by name, each at its value over the period in the baseline, with a unit and exactly one basis: `source` (a quoted passage), `result` (the cell of a saved compute result: its `result_id`, `column`, and the `row` columns and values that pick out one row; the store reads the value) or `assumption` (a `note` with the reasoning, and the `evidence` passages and `results` it rests on) |
-| `given_values` | Each: `given`, the keys of the propositions that are true; `given_not`, those that are false; and `values`, the inputs that take another value there, each with its `value` and the `assumption` it rests on |
+| `inputs` | The drivers of the revenue, by name, each at its value over the period as things stand, with a unit and its basis in two parts, one or both: where the figure is read, `source` (a quoted passage) or `result` (the cell of a saved compute result: its `result_id`, `column`, and the `row` columns and values that pick out one row; the store reads the value); and the `assumption` by which it holds for the input (a `note` with the reasoning, and the `evidence` passages and `results` it rests on) |
+| `given_values` | Each: `given`, the keys of the propositions that are true; `given_not`, those that are false; and `values`, the inputs that take another value there, each with its `value` and the same basis in two parts |
 | `denominator` | What the shortfall is a share of |
-| `reasons` | Why the exposure warrants a conversation (`why_matters`), why to reach out now (`why_now`, `why_now_date`), and where the company stands among those worth contacting (`priority` 1–5, `priority_reason`) |
-| `buyer` | The person: their responsibility, name, title, and the record that names them |
-| `outreach.draft` | The opening |
-| `evidence` | Passages that support the case's other claims |
-| `next_action` | What the operator or the researcher should do next |
+| `person` | The person responsible for the affected business or the company's finances: their responsibility, name, title, and the record that names them |
+| `evidence` | Passages that establish the dependency and the timing |
 | `change_note` | What a save changed |
 
 A case is `active` or `withdrawn`. `record_finding` with `withdraw_case` withdraws it; saving it again
@@ -169,7 +166,7 @@ they stood then.
   strictly within those of every other that holds there and sets it. An input none sets stands at its own value.
 - A given value whose condition holds in no world is refused. So is a world where several given values set one
   input and none is the most specific, naming the world, the input and the given values.
-- The store reads each `result` input from its cell. A row that picks out no row or several is refused, and so
+- The store reads each figure given a `result`, on an input or a given value, from its cell. A row that picks out no row or several is refused, and so
   is a value given with it that differs from the cell's.
 - Each passage under an assumption is checked in its record as any cited passage is, and each result it rests
   on is one that is saved.
@@ -188,7 +185,7 @@ or lead set aside). It can concern a company, a proposition or a case, and can r
 |---|---|
 | `companies`, `company_keys` | Companies, and each normalized name and alias |
 | `propositions` | One row for each proposition: its key, the key of the proposition it is a way of, the side it divides, its place among the ways beside it, and its other fields |
-| `cases` | Cases: company, events, stream, status, priority, key date, largest shortfall, the case and results, progress, revision |
+| `cases` | Cases: company, events, stream, status, key date, largest shortfall, the case and results, progress, revision. Cases are listed by largest shortfall |
 | `case_reads` | The propositions each case reads |
 | `revisions` | Each saved snapshot (the company, the case, the propositions it reads and its results), its hash, change note and run |
 | `observations` | Each record read: kind, source, native ID, address, dates, text, data |
@@ -223,7 +220,7 @@ saved company or proposition through its own research finds what is saved about 
 
 | Command | Assignment |
 |---|---|
-| `research` | The standing mandate |
+| `research` | An open search |
 | `research --company NAME` | That company; the run's cases are for it (save refuses others), and what it learns about other companies becomes findings and leads |
 | `research --event TEXT`, `--source URL`, `--lead ID` | That event, source or saved lead |
 | `research --brief FILE` | The brief's text; a brief is used only when selected |
@@ -234,31 +231,42 @@ parallel.
 
 ### What the analyst is told
 
-The system prompt is `config/mandate.md`, preceded by the operator's offering when
-`config/offering.local.md` exists (gitignored), and followed by today's date and what each tool does. It
-says that what the analyst knows about events ends at its training cutoff, before today, and that the records
-the tools reach are current and each carries its own dates. Without that, runs began by listing the events the
-model remembered, and kept returning to the same few. It names no series of records: the catalog in the
-`search_records` description is the whole of what the analyst is told about them ([section 6](#6-sources)).
-It names no companies: excluded companies are enforced where a case or finding is saved, which is refused
-with the reason, because a company the context names is one the analyst reaches for. Nothing from earlier
-runs enters it.
+The system prompt is `config/system.md` (`agent.system`), the same in every session but for three things it
+is given: the role its first sentence names (`agent.ROLE`, or `AGENT_ROLE`), today's date, and how long the
+session may run. It is written as an assignment to a practitioner, and each passage says what a thing is, how
+it works and why, once:
+
+| Section | Holds |
+|---|---|
+| Opening | The work: what a company's revenue would be in each way an unsettled event can turn out. What a figure means, and how the analysis is used |
+| An assignment | The forms an assignment takes and what the work is in each; working alone; the session's length; earlier work in the store |
+| Revenue that depends on an event | A company, a revenue stream, a dependency, an event; materiality as the analyst's judgment by the company's own measure; why an unlikely outcome is worked out |
+| A case | Propositions and why they are shared; outcomes and ways; the model; the period; worlds; the figures; an illustration with placeholders, which a test computes |
+| From records to an estimate | Observation, inference and assumption; a figure's basis in two parts; what makes the reasoning defensible; primary records |
+| You and the store | What is the analyst's, what the store does, and what the store does not judge, so that reading the returned case is the analyst's |
+| The tools | Each tool in a line, with what WebSearch and WebFetch return |
+| The work whole | When the assignment is done, and what the final answer states |
+
+The standard it is written to is the one scenario-ledger holds for what its risk manager reads: the reader
+takes each word as meant and has no one to ask; the words are the store's own and the practitioner's where
+one exists; it carries the environment exactly and nothing of ours about the world. It names no company,
+event or series of records: the catalog in the `search_records` description is the whole of what the analyst
+is told about the series ([section 6](#6-sources)), and excluded companies are enforced where a case or
+finding is saved. Nothing from earlier runs enters it. A field's description in `models.py` is the
+definition the analyst reads of that field, and a tool's description says what the call takes, does, returns
+and refuses.
+
+It says that what the analyst knows about events ends at its training cutoff, before today, and that the
+records the tools reach are current. It says how long the session may run: with no length stated, a run saw
+today's date, the clock time on each record read and an end point, and supplied a short length itself.
 
 Claude Code adds its own parts:
-- an identity line;
+- an identity line, before the system prompt: "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
 - the WebSearch, WebFetch and StructuredOutput tool descriptions;
 - an environment message with the working directory, the model and today's date;
 - a reminder carrying the signed-in account's email.
 
-The MCP server gives no instructions of its own. Its earlier one-line summary ended "and saved cases", and
-the analyst's first plan was to check for existing cases.
-
-The mandate gives no number of companies. It states what the operator can take on (every company that
-fits) and that there is time to research each one thoroughly. With no number at all, a run saved one
-case. With "ten", the analyst paced itself against the count ("I'll work faster and stop going over each
-one in detail") and stopped after 28 of its 150 minutes, short of the count. Nothing in its context gave
-the run a length. It saw today's date, the clock time on each record read, a few tool durations and an
-end point (the structured final answer), and supplied a short length itself.
+The MCP server gives no instructions of its own.
 
 ### Runtime
 
@@ -272,8 +280,7 @@ end point (the structured final answer), and supplied a short length itself.
 - The model from `AGENT_MODEL` (default `opus`) and its reasoning effort from `AGENT_EFFORT` (default `xhigh`),
   passed as `--effort`, as the event-risk and scenario-ledger analysts set it. Runs left at the CLI's default
   effort reasoned little and stopped short. The model thinks adaptively. `--timeout` in minutes: 180 for
-  `research`, 60 for `refresh`. The mandate tells the analyst there is time to research each company
-  thoroughly. A run stopped at its limit loses its final answer, though its saved cases remain.
+  `research`, 60 for `refresh`. The system prompt states the limit. A run stopped at its limit loses its final answer, though its saved cases remain.
   `MCP_TOOL_TIMEOUT` of 10 minutes, and `CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH` so the catalog of series
   arrives whole (section 6).
 - Before the prompt, a `set_max_thinking_tokens` control request sets `thinking_display` to `summarized`,
@@ -427,11 +434,11 @@ reports the period shortfall.
 HubSpot is the operator's view (§9). Each deal carries the case's memo, rendered from the case in its
 current form (`briefs.py`). The memo covers:
 - a headline;
-- what has to happen (the condition), the propositions the case reads, why the company earns less, and when
-  it would feel the effect;
+- what has to happen (the condition), the propositions the case reads, how the event reaches the revenue,
+  and when;
 - how much of the business is exposed: the baseline, each world's revenue, shortfall and share, the formulas,
   every input with its basis, and every given value with what it rests on;
-- why reach out now, who to approach, and the opening;
+- the person responsible;
 - the findings and the sources.
 
 Locally, `export CASE_ID` prints a case whole: status, company, propositions, case, results, sources,
@@ -448,11 +455,10 @@ what is requested there.
 - **Deal.** One per case, matched by `distress_opportunity_id` (the case's ID) and named "company: stream ·
   event". It carries
   these properties in the "Distress signals" group:
-  - the case's fields: `distress_opportunity_id`, `distress_status`, `distress_priority`, `distress_event`,
+  - the case's fields: `distress_opportunity_id`, `distress_status`, `distress_event`,
     `distress_event_date`, `distress_condition`, `distress_dependency`, `distress_timing`,
     `distress_stream`, `distress_period`, `distress_revenue_at_stake`, `distress_currency`,
-    `distress_share` (percent), `distress_share_of`, `distress_why_now`, `distress_why_now_date`,
-    `distress_person`, `distress_opening` and `distress_next_action`;
+    `distress_share` (percent), `distress_share_of` and `distress_person`;
   - the memo and latest revision: `distress_memo`, `distress_revision` and `distress_change_note`;
   - the operator's `distress_outcome` (`exposure_confirmed`, `already_addressed`, `no_exposure`,
     `wrong_contact`, `meeting_booked`, `not_interested`) and `distress_outcome_note`.
@@ -481,7 +487,7 @@ stage and outcome.
   - "Research this company": that company.
   - "Research the event in the note": the event and the companies whose revenue depends on it, as
     `research --event` runs it.
-  - "Run the open search": the standing mandate.
+  - "Run the open search": an open search.
   - "Run the note as a brief".
 
   "Distress run note" holds a question for the run, the event, or the brief. Runs that aren't about the
@@ -622,14 +628,15 @@ python -m distress_signals ledgers [--verify]
 | The local queue page, CSV and memo files | HubSpot is the operator's view; the memo is on the deal, and `export` prints a case |
 | The digest of saved research in every prompt | It handed the analyst earlier cases, rankings and figures as its starting list; prior research is read with `lookup` |
 | Clay delivery (company, opportunity and update tables, and its email lookup) | Clay was available only on a trial. HubSpot holds companies, deals and contacts; the operator adds the person's email |
-| A committed operator offering | The mandate stands alone; an operator's offering is supplied in `config/offering.local.md` |
+| The operator's offering in the analyst's system prompt | The offering is for writing an opening to the company, which is done after the analysis |
+| The opening, the next action, the priority and the reasons to reach out, as fields of a case the analyst states; the mandate that asked for them | The analyst's work is the exposure. A slot for an opening or a next action let a question a record could settle stand as finished work. An opening is written after the analysis, from the saved case. Cases are ordered by their figures |
+| A basis of exactly one kind for each figure (`source`, `result` or `assumption`) | A figure read from a record and carried to the case by an assumption has both parts, and the store reads it from its cell |
 
 ## 12. File map
 
 | File | Holds |
 |---|---|
-| `config/mandate.md` | The mandate |
-| `config/offering.local.md` | The operator's offering, when supplied (gitignored) |
+| `config/system.md` | What the analyst is told in every session: the work, an assignment, the subject, a case, evidence, the store, the tools |
 | `config/briefs/` | Briefs, each used only when selected. One named `*.local.md` is the operator's own (gitignored) |
 | `config/exclude.yaml`, `exclude.local.yaml` | Companies left aside |
 | `config/ledgers.yaml`, `config/legistar.yaml` | The payment ledgers; the city and county councils on Legistar |
@@ -665,7 +672,7 @@ python -m distress_signals ledgers [--verify]
 2. **Tools.** Done.
 3. **Researcher.** Done.
 4. **Outputs.** Done.
-5. **Research runs.** The standing mandate, briefs when selected, and refreshes and withdrawals as findings
+5. **Research runs.** Open searches, briefs when selected, and refreshes and withdrawals as findings
    require. Done when HubSpot holds cases whose condition, exposure and person hold up on review.
 6. **HubSpot as the surface.** Delivery on save, the researcher's view of HubSpot, runs requested in HubSpot,
    the worker as a background service. Built.
@@ -675,22 +682,10 @@ python -m distress_signals ledgers [--verify]
    document that crosses to event-risk; changing one value of a saved case, with each figure before and after.
    The whole is then tried on runs on new, unrelated subjects.
 
-## 14. Mandate and briefs
+## 14. Assignments and briefs
 
-`config/mandate.md`:
-
-> Find operating companies, public or private, where a material share of revenue depends on the outcome
-> of a specific upcoming event outside the company's control. The operator uses your research to decide whom to
-> contact and why. It can take on every company that fits, and it relies on what you write when it
-> reaches out. There is time to research each one thoroughly, and no limit on tool calls.
->
-> For each company you recommend, explain what has to happen for its revenue to be affected, why the
-> company earns less if that happens, and when it would feel the effect. Use the available evidence to
-> show how much of the business is exposed. Give the basis for any estimate.
->
-> Identify the person responsible for the affected business or its financial exposure. Explain why it
-> makes sense to reach out now and draft a short opening that person could answer from their knowledge of
-> the business.
+`agent.ASSIGNMENTS` holds the assignment for an open search, a company, an event and a source; a brief is its
+own text.
 
 `config/briefs/federal-funding-2026-12.md`, used only with `--brief`:
 

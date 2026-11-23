@@ -40,14 +40,12 @@ CASE_PROPERTIES = [
     ("distress_opportunity_id", "Distress opportunity ID", "string", "text", None, "The case's ID in distress-signals"),
     ("distress_status", "Distress status", "enumeration", "select", ["active", "withdrawn"],
      "Whether the case is in the active queue"),
-    ("distress_priority", "Distress priority", "number", "number", None,
-     "Where the company stands among those worth contacting: 1 is first"),
     ("distress_event", "Distress event", "string", "text", None, "The upcoming event the revenue depends on"),
     ("distress_event_date", "Distress event date", "date", "date", None, "The date the event is decided on or by"),
     ("distress_condition", "Distress condition", "string", "textarea", None,
      "What has to happen for the revenue to be affected"),
-    ("distress_dependency", "Distress dependency", "string", "textarea", None, "Why the company earns less if that happens"),
-    ("distress_timing", "Distress timing", "string", "textarea", None, "When the company would feel the effect"),
+    ("distress_dependency", "Distress dependency", "string", "textarea", None, "How the event reaches the revenue"),
+    ("distress_timing", "Distress timing", "string", "textarea", None, "When an outcome's effect reaches the revenue"),
     ("distress_stream", "Distress revenue stream", "string", "textarea", None, "The revenue stream that depends on the event"),
     ("distress_period", "Distress period", "string", "text", None, "The span over which the revenue at stake is counted"),
     ("distress_revenue_at_stake", "Distress revenue at stake", "number", "number", None,
@@ -56,13 +54,8 @@ CASE_PROPERTIES = [
     ("distress_share", "Distress share of revenue (%)", "number", "number", None,
      "The revenue at stake as a percentage of the case's denominator"),
     ("distress_share_of", "Distress share of", "string", "text", None, "What the share is a percentage of"),
-    ("distress_why_now", "Distress why now", "string", "textarea", None, "Why it makes sense to reach out now"),
-    ("distress_why_now_date", "Distress why-now date", "date", "date", None, "The date that makes it timely"),
-    ("distress_person", "Distress person", "string", "textarea", None, "Who to approach, and what they are responsible for"),
-    ("distress_opening", "Distress opening", "string", "textarea", None,
-     "A short opening the person could answer from their knowledge of the business"),
-    ("distress_next_action", "Distress next action", "string", "textarea", None,
-     "What the operator or the researcher should do next"),
+    ("distress_person", "Distress person", "string", "textarea", None,
+     "The person responsible for the affected business or its finances"),
     ("distress_memo", "Distress memo", "string", "textarea", None, "The case's memo"),
     ("distress_revision", "Distress revision", "number", "number", None, "The case revision the deal shows"),
     ("distress_change_note", "Distress change note", "string", "textarea", None, "What that revision changed"),
@@ -303,14 +296,13 @@ def deal_properties(c):
     """The deal's case properties for a case in its current form (briefs.cases). The stage, the outcome
     and the run fields are not among them."""
     case, res, co = c["case"], c["results"], c["company"]
-    reasons, buyer = case["reasons"], case["buyer"]
-    person = ", ".join(x for x in (buyer.get("name"), buyer.get("title")) if x)
+    who = case["person"]
+    person = ", ".join(x for x in (who.get("name"), who.get("title")) if x)
     return _blank({
         # company, then the revenue stream (a company can have several cases on one event), then the event
         "dealname": f"{co['name']}: {_stream_label(c)} · {briefs.event_title(c)}",
         "distress_opportunity_id": c["id"],
         "distress_status": c["status"],
-        "distress_priority": reasons["priority"],
         "distress_event": briefs.event_title(c),
         "distress_event_date": briefs.event_date(c),
         "distress_condition": c["condition"],
@@ -322,11 +314,7 @@ def deal_properties(c):
         "distress_currency": case["currency"],
         "distress_share": None if res.get("max_share") is None else round(100 * res["max_share"], 1),
         "distress_share_of": (res.get("denominator") or {}).get("label"),
-        "distress_why_now": reasons["why_now"],
-        "distress_why_now_date": reasons.get("why_now_date"),
-        "distress_person": f"{person}: {buyer['role']}" if person else buyer["role"],
-        "distress_opening": case["outreach"]["draft"],
-        "distress_next_action": case["next_action"],
+        "distress_person": f"{person}: {who['role']}" if person else who["role"],
         "distress_memo": briefs.memo(c)[:TEXT_LIMIT],
         "distress_revision": c["row"]["revision"],
         "distress_change_note": c["revisions"][-1]["change_note"] if c["revisions"] else None,
@@ -335,7 +323,7 @@ def deal_properties(c):
 
 def contact_properties(con, c):
     """The person as a contact, or None when the case names only a role. No email: the operator adds it."""
-    b = c["case"]["buyer"]
+    b = c["case"]["person"]
     if not b.get("name"):
         return None
     parts = b["name"].split()
@@ -364,7 +352,7 @@ def _hs_company(con, company_id, name, domain, data=None, create=True):
 
 
 def _contact_key(c):
-    return f"{c['row']['company_id']}:{' '.join(c['case']['buyer']['name'].lower().split())}"
+    return f"{c['row']['company_id']}:{' '.join(c['case']['person']['name'].lower().split())}"
 
 
 def _contact(con, c, props, hs_company):

@@ -532,7 +532,7 @@ function caseView() {
           + `<span class="unit">${esc(u)}</span>${x.how ? `<div>${esc(x.how)}</div>` : ""}${x.passage || x.url ? quote(x.passage, x.url) + sourceNote(x) : ""}`
           + `${x.note ? `<small class="note">${esc(x.note)}</small>` : ""}</div></div>`; }).join(""))
     + sec("Evidence", (c.evidence || []).map(e => `<div class="ev"><b>${esc(e.supports || "")}</b>${quote(e.passage, e.url)}${sourceNote(e)}</div>`).join(""))
-    + sec("Suggested outreach", (c.who ? `<b>${esc(c.who)}</b>` : "") + p(c.role) + p(c.why_now) + p(DATA?.example_deal ? c.contact_route : c.next_action)
+    + sec(DATA?.example_deal ? "Suggested outreach" : "Person responsible", (c.who ? `<b>${esc(c.who)}</b>` : "") + p(c.role) + p(c.why_now) + p(DATA?.example_deal ? c.contact_route : "")
         + (c.opening ? `<details><summary>Draft message</summary><blockquote class="opening">${esc(c.opening)}</blockquote></details>` : ""))
     + "</div>";
   $("#jump").hidden = !secs.length;

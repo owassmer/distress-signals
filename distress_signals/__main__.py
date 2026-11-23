@@ -61,7 +61,7 @@ def report(r):
         res, cur = o["results"], o["case"]["currency"]
         share = f" ({res['max_share']:.1%} of {res['denominator']['label']})" if res.get("max_share") is not None else ""
         print(f"  {oid} [{o['status']}] {o['company']['name']}: {o['case']['stream']} | revenue at stake "
-              f"{cur} {res['max_shortfall']:,.0f}{share} | priority {o['case']['reasons']['priority']}")
+              f"{cur} {res['max_shortfall']:,.0f}{share}")
     for x in r["leads"]:
         print(f"  lead: {x['company_or_event']}: {x['reason'][:140]}")
 

@@ -25,7 +25,7 @@ CREATE INDEX IF NOT EXISTS propositions_parent ON propositions(parent);
 CREATE TABLE IF NOT EXISTS cases (
   id TEXT PRIMARY KEY, company_id TEXT NOT NULL REFERENCES companies(id),
   events TEXT NOT NULL, stream_key TEXT NOT NULL,
-  priority INTEGER, key_date TEXT, max_loss REAL, currency TEXT,
+  key_date TEXT, max_loss REAL, currency TEXT,
   case_json TEXT NOT NULL, results TEXT NOT NULL, progress TEXT NOT NULL DEFAULT '{}',
   revision INTEGER NOT NULL, created TEXT NOT NULL, updated TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active',
   UNIQUE (company_id, events, stream_key));
@@ -219,20 +219,20 @@ def set_status(con, cid, status):
 
 
 def cases(con, where="1=1", args=()):
-    return [_row(r, *CASE_JSON) for r in con.execute(f"SELECT * FROM cases WHERE {where} ORDER BY priority, key_date", args)]
+    return [_row(r, *CASE_JSON) for r in con.execute(f"SELECT * FROM cases WHERE {where} ORDER BY max_loss DESC, key_date, id", args)]
 
 
 def put_case(con, row, reads):
-    """row: id, company_id, events, stream_key, priority, key_date, max_loss, currency, case_json, results,
+    """row: id, company_id, events, stream_key, key_date, max_loss, currency, case_json, results,
     revision. reads: the propositions the case reads. Progress and status are kept as they were."""
     ts = now_iso()
-    con.execute("INSERT INTO cases (id, company_id, events, stream_key, priority, key_date, max_loss, "
-                "currency, case_json, results, revision, created, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) "
+    con.execute("INSERT INTO cases (id, company_id, events, stream_key, key_date, max_loss, "
+                "currency, case_json, results, revision, created, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
                 "ON CONFLICT(id) DO UPDATE SET company_id=excluded.company_id, events=excluded.events, "
-                "stream_key=excluded.stream_key, priority=excluded.priority, key_date=excluded.key_date, "
+                "stream_key=excluded.stream_key, key_date=excluded.key_date, "
                 "max_loss=excluded.max_loss, currency=excluded.currency, case_json=excluded.case_json, "
                 "results=excluded.results, revision=excluded.revision, updated=excluded.updated",
-                (row["id"], row["company_id"], dumps(row["events"]), row["stream_key"], row["priority"], row["key_date"],
+                (row["id"], row["company_id"], dumps(row["events"]), row["stream_key"], row["key_date"],
                  row["max_loss"], row["currency"], dumps(row["case_json"]), dumps(row["results"]),
                  row["revision"], ts, ts))
     con.execute("DELETE FROM case_reads WHERE case_id=?", (row["id"],))

@@ -247,11 +247,11 @@ def _cite(con, cite, where, cited_ids):
     return {"observation_id": obs["id"], "passage": passage, "checked": checked}
 
 
-def _cell(con, name, inp, used):
-    """An input observed by query: the store reads its value from the cell of the saved result it names.
-    A value given with it is the same figure, or the save says how the two differ."""
+def _cell(con, at, inp, used):
+    """A figure read by query, on an input or a given value (`at` says which): the store reads it from the cell
+    of the saved result it names. A value given with it is the same figure, or the save says how the two differ."""
     cell = inp["result"]
-    rid, where = cell["result_id"], f"inputs.{name}.result"
+    rid, where = cell["result_id"], f"{at}.result"
     r = db.get_result(con, rid)
     if not r:
         raise ToolError(f"{where}: no saved result {rid!r}; save one with compute(save_as=...)")
@@ -269,8 +269,9 @@ def _cell(con, name, inp, used):
         raise ToolError(f"{where}: {cell['column']} in that row of {rid} is {v!r}, not a number")
     given = inp.get("value")
     if given is not None and abs(given - v) > max(abs(v) * 1e-6, 0.005):
-        raise ToolError(f"inputs.{name}: the value given is {given}, and the cell it names in {rid} holds {v}. Leave "
-                        "the value out for the store to read, or name the cell that holds it.")
+        raise ToolError(f"{at}: the value given is {given}, and the cell it names in {rid} holds {v}. Leave the "
+                        "value out for the store to read, or name the cell that holds it. A figure worked out from "
+                        "the cell's is an assumption that names the result it rests on.")
     inp["value"] = float(v)
     used.append(rid)
 
@@ -284,25 +285,29 @@ def _assumption(con, a, where, cited_ids, used):
         used.append(rid)
 
 
+def _figures(case):
+    """[(where, figure)] for every figure a case states with a basis: its inputs, then its given values."""
+    return [(f"inputs.{name}", inp) for name, inp in case["inputs"].items()] + \
+        [(f"given_values[{i}].values.{name}", v) for i, g in enumerate(case["given_values"]) for name, v in g["values"].items()]
+
+
 def _provenance(con, case, cited_ids, used):
-    """Check the basis of every input and of every given value, in place."""
-    for name, inp in case["inputs"].items():
-        if inp.get("source"):
-            inp["source"] = _cite(con, inp["source"], f"inputs.{name}.source", cited_ids)
-        elif inp.get("result"):
-            _cell(con, name, inp, used)
-        else:
-            _assumption(con, inp["assumption"], f"inputs.{name}.assumption", cited_ids, used)
-    for i, g in enumerate(case["given_values"]):
-        for name, v in g["values"].items():
-            _assumption(con, v["assumption"], f"given_values[{i}].values.{name}.assumption", cited_ids, used)
+    """Check the basis of every input and of every given value, in place: the passage a figure is read from is
+    in its record, the cell it is read from holds it, and what an assumption rests on is there."""
+    for at, fig in _figures(case):
+        if fig.get("source"):
+            fig["source"] = _cite(con, fig["source"], f"{at}.source", cited_ids)
+        if fig.get("result"):
+            _cell(con, at, fig, used)
+        if fig.get("assumption"):
+            _assumption(con, fig["assumption"], f"{at}.assumption", cited_ids, used)
 
 
 def _cites(case, props=()):
     """Every passage a case quotes, and those of the propositions given with it, each as stored."""
-    out = [i["source"] for i in case["inputs"].values() if i.get("source")]
-    out += [c for i in case["inputs"].values() if i.get("assumption") for c in i["assumption"]["evidence"]]
-    out += [c for g in case["given_values"] for v in g["values"].values() for c in v["assumption"]["evidence"]]
+    out = []
+    for _, fig in _figures(case):
+        out += [fig["source"]] * bool(fig.get("source")) + list((fig.get("assumption") or {}).get("evidence") or [])
     return out + list(case["evidence"]) + [c for p in props for c in p.get("evidence") or []]
 
 
@@ -531,7 +536,7 @@ def _uncovered(props, keys):
 # ---------- the calculation ----------
 
 def _key_date(props, case):
-    return min(str(props[k]["window_end"]) for k in case["events"]) if case["events"] else case["reasons"].get("why_now_date")
+    return min(str(props[k]["window_end"]) for k in case["events"])
 
 
 def _derive(case, props):
@@ -565,9 +570,9 @@ def calculate_exposure(case: dict, propositions: list | None = None) -> dict:
     try:
         props, _, _ = _lay_over(con, given)
         _events(props, draft)
-        for name, inp in draft["inputs"].items():
-            if inp.get("result"):
-                _cell(con, name, inp, [])
+        for at, fig in _figures(draft):
+            if fig.get("result"):
+                _cell(con, at, fig, [])
     finally:
         con.close()
     results, warnings = _derive(draft, props)
@@ -629,7 +634,7 @@ def _cited(snapshot):
     worlds rest on."""
     case = snapshot["case"]
     return [c["observation_id"] for c in _cites(case, snapshot["propositions"].values())] \
-        + [case["buyer"]["observation_id"]] * bool(case["buyer"].get("observation_id"))
+        + [case["person"]["observation_id"]] * bool(case["person"].get("observation_id"))
 
 
 def _revise(con, cid, row, snapshot, change_note):
@@ -640,8 +645,7 @@ def _revise(con, cid, row, snapshot, change_note):
         return last["revision"], False
     revision = (last["revision"] if last else 0) + 1
     case, results = snapshot["case"], snapshot["results"]
-    db.put_case(con, {"id": cid, **row, "priority": case["reasons"]["priority"],
-                      "key_date": _key_date(snapshot["propositions"], case), "max_loss": results["max_shortfall"],
+    db.put_case(con, {"id": cid, **row, "key_date": _key_date(snapshot["propositions"], case), "max_loss": results["max_shortfall"],
                       "currency": case["currency"], "case_json": case, "results": results, "revision": revision},
                 results["reads"])
     db.add_revision(con, cid, revision, digest, change_note, snapshot)
@@ -703,12 +707,10 @@ def _save(con, c: Case, given):
     _provenance(con, case, cited_ids, results_used)
     case["evidence"] = [_cite(con, ev, f"evidence[{i}]", cited_ids) | {"supports": ev["supports"]}
                         for i, ev in enumerate(case["evidence"])]
-    if case["buyer"].get("observation_id"):
-        _need_observation(con, case["buyer"]["observation_id"], "buyer.observation_id", cited_ids)
-    elif case["buyer"].get("name"):
-        warnings.append("The person is named without a source; give buyer.observation_id.")
-    else:
-        warnings.append("No person named yet.")
+    if case["person"].get("observation_id"):
+        _need_observation(con, case["person"]["observation_id"], "person.observation_id", cited_ids)
+    elif case["person"].get("name"):
+        warnings.append("person: named without the record that names them in this role (person.observation_id).")
 
     scaled = re.compile(r"(?i)\b(thousands?|millions?|billions?|mn|bn|mm)\b")
     money = re.compile(rf"(?i)\b{c.currency}\b|[$€£¥]")
@@ -885,7 +887,7 @@ def _brief(con, row, props):
                               "values": {k: v["value"] for k, v in g["values"].items()}} for g in case["given_values"]],
             "worlds": [{"world": w["label"], "values": w["values"], "revenue": w["revenue"], "shortfall": w["shortfall"],
                         "share": w["share"]} for w in res["worlds"]],
-            "priority": row["priority"], "max_shortfall": res["max_shortfall"], "currency": row["currency"],
+            "max_shortfall": res["max_shortfall"], "currency": row["currency"],
             "revision": row["revision"], "updated": row["updated"]}
 
 
@@ -925,11 +927,9 @@ def lookup(id_or_query: str) -> dict:
                          "observation_id": c["observation_id"]} for c in cites]
 
             evidence = []
-            for k, v in case["inputs"].items():
-                evidence += passages(f"inputs.{k}", [v["source"]] if v.get("source") else (v.get("assumption") or {}).get("evidence") or [])
-            for i, g in enumerate(case["given_values"]):
-                for k, v in g["values"].items():
-                    evidence += passages(f"given_values[{i}].values.{k}", v["assumption"]["evidence"])
+            for at, fig in _figures(case):
+                evidence += passages(at, [fig["source"]] * bool(fig.get("source"))
+                                     + list((fig.get("assumption") or {}).get("evidence") or []))
             for i, e in enumerate(case["evidence"]):
                 evidence += passages(f"evidence[{i}]", [e], supports=e["supports"])
             for e in evidence:

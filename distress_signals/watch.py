@@ -334,26 +334,24 @@ def _title(run):
 
 
 def _assignment(run):
-    """What the researcher was given, in its own words: the mandate's first paragraph, or the subject or brief."""
+    """What the analyst was given, in the operator's words: the open search's assignment, or the subject or brief."""
     if not run:
         return ""
     if run["seed_kind"] == "mandate":
-        sysp = run.get("system") or ""
-        body = sysp.split("## Mandate", 1)[-1].split("##", 1)[0] if "## Mandate" in sysp else ""
-        first = " ".join(body.strip().split("\n\n")[0].split())
-        return re.split(r"(?<=\.)\s", first, 1)[0]
+        return run.get("prompt") or ""
     text = run.get("seed") or ""
     return " · ".join(part for part in (text, run.get("question")) if part)
 
 
 def _input(name, x, url_of):
-    """One figure behind a case, with its basis: reported (the passage), derived (the result cell the store read) or
-    assumed (the reasoning, and the first passage it rests on)."""
-    kind = "reported" if x.get("source") else "derived" if x.get("result") else "assumed"
+    """One figure behind a case, with its basis: where it is read (reported: the passage; derived: the result
+    cell the store read) and the assumption by which it holds (the reasoning, and the first passage it rests on).
+    A figure that rests on an assumption shows as assumed."""
     a, cell = x.get("assumption") or {}, x.get("result") or {}
+    kind = "assumed" if a else "reported" if x.get("source") else "derived"
     src = x.get("source") or next(iter(a.get("evidence") or []), {})
-    how = a.get("note") if kind == "assumed" else (
-        f"{cell['result_id']}, {cell['column']}" + "".join(f", {k} {v}" for k, v in cell["row"].items()) if cell else None)
+    read = f"{cell['result_id']}, {cell['column']}" + "".join(f", {k} {v}" for k, v in cell["row"].items()) if cell else None
+    how = " ".join(part for part in (f"Read from {read}." if read and a else read, a.get("note")) if part) or None
     return {"name": title_label(name), "value": x.get("value"), "unit": x.get("unit"), "note": x.get("note"), "kind": kind,
             "passage": src.get("passage"), "checked": src.get("checked"), "url": url_of(src.get("observation_id")),
             "how": how}
@@ -369,7 +367,7 @@ def _case_details(oids, public=False):
     con = db.connect()
     try:
         for c in briefs.cases(con, list(oids)):
-            case, res, buyer = c["case"], c["results"], c["case"]["buyer"]
+            case, res, person = c["case"], c["results"], c["case"]["person"]
             of_events = lambda k: " ".join(e[k] for e in c["events"] if e.get(k)) or None  # noqa: E731
             cited = c.get("cited") or {}
             url_of = lambda oid: (cited.get(oid) or {}).get("url") if oid else None  # noqa: E731
@@ -386,14 +384,13 @@ def _case_details(oids, public=False):
                 "event": briefs.event_title(c), "event_date": briefs.event_date(c), "date_label": "Decided on or by",
                 "event_text": of_events("text"), "resolution_source": of_events("resolution_source"),
                 "dependency": case.get("dependency"),
-                "why_now": case["reasons"].get("why_now"), "stake": res.get("max_shortfall"), "share": res.get("max_share"),
+                "stake": res.get("max_shortfall"), "share": res.get("max_share"),
                 "of": (res.get("denominator") or {}).get("label"), "denominator_value": (res.get("denominator") or {}).get("value"),
                 "currency": case.get("currency"),
                 "period": f"{case['period']['start']} to {case['period']['end']}",
-                "who": ", ".join(x for x in (buyer.get("name"), buyer.get("title")) if x) or buyer.get("role"),
-                "opening": (case.get("outreach") or {}).get("draft"),
+                "who": ", ".join(x for x in (person.get("name"), person.get("title")) if x) or person.get("role"),
                 "deal": None if public else _deal_url(c["id"]),
-                "why_matters": case["reasons"].get("why_matters"), "condition": c["condition"], "timing": case.get("timing"),
+                "condition": c["condition"], "timing": case.get("timing"),
                 "event_description": of_events("description"), "event_timing": of_events("timing"),
                 "period_start": case["period"]["start"], "period_end": case["period"]["end"],
                 "baseline": {"revenue": res.get("baseline_revenue"), "description": None},
@@ -401,12 +398,12 @@ def _case_details(oids, public=False):
                                "revenue": r.get("revenue"), "shortfall": r.get("shortfall"), "share": r.get("share")}
                               for r in res.get("worlds") or []],
                 "inputs": [_input(k, x, url_of) for k, x in (case.get("inputs") or {}).items()]
-                + [_input(k, {"value": v["value"], "unit": case["inputs"][k]["unit"], "assumption": v["assumption"]}, url_of)
+                + [_input(k, v | {"unit": case["inputs"][k]["unit"]}, url_of)
                    | {"name": f"{title_label(k)}, given {briefs.given_condition(c, g)}"}
                    for g in case["given_values"] for k, v in g["values"].items()],
                 "evidence": [{"passage": e.get("passage"), "supports": e.get("supports"), "checked": e.get("checked"), "url": url_of(e.get("observation_id"))}
                              for e in case.get("evidence") or []],
-                "role": buyer.get("role"), "next_action": case.get("next_action")}
+                "role": person.get("role")}
     finally:
         con.close()
     return out

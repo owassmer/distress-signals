@@ -92,13 +92,13 @@ def read(url):
         r = session().get(url, headers=headers, timeout=60, allow_redirects=True, stream=True)
         content = r.raw.read(MAX_BYTES + 1, decode_content=True)
     except Exception as e:
-        raise SourceError(f"couldn't fetch {url}: {type(e).__name__}: {str(e)[:150]}. Read it with WebFetch and cite the URL with its passage.")
+        raise SourceError(f"couldn't fetch {url}: {type(e).__name__}: {str(e)[:150]}. The store has not read it.")
     if r.status_code in (404, 410):
         raise Missing(f"{url} answered {r.status_code}: the publisher has nothing at that address.")
     if r.status_code == 429:
         raise Throttled(f"{url} answered 429: the publisher limits how fast it is read. The same read can be made later.")
     if r.status_code >= 400:
-        raise SourceError(f"{url} answered {r.status_code}. Read it with WebFetch and cite the URL with its passage.")
+        raise SourceError(f"{url} answered {r.status_code}: its publisher refuses this reader, and the store has not read it.")
     if len(content) > MAX_BYTES:
         raise Unreadable(f"{url} is larger than {MAX_BYTES // 1_000_000} MB, the most a read takes")
     ctype = (r.headers.get("Content-Type") or "").split(";")[0].strip().lower()
@@ -125,8 +125,7 @@ def read(url):
     if pdf and not re.sub(r"\[page \d+\]", "", text).strip():
         raise Unreadable(f"{url} is a PDF with no text layer: its pages are images")
     if not pdf and len(text) < 200:  # an HTML shell whose content a script fills in
-        raise Unreadable(f"{url} gave no readable text (it may be rendered by script). Read it with WebFetch and "
-                         "cite the URL with its passage.")
+        raise Unreadable(f"{url} gave no readable text (a script may draw it), and the store has not read it.")
     kind = "filing" if sec and "/Archives/" in url else "page"
     return {"kind": kind, "source": "sec" if sec else host, "url": url, "published": published, "text": text,
             "data": {"title": title, "links": links[:300], "final_url": r.url, "content_type": ctype}}

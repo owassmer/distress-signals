@@ -292,13 +292,16 @@ estimate.
 | A case naming its worlds, with open outcomes and the condition read from the event (section 3) | Built |
 | Estimates kept by forecast date, with the event, inputs and bases as they stood (section 6) | Built |
 | `show EVENT`: the proposition, its relations, and each case's dated estimate by world (section 8) | Built |
-| One formula for a case; quantities stated once on an outcome; assumptions that open to evidence; sensitivity ranges (section 4) | Next |
-| What the analyst learns on refining an outcome and on revising an assumption (section 5) | Next |
-| Judgments about the response as distributions, the conditional mean and predictive intervals (section 4) | After that |
-| Settlement and scoring (section 7) | After that |
-| The mandate run each day (section 6) | After settlement |
+| One formula for a case; an input's value in each world; scenarios within a world; assumptions that open to evidence; observed values read from results (section 4) | 1 |
+| The event, its ways and each case's estimate written in event-risk's terms (section 8) | 2 |
+| What the analyst learns on refining an outcome and on revising an assumption (section 5) | 3 |
+| Judgments about the response as distributions, the conditional mean and predictive intervals (section 4) | Later |
+| Settlement and scoring (section 7) | Later |
+| The mandate run each day (section 6) | Later |
+
+Parts 1 to 3 are built in that order. The whole is then tried on runs on new subjects, unrelated to one
+another and to anything it was built against.
 
 Today a case gives its figures as versions. Each version names its world and carries its own revenue
 formula, and versions that name the same world are scenario figures under different operating assumptions.
-An input is observed (`source`), derived, or assumed with its reasoning. The one formula, with assumptions
-that open to evidence and ranges on inputs, takes their place.
+An input is observed (`source`), derived, or assumed with its reasoning. Part 1 takes their place.

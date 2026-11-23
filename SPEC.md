@@ -649,8 +649,10 @@ python -m distress_signals ledgers [--verify]
    the worker as a background service. Built.
 7. **Docs.** The README and `docs/hubspot.md`: using it from HubSpot.
 8. **The model.** `docs/model.md` section 9 lists its parts in order. Events as propositions with sides and ways,
-   cases that name their worlds, and each case's dated estimate printed with its event: built. Next: one formula
-   for a case, quantities stated once on an outcome, assumptions that open to evidence, and sensitivity ranges.
+   cases that name their worlds, and each case's dated estimate printed with its event: built. Then, in order:
+   the one-formula case model; the event and each case's estimate written in event-risk's terms; what the
+   analyst learns on refining an outcome and revising an assumption. The whole is then tried on runs on new,
+   unrelated subjects.
 
 ## 14. Mandate and briefs
 

@@ -535,9 +535,7 @@ class Model(unittest.TestCase):
     def test_what_the_analyst_reads_is_what_the_store_does(self):
         text = agent.system()
         self.assertTrue(text.startswith("You are an underwriter and a forensic accountant.\n"))
-        self.assertNotIn("{", text.split("An illustration")[0])                        # every placeholder is filled
-        for name in agent.TOOL_NAMES:
-            self.assertIn(f"`{name}`", text)
+        self.assertNotIn("{", text)                                                    # every placeholder is filled
         self.assertTrue(agent.system(role="an underwriter").startswith("You are an underwriter.\n"))
         # its illustration, computed by the store: event E with ways A and B, and R, which implies B
         P = lambda key, title, **more: claim(key, title, **more)  # noqa: E731

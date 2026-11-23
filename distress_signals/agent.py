@@ -1,11 +1,13 @@
-"""What the analyst is told. The system prompt is config/system.md, the same in every session but for its
-role and today's date. A session's prompt is its assignment: an open search, or a
+"""What the analyst is told. The system prompt is config/system.md, the same in every session but for the role
+its first sentence names. It holds what the analyst would not otherwise know: the store's forms and what the
+store and the tools do. What a practitioner in that role already understands is left to the role, because a
+sentence stating it would stand in for that understanding with something narrower. A session's prompt is its assignment: an open search, or a
 company, an event, a source, a brief or a lead the operator selects, or a saved case to refresh."""
 
 import json
 import os
 
-from .util import CONFIG, today
+from .util import CONFIG
 
 TOOL_NAMES = ("search_records", "read_record", "compute", "record_finding", "lookup", "calculate_exposure",
               "save_case")
@@ -17,11 +19,7 @@ ROLE = "an underwriter and a forensic accountant"
 
 RESULT = {"type": "object", "required": ["case_ids", "summary", "follow_on_leads"], "properties": {
     "case_ids": {"type": "array", "items": {"type": "string"}, "description": "The cases saved or revised in this session"},
-    "summary": {"type": "string", "description": "What the session established and what that rests on: each case with "
-                                                 "its company, its event and the revenue in its outcomes; for a group "
-                                                 "of companies or an open search, which companies and dependencies were "
-                                                 "examined and in which records; and what was left to judgment and "
-                                                 "how it was decided"},
+    "summary": {"type": "string", "description": "What the session established, and what that rests on"},
     "follow_on_leads": {"type": "array", "description": "Companies or events outside this assignment that the research "
                                                         "found reason to examine",
                         "items": {
@@ -37,11 +35,11 @@ RESULT = {"type": "object", "required": ["case_ids", "summary", "follow_on_leads
 
 
 def system(role=None):
-    """The system prompt: config/system.md with the role its first sentence names and today's date. It names no
-    company, event or series: whatever the context names, the analyst reaches for. A company the operator
-    excludes is refused where a case or finding is saved."""
-    text = (CONFIG / "system.md").read_text().strip()
-    return text.replace("{role}", role or os.environ.get("AGENT_ROLE") or ROLE).replace("{today}", today().isoformat())
+    """The system prompt: config/system.md with the role its first sentence names. It names no company, event or
+    series: whatever the context names, the analyst reaches for. A company the operator excludes is refused
+    where a case or finding is saved. Today's date and the model's knowledge cutoff are in Claude Code's own
+    environment message."""
+    return (CONFIG / "system.md").read_text().strip().replace("{role}", role or os.environ.get("AGENT_ROLE") or ROLE)
 
 
 ASSIGNMENTS = {

@@ -231,46 +231,41 @@ parallel.
 
 ### What the analyst is told
 
-The system prompt is `config/system.md` (`agent.system`), the same in every session but for two things it
-is given: the role its first sentence names (`agent.ROLE`, or `AGENT_ROLE` for a trial of another) and today's
-date. It is written as an assignment to a practitioner, and each passage says what a thing is, how
-it works and why, once:
+The system prompt is `config/system.md` (`agent.system`), the same in every session but for the role its first
+sentence names (`agent.ROLE`, an underwriter and a forensic accountant, in the order the work runs; `AGENT_ROLE`
+gives another for a trial).
 
-| Section | Holds |
+**It holds what the analyst would not otherwise know, and leaves the rest to the role.** A practitioner in that
+role already understands what revenue depends on, what is material, what evidence supports, when work is
+finished. A sentence that states one of these does harm: the analyst takes the sentence, with its authority, in
+place of its own understanding, because following a stated rule costs less than reasoning, and the sentence is
+always narrower than the understanding it replaces. An absolute makes it worse, since an absolute is cheaper
+still to follow. So the prompt states the work in a sentence and then the things particular to this system:
+
+| Part | Holds |
 |---|---|
-| Opening | The role, in the order the work runs: an underwriter and a forensic accountant. The work: what a company's revenue would be in each way an unsettled event can turn out. What a figure is (an estimate conditional on one outcome) and the standard it is held to: what the company's books would bear out if that outcome happened |
-| An assignment | The forms an assignment takes and what the work is in each; working alone; earlier work in the store |
-| Revenue that depends on an event | A company, a revenue stream, a dependency, an event; materiality as the analyst's judgment by the company's own measure; why an unlikely outcome is worked out |
-| A case | Propositions and why they are shared; outcomes and ways; the model; the period; worlds; the figures; an illustration with placeholders, which a test computes |
-| From records to an estimate | Observation, inference and assumption; a figure's basis in two parts; what makes the reasoning defensible; primary records |
-| You and the store | What is the analyst's, what the store does, and what the store does not judge, so that reading the returned case is the analyst's |
-| The tools | Each tool in a line, with what WebSearch and WebFetch return |
-| The work whole | When the assignment is done, and what the final answer states |
+| Opening | The role. The work, in one sentence. That the store keeps cases and computes their figures, and that probabilities are assessed separately |
+| A case | Propositions, and that they are shared; ways, and a proposition that implies an outcome; the model; the period, set apart from a proposition's window; worlds and how an input takes its value in each; the figures; an illustration with placeholders, which a test computes; a figure's basis in two parts |
+| The store and the tools | What a save that goes through means, and what it returns; earlier work in the store and `lookup`; what WebSearch and WebFetch return, and that quotations are checked against what `read_record` stored |
 
-The standard it is written to is the one scenario-ledger holds for what its risk manager reads: the reader
-takes each word as meant and has no one to ask; the words are the store's own and the practitioner's where
-one exists; it carries the environment exactly and nothing of ours about the world. It names no company,
-event or series of records: the catalog in the `search_records` description is the whole of what the analyst
-is told about the series ([section 6](#6-sources)), and excluded companies are enforced where a case or
-finding is saved. Nothing from earlier runs enters it. A field's description in `models.py` is the
-definition the analyst reads of that field, and a tool's description says what the call takes, does, returns
-and refuses.
+Each of these is stated as what it is or what it does. Where a run goes wrong in a way the analyst's own
+understanding would have prevented, the cause is in its environment (what a tool makes cheap, what the store
+accepts or returns), and the repair is made there, not in a sentence.
 
-It says that what the analyst knows about events ends at its training cutoff, before today, and that the
-records the tools reach are current.
-
-It gives the practitioner's own purpose and nothing of ours: who weights the figures by probability, who compares
-them, what protection is sized against them and who takes them to the company are uses, and a use named in the
-context becomes what the analyst works toward. How much work a session does follows from the standard its figures
-are held to. The launcher's time limit guards the run and is no part of the assignment.
+It names no company, event or series of records: the catalog in the `search_records` description is the whole of
+what the analyst is told about the series ([section 6](#6-sources)), and excluded companies are enforced where a
+case or finding is saved. Nothing from earlier runs enters it, and nothing of how the result is used. A field's
+description in `models.py` is the definition the analyst reads of that field, and a tool's description says what
+the call takes, does, returns and refuses.
 
 Claude Code adds its own parts:
 - an identity line, before the system prompt: "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
 - the WebSearch, WebFetch and StructuredOutput tool descriptions;
-- an environment message with the working directory, the model and today's date;
+- an environment message with the working directory, the model, its knowledge cutoff and today's date;
 - a reminder carrying the signed-in account's email.
 
-The MCP server gives no instructions of its own.
+The MCP server gives no instructions of its own. The launcher's time limit guards the run and is no part of what
+the analyst reads.
 
 ### Runtime
 

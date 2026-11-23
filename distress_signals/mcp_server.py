@@ -123,9 +123,9 @@ One given in full takes the place of the saved one with the same key, its ways w
 
 @server.tool(description="""Keep something the research established apart from a case's own figures: a fact a record
 states, an inference or a conclusion with the passages and saved results it rests on, a question the records reached
-did not settle, or a company, dependency or event examined and set aside, with the reason. Say which company,
-proposition or case it concerns. Looking up that company, proposition or case returns the finding; one that
-concerns none of them is returned only by its own ID.
+did not settle, or a company, dependency or event examined and set aside, with the reason. A finding can concern a
+company, a proposition or a case, and looking up any of those returns it; one that concerns none of them is returned
+by its own ID.
 
 With withdraw_case, the call also withdraws that case, and the finding is the record of why the revenue no longer
 depends on the event as the case states.
@@ -152,7 +152,7 @@ def lookup(id_or_query: str) -> dict:
     return _call("lookup", tools.lookup, id_or_query)
 
 
-DEFINED = "'A case' and 'From records to an estimate' in your instructions define each part."
+DEFINED = "'A case' in your instructions defines each part."
 
 
 @server.tool(description="""Compute a draft of a case's model: its worlds, each input's value in each world, and every

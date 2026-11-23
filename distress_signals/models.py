@@ -27,10 +27,10 @@ class Cite(Strict):
     observation_id: str | None = Field(None, description="The stored record the passage is quoted from")
     url: str | None = Field(None, description="In place of observation_id, the address of a page the store could not "
                                               "read. The passage is then kept unchecked: nothing was compared with it")
-    passage: str = Field(min_length=3, description="The record's own words that state the claim, quoted exactly: for a "
-                                                   "figure, the sentence that states it, or its row with the heading "
-                                                   "that says what the row is. '...' marks an omission. The store keeps "
-                                                   "the whole sentence or row the quotation falls in")
+    passage: str = Field(min_length=3, description="Words quoted from the record. The store finds them word for word "
+                                                   "in the record it stored ('...' marks an omission), takes a "
+                                                   "quotation of three words or more, and keeps the whole sentence "
+                                                   "or row the quotation falls in")
     checked: SkipJsonSchema[bool | None] = Field(None, exclude=True)  # set by the store; no part of what is stated
 
     @model_validator(mode="after")
@@ -76,9 +76,9 @@ class Proposition(Strict):
                                                                 "or 'no' (false)")
     title: str = Field(description="The claim in a few words. A world is named by the titles of the propositions true "
                                    "in it, and by 'Not:' before the title of one that is false")
-    text: str = Field(description="The claim in full, as the test of whether it turned out true: one sentence, in "
-                                  "words its record can decide, that reads alone. A case's condition is written by "
-                                  "joining the texts of the propositions in its worlds")
+    text: str = Field(description="The claim in full: what would make it true. Its record is held against this text, "
+                                  "and a case's condition is written by joining the texts of the propositions in its "
+                                  "worlds")
     kind: Literal["scheduled_decision", "hitting", "level_at_date"] = Field(
         description="scheduled_decision: a decision scheduled on window_end. hitting: true where it happens at any "
                     "time through window_end. level_at_date: a level, or a state of affairs, on window_end")
@@ -207,12 +207,10 @@ class Input(Strict):
     result: Cell | None = Field(None, description="Where the figure is read, by query: the cell of a saved compute "
                                                   "result that holds it")
     assumption: Assumption | None = Field(None, description="The assumption by which the figure holds for this input "
-                                                            "over the case's period. Left out only where source or "
-                                                            "result gives this quantity, for this company, over this "
-                                                            "period. With source or result, it carries a figure read "
-                                                            "for another period, company or quantity over to this "
-                                                            "input. Alone, it is the basis of a figure no record "
-                                                            "states")
+                                                            "over the case's period. With source or result, it "
+                                                            "carries a figure read for another period, company or "
+                                                            "quantity over to this input. Alone, it is the basis of a "
+                                                            "figure no record gives")
     note: str | None = Field(None, description="Anything else a reader needs to interpret the figure")
 
     @model_validator(mode="after")
@@ -227,9 +225,9 @@ class Value(Strict):
     result: Cell | None = Field(None, description="Where the value is read, by query: the cell of a saved compute "
                                                   "result that holds it")
     assumption: Assumption | None = Field(None, description="The assumption by which the input takes this value in "
-                                                            "these outcomes. Left out only where source or result "
-                                                            "states the value for these outcomes, as the terms of an "
-                                                            "agreement can")
+                                                            "these outcomes. A value that source or result states for "
+                                                            "these outcomes, as the terms of an agreement can, has "
+                                                            "that part alone")
 
     @model_validator(mode="after")
     def _basis(self):

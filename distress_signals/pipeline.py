@@ -41,19 +41,19 @@ def claude_env():
             **({"CLAUDE_CODE_OAUTH_TOKEN": token} if (token := claude_token()) else {})}
 
 
-def research(seed_kind="mandate", seed=None, brief=None, question=None, opportunity_id=None, lead_id=None, model=None,
+def research(seed_kind="mandate", seed=None, brief=None, question=None, case_id=None, lead_id=None, model=None,
              timeout=TIMEOUT, on_start=None):
     """One researcher run. seed_kind is mandate (the standing mandate), company, event, source or brief; a
     refresh attaches the saved case, a lead the saved lead. on_start(run_id) is called once the run has its
     ID. Returns {run_id, saved, summary, leads, stats, log, transcript, assignment}."""
     con = db.connect()
     try:
-        case = tools.lookup(opportunity_id) if opportunity_id else None
+        case = tools.lookup(case_id) if case_id else None
         lead = db.get_lead(con, lead_id) if lead_id else None
         if lead_id and not lead:
             raise SystemExit(f"no lead {lead_id!r}")
         if case:
-            seed_kind, seed = "refresh", opportunity_id
+            seed_kind, seed = "refresh", case_id
         elif lead:
             seed_kind, seed = "lead", lead["subject"]
         rid = db.make_id("run_", seed_kind, seed, now_iso())
@@ -94,7 +94,7 @@ def research(seed_kind="mandate", seed=None, brief=None, question=None, opportun
             if events.exists():
                 transcript.render(events, title=f"{rid}: {seed_kind} {seed or ''}".strip(), assignment=assignment)
         saved = db.saved_by_run(con, rid)
-        db.finish_run(con, rid, saved, out["summary"], stats=stats | {"reported": out["opportunity_ids"]})
+        db.finish_run(con, rid, saved, out["summary"], stats=stats | {"reported": out["case_ids"]})
         db.add_leads(con, rid, out["follow_on_leads"])
         if lead:
             db.set_lead(con, lead_id, "researched")

@@ -5,235 +5,268 @@ each one it says how the event reaches the business, how much revenue is at stak
 is responsible for it, and why the conversation is timely. An operator uses it to decide whom to contact
 and why.
 
-This file states the things the system reasons about and how they relate. `SPEC.md` states how the code
-holds them. Section 9 says which parts the code holds today.
+The analyst states a few kinds of thing: propositions, the links between them, and for each case one
+formula, its inputs, and the values those inputs take given outcomes. Code computes every figure from
+those statements. The terms and the construction are event-risk's wherever event-risk has the same thing
+(its `ONTOLOGY.md`, and `MATH.md` 1.1 to 1.3 and 1.9), so a proposition stated here is the same
+proposition there. `SPEC.md` states how the code holds all of this, and section 10 says which parts it
+holds today.
 
 ## 1. Terms
 
-Each term has one meaning throughout the system. Where event-risk has the same thing, the term is
-event-risk's (its `ONTOLOGY.md`, and `MATH.md` 1.1 to 1.3).
-
 | Term | Meaning |
 |---|---|
-| Claim | A statement that will turn out true or false: what would make it true, when it is decided, and what record will show it |
-| Event | The claim a case depends on, about something outside the companies' control |
-| Side | One of an event's two sides. Yes is the claim turning out true. No is the claim turning out false |
-| Way | One way an outcome can turn out, stated as a claim of its own. Sibling ways exclude one another and together cover their parent. A way can have ways of its own, by the same rule |
-| Outcome | A side or a way |
+| Proposition | A claim that will turn out true or false: what would make it true, when it is decided, and the record that will show it |
+| Outcome | A proposition turning out true, or turning out false |
+| Way | One way a proposition can turn out, stated as a proposition of its own. The ways beside one another exclude one another and together make up what they divide |
+| Event | A proposition a case is about: something upcoming, outside the company's control |
 | Company | The operator of the business that earns the revenue |
 | Revenue stream | The business activity whose revenue a case is about |
-| Concentration | The share of a company's revenue or volume that comes through one customer, payer, program, carrier or contract, as its records report it today. It establishes the scale of a dependency |
-| Dependency | The mechanism through which the event affects the stream: the contract, customer, program, facility or channel |
 | Period | The span over which a case counts revenue |
-| Input | A figure a case's formula uses, at its value in the baseline. It is observed in words, observed by query or assumed, and it opens to its basis |
+| Input | A figure a case's formula uses, at its value in the baseline, with its basis |
+| Given value | The value an input takes given some propositions true and others false, with its basis |
+| World | One of the cases a case's propositions divide what can happen into. In each world every one of those propositions is true or false |
 | Baseline | The stream's revenue over the period: the formula at the inputs' values |
-| Shortfall | Baseline revenue less the stream's revenue in an outcome |
-| Case | One company, one event, one revenue stream: the dependency, the formula, the inputs, their values in each outcome that changes the revenue, the person responsible, and why to reach out now |
-| Estimate | A case as it stood on a date, with the claim, inputs and evidence as they stood then. Every saved revision of a case is an estimate |
-| Conversation outcome | What the operator records on a deal after contacting the company. Everywhere else, "outcome" means an outcome of an event |
+| Shortfall | Baseline revenue less the stream's revenue in a world |
+| Condition | The worlds in which the revenue differs from the baseline, in the propositions' words |
+| Case | One company, one revenue stream, and the event or events it depends on: the formula, the inputs, the given values, the person responsible, and why to reach out now |
+| Estimate | A case as it stood on a date. Every saved revision of a case is an estimate |
+| Conversation outcome | What the operator records on a deal after contacting the company. Everywhere else, "outcome" means an outcome of a proposition |
 
-## 2. The event
+## 2. Propositions
 
-An event is a claim that will turn out true or false. Each of its ways is a claim too, stated the same way.
+Every claim is a proposition: an event, a way of an event, and what a company or the parties around it do
+once an outcome is known. They have one shape and are told apart by their links.
 
 | Field | Meaning |
 |---|---|
-| `key` | The claim's identity. It stays the same when the claim is revised |
+| `key` | The proposition's identity. It stays the same when the wording is revised |
 | `title` | The claim in a few words |
 | `text` | The claim in full: what would make it true |
 | `kind` | `scheduled_decision`: a decision scheduled on `window_end`. `hitting`: true where it happens at any time through `window_end`, counted from `window_start` where one is stated and otherwise from the day it is first saved. `level_at_date`: a level on `window_end` |
 | `window_start`, `window_end` | The window. `window_end` is the date the claim is decided on or by |
-| `resolution_source` | The record that will show how it turned out: its publisher, and the document, docket or data it will appear in |
-| `ways` | The ways it can turn out. On an event they are given by side: `yes_ways` and `no_ways` |
+| `comparison` | `occurs` where the claim is true when something happens. Where it is about a level: one of `>`, `>=`, `<`, `<=`, `==` |
+| `metric`, `unit`, `value`, `upper_comparison`, `upper_value` | For a claim about a level: the quantity, its unit, the threshold, and for a band its upper end |
+| `resolution_source` | Where a record will show how it turned out, that record: its publisher, and the document, docket or data it will appear in |
+| `description`, `timing` | Who or what decides it and how; the steps between now and `window_end`, each with its date and how firm that date is |
+| `evidence` | Passages that establish what the claim is, when it is decided, and what bears on how it turns out |
 
-An event also states `description`, who or what decides it and how; `timing`, the steps between now and
-`window_end`, each with its date and how firm that date is; and `evidence`, the passages that establish
-what the event is, when it is decided, and what bears on how it turns out.
+**Two links.**
 
-**Sides.** Yes and No divide the possibilities by the truth of the claim. Which side costs a company
-revenue is that company's case to state. The No side of a `hitting` event holds the event happening after
-the window.
+| Link | From, to | What it says |
+|---|---|---|
+| `way` | A proposition, to each way it can turn out. On an event the link names the side it divides, `yes` or `no` | The ways beside one another exclude one another and together make up the proposition, or the side of the event, they divide. A way can have ways of its own |
+| `implies`, `implies_not` | A proposition, to another | Wherever the first is true, the second is true (`implies`) or false (`implies_not`). The outcomes the second adds to the first are a way of it beside the first |
 
-**Ways.** The analyst gives an outcome ways where what follows for a company differs between them: how far
-a decision goes, which form a filing takes, who is selected, how a party responds. Every figure a case
-gives belongs to one outcome, so two figures for an outcome are two ways of it. A proceeding with several
-steps is stated this way: the outcomes of a later step are ways of the earlier step's outcome, each with
-its own date and the record that will show it.
+**Level fields.** Two propositions on one metric and resolution source, decided the same way on the same
+date, are compared by their fields. Code reads from them that one implies the other, that two cannot both
+be true, and where the ways beside one another overlap or leave values in none of them.
 
-**Outcomes and keys.** An event's outcomes are its two sides and all its ways. The sides' keys are `yes`
-and `no`. Each way's key is unique within the event. A key is the outcome's identity: it stays the same
-when the outcome's wording is revised, and a finer distinction is drawn by giving the outcome ways.
+**What gets a proposition.** A way divides an outcome for every case that reads it: how far a decision
+goes, which form a filing takes, who is selected. What one company or its counterparties do once an
+outcome is known is a proposition of its own, linked to that outcome with `implies` or `implies_not`. It
+divides the outcome for the cases that read it, and the event's own ways stay as they are. Every figure a
+case gives belongs to a world, so a second figure for an outcome is a second proposition.
 
-**One statement, one place.** An event is stated once. Every case that depends on it refers to that
-statement, so companies that depend on the same decision share the event and its outcomes, and a revision
-reaches all of them. One company's case can turn on the Yes side while another's turns on a way of the No
-side.
+**Keys.** A proposition is identified by its key, which is unique in the store. A case's given values and
+a proposition's links name propositions by key.
 
-**Who states what.** That sibling ways exclude one another and together cover their parent is the
-analyst's statement, made from the records it read. Code holds the keys, confirms that every outcome a case
-gives values for is an outcome of its event, and keeps those outcomes when the event is revised.
-
-**Illustration.** An agency funds a program year to year. The event: "The agency renews the program by
-June 30", a `scheduled_decision`. Its Yes side has three ways. `renewed-in-full`: renewed at this year's
-funding or more. `cut-under-half`: renewed at half of this year's funding or more, and less than all of it.
-`cut-half-or-more`: renewed at less than half. Its No side has no ways. The resolution source is the
-agency's notice of the decision.
+**One statement, one place.** A proposition is stated once, and every case that reads it refers to that
+statement. A proposition given in full takes the place of the saved one, its ways with it, and keeps every
+proposition a saved case reads: wording is revised under the same key, and a finer distinction is drawn by
+giving a proposition ways or by linking another to it.
 
 ## 3. The case
 
-A case is one company, one event and one revenue stream. It identifies the business that earns the
-revenue, the activity exposed and the dependency. It states the period, the model, when the company would
-feel the effect, the person responsible for the affected business or its financial exposure, why it makes
-sense to reach out now, and an opening that person could answer from their knowledge of the business.
+A case is one company, one revenue stream, and the event or events the stream depends on. A case has one
+event unless the analyst reads two events together on one stream. The company, the events and the stream's
+key identify it, and its deal is named for them.
 
-**The model.** A case's model has three parts.
+**The model.**
 
 | Part | What it is |
 |---|---|
 | The formula | The stream's revenue over the period, as an expression over input names |
-| The inputs | Each figure the formula uses, at its value in the baseline, with its basis |
-| The values by outcome | For each outcome of the event that changes the revenue, the inputs that take another value there, each with what that value rests on |
+| The inputs | Each figure the formula uses, with its unit, its value over the period in the baseline, and its basis |
+| The given values | Each says: given these propositions true and these false, this input takes this value, with what that value rests on |
 
-**The baseline and the shortfall.** The baseline is the formula at the inputs' values. An outcome's revenue
-is the formula with that outcome's values in place of the baseline's. The shortfall in an outcome is the
-baseline less the revenue there.
+A given value names the propositions it is given by key: `given` for those that are true, `given_not`
+for those that are false. One condition can set several inputs.
 
-**Ways.** An outcome's values hold in its ways, and a way gives the values that differ further.
+**The rest of the case.** The dependency, the mechanism through which the events reach the stream. When
+the company would feel the effect. The person responsible for the affected business or its financial
+exposure. Why the exposure warrants a conversation, why now, and the date that makes it timely. An opening
+that person could answer from their knowledge of the business. What the operator or the analyst does next.
 
-**The condition.** What has to happen for the company's revenue to be affected is the outcomes the case
-gives values for. It is read from the event, in the event's words.
+**Three dates.** A proposition's window says when it is decided. The case's period says when the revenue
+is counted. The case's why-now date is the date that makes the conversation timely.
 
-**Concentration, dependency, shortfall.** A reported concentration establishes the scale of a dependency
-and says where to look. The dependency says how an outcome reaches the stream. The shortfall is what the
-model gives in an outcome: how the event changes what the business earns during the period.
+## 4. Worlds and figures
 
-**Illustration.** A contractor earns 100 a year under the program above, and nothing else depends on the
-agency: that is the concentration and the dependency. The formula is `program_revenue * share_kept`. The
-inputs are `program_revenue`, 100, from the contractor's annual report, and `share_kept`, 1, assumed. The
-case gives `share_kept` three other values: 0 in `no`, 0.7 in `cut-under-half`, and 0.4 in
-`cut-half-or-more`, each resting on the agency's budget documents. The baseline is 100. The shortfall is
-100 where the program is not renewed, 30 where it is cut by less than half, and 60 where it is cut by half
-or more.
+**The propositions a case reads** are its events and every proposition one of its given values names.
+With each way so named come the ways beside it; and where what it divides is itself a way, that way and
+the ways beside it, and so on up to the event.
 
-## 4. The calculation
+**The case's worlds** are the combinations of those propositions being true or false that the links
+allow. A way is true only where what it divides is true, and exactly one of the ways beside one another is
+true there. Where A implies B, no world has A true and B false; where A implies not B, no world has both
+true. Links are followed through propositions the case does not read.
 
-Write `f` for the formula, `x` for the inputs' values, and `x_o` for those values with outcome `o`'s in
-place. The baseline is `B = f(x)`, the revenue in `o` is `R_o = f(x_o)`, and the shortfall is `B − R_o`.
-For a way, `x_o` holds the values of each outcome it lies within, outermost first, and then its own. Code
-evaluates it; the analyst states the formula and the values.
+So an outcome stays whole in a case until one of the case's given values names a way within it. It is
+then its ways, and the way that holds the one named is its ways in turn. A way another case reads leaves
+this case's worlds as they were.
 
-**Basis.** Every figure opens to what it rests on.
+**An input's value in a world.** A given value holds in the worlds where everything it is given is true
+and everything it is given not is false. In each world an input takes the value of the one given value
+that holds there, sets that input, and has its worlds strictly within those of every other given value
+that holds there and sets it. An input no given value sets there stands at its own value.
 
-| An input is | It opens to | Who writes the value |
+**The figures.** Write `f` for the formula, `x` for the inputs' values, and `x_w` for their values in
+world `w`. The baseline is `B = f(x)`. The revenue in `w` is `R_w = f(x_w)`, and the shortfall is
+`B − R_w`. A world no given value holds in stands at the baseline. The condition is the worlds where
+`R_w` differs from `B`. The revenue at stake is the largest shortfall, with its world.
+
+**Timing within the period.** Revenue is what the company recognizes within the period, work or sales made
+up within it included. Revenue recognized after the period, the contribution, and cash collected late each
+have their own formula over the same inputs, evaluated in each world the same way.
+
+**Illustration.** An agency funds a program year to year. The event `program-renewal`: "The agency renews
+the program by June 30." Its Yes side has three ways, bands on the program's funding as a share of this
+year's: `renewed-in-full` (at least all of it), `cut-under-half` (at least half, less than all), and
+`cut-half-or-more` (less than half). A contractor earns 100 a year under the program. If the program ends,
+it may win part of the work back under whoever takes over: `subcontract-won`, "The contractor holds at
+least half of its program work as a subcontractor within a year of a non-renewal", which implies not
+`program-renewal`.
+
+```
+revenue = program_revenue * share_kept
+
+inputs         program_revenue   100    observed: the contractor's annual report
+               share_kept        1      assumed: funding continues at this year's level
+
+given values   given not program-renewal    share_kept = 0
+               given cut-under-half         share_kept = 0.7
+               given cut-half-or-more       share_kept = 0.4
+               given subcontract-won        share_kept = 0.5
+
+worlds         renewed-in-full                          revenue 100   shortfall 0
+               cut-under-half                           revenue 70    shortfall 30
+               cut-half-or-more                         revenue 40    shortfall 60
+               not renewed, subcontract won             revenue 50    shortfall 50
+               not renewed, subcontract not won         revenue 0     shortfall 100
+```
+
+Where the program is not renewed and the subcontract is won, two given values hold. The one given
+`subcontract-won` holds in one world, which lies within the two worlds where the program is not renewed,
+so it gives the value. The condition is the last four worlds.
+
+## 5. Basis
+
+Every figure opens to what it rests on.
+
+| A value is | It opens to | Who writes the value |
 |---|---|---|
 | Observed in words | The passage that states it, checked word for word against the stored record | The analyst |
 | Observed by query | One cell of a saved result: the result, the column, and the columns that pick out the row | The store, which reads the cell |
 | Assumed | The reasoning, and the passages and saved results it rests on | The analyst |
 
-A value given in an outcome is assumed, and opens the same way. A rate measured for one company is
-observed; taking it to hold for another is an assumption that rests on it.
+An input's value is its value over the case's period. A figure a record states for an earlier period,
+carried into the case's period, is assumed, and rests on that record. A given value is assumed, and opens
+the same way. A computed figure opens to the formula and the values it took in that world.
 
-**Timing within the period.** Revenue is what the company recognizes within the period, work or sales made
-up within it included. Revenue recognized after the period is deferred past it, and the lost revenue is the
-shortfall less that deferral. Cash collected later than it otherwise would be is a timing effect, reported
-apart. Each has its own formula over the same inputs. `SPEC.md` section 7 lists each result.
+## 6. What the analyst states and learns
 
-## 5. The analyst's tools
-
-Each action is designed through what the analyst can express and what it learns in return. The operator's
-case and the analyst's working view read the same statements.
+A case is stated whole in one call: the case, with any proposition it introduces or revises given in full
+beside it, its ways and its links included. The same call with nothing saved calculates a draft.
 
 | The analyst | It learns in return |
 |---|---|
-| States an event, or revises one | The outcomes as saved, and each case that gives values for them |
-| States a case | The condition read from the event, the baseline, each outcome's revenue and shortfall, and the result of each basis check |
-| Calculates a draft | The same figures, with nothing saved |
-| Looks up an event | The claim and its ways, and each case's dated estimate: its formula, its baseline, and its values, revenue and shortfall by outcome |
-| Changes one value of a saved case | Each figure before and after |
-| Gives an outcome ways | Each case on the event that gives values for that outcome |
+| States a case | Each world, with the propositions true and false in it, the inputs that take another value there, the revenue and the shortfall; the baseline; the condition; the result of each basis check; the propositions the call saved; and each other saved case a restated proposition moved, which gets a revision of its own |
+| Calculates a draft | The same worlds and figures, with nothing saved |
+| Looks up a proposition | It in full with its ways and links, what code reads from its level fields, and each case that reads it: the case's formula, given values and worlds |
+| Looks up a case | The case as it now stands, with the propositions it reads and its revisions |
 
-## 6. Time
+**A statement that cannot hold is refused**, with the reason, and the store stays as it was:
 
-**Three dates.** The event's window says when the outcome is decided. The case's period says when the
-revenue is counted. The case's `why_now_date` is the date that makes the conversation timely. Each serves
-its own purpose.
+- a given value that names a proposition the store does not hold, or an input the case does not state;
+- a world where several given values set the same input and none has its worlds strictly within those of
+  every other: the refusal names the world, the input and those given values;
+- a key that already names a proposition elsewhere in the store;
+- a given value whose condition holds in no world;
+- ways beside one another whose level fields overlap, or one way alone;
+- a passage that is not in its record, a result cell that picks out no row or several, a formula that
+  cannot be evaluated;
+- a statement of a proposition that leaves out one a saved case reads, or that leaves a saved case without
+  its figures, naming the case.
 
-**Why now.** Between today and the decision the outcome is open, and the company can still act on it. The
-case says what in that time makes the conversation timely: a step in the event's `timing`, a filing, a
-contract coming up for renewal.
+## 7. Estimates
 
-**Runs.** A run is one session of the analyst under an assignment: the mandate, a brief, a company, an
-event, or a saved case to refresh. The inquiry begins wherever the evidence reveals a dependency. The
-assignment is the whole of what the analyst is given; a run that reaches a saved
-event or case through its own research finds it and revises it under its key.
-
-**Estimates.** Each save writes a revision with its date and its run. The revision holds the event, the
-case, the inputs and their bases as they stood, so an estimate refers to the claim, the values and the
-evidence of its date. A case's revisions, in order, are its estimates.
-
-## 7. Settlement
-
-**The event settles.** The resolution record shows the outcome that happened. It is recorded on the event:
-the key of the deepest outcome the record establishes, the date, and the passage that shows it.
-
-**The values settle.** A value assumed in the outcome that happened is set against what the records later
-show it to have been. A value first read by a query is read again by the same query over the same searches.
-
-**The revenue settles.** Where the company's own reporting carries the stream on one line for the period, a
-later report sets that line against the revenue the estimate gave for the outcome that happened.
+Each save writes a revision with its date and its run: the case, the propositions it reads, the inputs and
+their bases, and the figures, as they stood. A case's revisions, in order, are its estimates.
 
 ## 8. The seam with event-risk
 
-The two systems share the claim. A portfolio watches it; a company case depends on it. Either analyst can
-discover or refine it. event-risk says how likely each outcome is, values a holding in it, and evaluates
-protection against it.
+The two systems share the proposition. A portfolio watches it; a company case depends on it. Either
+analyst can state or refine it. event-risk says how likely each outcome is, values a holding in it, and
+evaluates protection against it.
 
-**What crosses.** The event and its ways, each with its claim, kind, window and resolution source, and the
-evidence, each passage with the record it is quoted from. With it, each case's dated estimate: its date,
-formula, inputs with their bases, values by outcome, and the baseline, revenue and shortfall in each
-outcome. `show EVENT` and `show CASE` print them, and the operator carries them across. A reader can
-reconstruct each figure from what the analyst stated.
-
-**The same words on both sides.**
+**What crosses** is a document for each event: the propositions the cases on it read, with their fields,
+ways, links and evidence, and each case's dated estimate with its formula, inputs, given values and
+worlds.
 
 | Here | In event-risk |
 |---|---|
-| A claim's `title`, `text`, `kind`, `window_start`, `window_end`, `resolution_source` | The same fields of a proposition's definition, with `comparison` `occurs` |
-| A way in `yes_ways` or `no_ways` | A proposition, and a `way` link to it from the event's proposition, with `side` yes or no |
-| A way of a way | A proposition, and a `way` link to it from that way |
-| An outcome with no ways | A world |
-| An outcome's values hold in its ways | A consequence on an outcome gives its shock to the ways under it |
-| The passages of event evidence quoted from one record | One `evidence` link to that source, with the passages |
+| A proposition's `title`, `text`, `kind`, `window_start`, `window_end`, `comparison`, `value`, `upper_comparison`, `upper_value`, `resolution_source` | The same fields of a proposition |
+| A proposition's `metric` | A `Metric`, which its analyst adds from the quantity and unit |
+| A `way` link, with its side on an event | A `way` link, with its `side` |
+| `implies` | `implies` |
+| `implies_not` | A chance of zero for the first given the second. Where the second is an event, the first is a way of its No side beside the rest |
+| The passages of evidence quoted from one record | One `evidence` link to that source, with the passages, each run of adjacent sentences its own |
+| A given value's `given` and `given_not` | The grammar of a chance: the propositions it is given, true and false |
+| A case's worlds | The cases of the structure its propositions form (`MATH.md` 1.2), read together as joint worlds (1.9) |
+| A world no given value holds in stands at the baseline | A world left without shocks stands where the baseline does (1.3) |
+
+event-risk states a chance for each proposition, given the others it depends on. Each world of a case
+then has a probability, and the mean shortfall is the sum over the worlds of probability times shortfall.
 
 **Three measures, each with its own meaning.** A revenue shortfall is measured against the case's baseline,
 over the case's period. A holding's gain or loss is measured against its value today, and takes a valuation
-of the holding in that outcome. A contract pays according to its own terms. event-risk sets a contract's
-proceeds, after its cost, against the shortfall in the same outcome and on comparable dates.
+of the holding in that world. A contract pays according to its own terms. event-risk sets a contract's
+proceeds, after its cost, against the shortfall in the same world and on comparable dates.
 
-**Statements each system makes about the shared claim.**
+## 9. Cases the build passes
 
-| Statement | Made by |
-|---|---|
-| The formula, the inputs, their values by outcome, and the shortfall in each outcome, with the estimate's date | distress-signals |
-| The probability of each outcome | event-risk |
-| What an outcome does to a holding's value | event-risk |
-| What a market asks, and what differs between its rules and the outcome | event-risk |
-| What a contract pays in each outcome, set against the shortfall there | event-risk |
+Each is a test in `tests/test_model.py`, by its number. All use the illustration's formula and inputs unless they
+say otherwise.
 
-**Two baselines.** event-risk names one world of an event as the baseline its prices are measured from. A
-case's baseline here is its formula at its inputs' values, and each case has its own.
+| # | Statements | Result |
+|---|---|---|
+| 1 | The illustration as written | Its five worlds, with those figures |
+| 2 | A second contractor's case on `program-renewal`, with a claim of its own that implies not `program-renewal` | Its worlds are the event's and its own claim's. The first contractor's five worlds and the event's ways are as they were |
+| 3 | Given values only for `program-renewal` false | Two worlds: renewed, at the baseline; not renewed |
+| 4 | Case 3, after another case's given values name `cut-half-or-more` | The same two worlds |
+| 5 | Given `program-renewal`: `late_fee = 2`. Given `cut-half-or-more`: `share_kept = 0.4`. Formula `program_revenue * share_kept - late_fee` | Four worlds: the three ways, each with the fee, the third also at 0.4; not renewed, at the baseline. No figure is labeled for the Yes side as a whole |
+| 6 | The illustration without the `implies_not` link | Refused: the subcontract can then be won where the program is cut, and there two given values set `share_kept` and neither's worlds lie within the other's |
+| 7 | The illustration, with `given not program-renewal, given not subcontract-won: share_kept = 0.1` added | The last world takes 0.1: its worlds lie within those of the value given not `program-renewal` |
+| 8 | Every way of `program-renewal`, and its No side, has a given value, `renewed-in-full` at 1.1 | Four worlds, none at the baseline. Each shortfall is measured from the formula at the inputs' values, and the first is −10 |
+| 9 | Two events on one stream, each with two ways on its Yes side and a given value on each way | Nine worlds: every pair of the first event's three worlds and the second's |
+| 10 | A fourth way of `program-renewal`'s Yes side, "funded at 40% to 60%" | Refused: its band overlaps two of the ways beside it |
+| 11 | `program_revenue` given as a result cell | The store reads 100 from the cell. A row that picks out no row or several is refused |
+| 12 | A given value named for a proposition that implies `cut-half-or-more`, while no given value names a way of `program-renewal` | Three worlds: renewed with that proposition true; renewed with it false; not renewed. The first lies within the Yes side through the link |
+| 13 | `cut-half-or-more` has two ways of its own, by whether a quarter of the funding remains. One given value, for the lower of them | Five worlds: `renewed-in-full`, `cut-under-half`, the two ways of `cut-half-or-more`, and not renewed. Four stand at the baseline |
+| 14 | Given `cut-under-half`: 0.7. Given `program-renewal` and `cut-under-half`: 0.6 | Refused: the two hold in the same world and neither's worlds lie strictly within the other's |
 
-## 9. Build
+## 10. Build
 
 | Part | In code |
 |---|---|
-| The event and its ways as claims, each with a kind, a window and a resolution source (section 2) | Built |
-| A case's model: one formula, the inputs with their bases, and their values by outcome (sections 3 and 4) | Built |
-| Estimates kept by date, with the event, inputs and bases as they stood (section 6) | Built |
-| `show EVENT`: the claim, its ways, and each case's dated estimate by outcome (section 8) | Built |
-| The event, its ways and each case's estimate written in event-risk's terms (section 8) | 1 |
-| What the analyst learns on changing one value and on giving an outcome ways (section 5) | 2 |
-| Settlement (section 7) | Later |
+| Propositions in one shape, with level fields, ways and the two links (section 2) | Built |
+| A case's events, model and given values; its worlds and their figures (sections 3 and 4) | Built |
+| The three bases, with a result cell read by the store (section 5) | Built |
+| A case and its propositions stated in one call; what each call returns and refuses (section 6) | Built |
+| Estimates, written for a case and for each other case a restated proposition moves (section 7) | Built |
+| The document that crosses to event-risk (section 8) | 1 |
+| Changing one value of a saved case, with each figure before and after | 2 |
 
 Parts 1 and 2 are built in that order. The whole is then tried on runs on new subjects, unrelated to one
 another and to anything it was built against.

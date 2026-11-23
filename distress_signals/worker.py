@@ -36,7 +36,7 @@ def _saved(r):
     con = db.connect()
     try:
         return [tuple(row) for oid in r["saved"] for row in con.execute(
-            "SELECT o.id, o.company_id, c.name, o.stream_key, o.status FROM opportunities o "
+            "SELECT o.id, o.company_id, c.name, o.stream_key, o.status FROM cases o "
             "JOIN companies c ON c.id=o.company_id WHERE o.id=?", (oid,))]
     finally:
         con.close()
@@ -84,7 +84,7 @@ def run_request(obj, hs_id, props):
             oid = props.get("distress_opportunity_id")
             if kind != "refresh" or not oid:
                 raise ValueError("This deal isn't a distress-signals case, so there is nothing to refresh.")
-            r = pipeline.research("refresh", oid, opportunity_id=oid, question=note, on_start=on_start)
+            r = pipeline.research("refresh", oid, case_id=oid, question=note, on_start=on_start)
         elif kind == "research":
             r = pipeline.research("company", props.get("name"), question=note, on_start=on_start)
         elif kind == "event":

@@ -15,7 +15,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from . import db, sources, tools
-from .models import Calculation, Finding, Opportunity
+from .models import Case, Draft, Finding, Proposition
 from .util import load_env
 
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
@@ -115,61 +115,78 @@ def compute(sql: str, save_as: str | None = None, note: str | None = None) -> di
     return _call("compute", tools.compute, sql, save_as, note)
 
 
-@server.tool()
-def record_finding(finding: Finding) -> dict:
-    """Record what the research has established or set aside: a fact (with the passage that states it), an
-    inference or conclusion (with the passages or workspace results it rests on), an open question, or a
-    company, dependency or lead dropped and why. It can concern a company, an event or a case. With
-    withdraw_case, it also withdraws that case from the queue; the finding is the record of why."""
-    return _call("record_finding", tools.record_finding, finding.model_dump(mode="json"))
+PROPOSITIONS = """propositions gives in full each proposition the call introduces or revises: a claim that will turn out
+true or false, with its window and, where a record will show it, its resolution source; its ways nested in it; and
+the keys of the propositions it implies or implies not. A proposition given in full takes the place of the saved one
+with the same key, its ways with it, and keeps every proposition a saved case reads."""
+
+
+@server.tool(description="""Record what the research has established or set aside: a fact (with the passage that states
+it), an inference or conclusion (with the passages or workspace results it rests on), an open question, or a company,
+dependency or lead dropped and why. It can concern a company, a proposition or a case. With withdraw_case, it also
+withdraws that case from the queue; the finding is the record of why.
+
+""" + PROPOSITIONS)
+def record_finding(finding: Finding, propositions: list[Proposition] = []) -> dict:
+    return _call("record_finding", tools.record_finding, finding.model_dump(mode="json"),
+                 [p.model_dump(mode="json", exclude_none=True) for p in propositions])
 
 
 @server.tool()
 def lookup(id_or_query: str) -> dict:
-    """Look up a record by its ID or name. A case's ID returns the case in the form save_opportunity accepts,
-    with its status, company, event, results, the passages it cites and their sources, its findings, its
-    revisions, and its deal's stage and outcome in the operator's CRM. A company's ID, name, alias or domain
-    returns the company with its cases and findings, and its deals in the operator's CRM with their stages
-    and outcomes. An event's ID, key or title returns the event with the ways of each side, its findings, and
-    each case's dated estimate: its revenue formula, its baseline, and the values, revenue and shortfall in
-    each outcome it gives values for. A finding's or workspace result's ID returns that record."""
+    """Look up a record by its ID, key or name. A case's ID returns the case in the form save_case accepts, with
+    its status, company, the propositions it reads, its worlds and their figures, the passages it cites and their
+    sources, its findings, its revisions, and its deal's stage and outcome in the operator's CRM. A proposition's
+    key or title returns it in full with its ways and links, what its level fields say, its findings, and each
+    case that reads it: the case's formula, given values and worlds. A company's ID, name, alias or domain returns
+    the company with its cases and findings, and its deals in the operator's CRM with their stages and outcomes. A
+    finding's or workspace result's ID returns that record."""
     return _call("lookup", tools.lookup, id_or_query)
 
 
 MODEL = """The model is one revenue formula over input names: numbers, + - * /, parentheses, min() and max(). Each input
-has a unit, its value in the baseline, and one basis: source (the passage that states it), result (the cell of a
-saved compute result, which the store reads) or assumption (the reasoning, with the passages and saved results it
-rests on). by_outcome gives, for each outcome of the event that changes the revenue, the inputs that take another
-value there, each with what that value rests on. An outcome's values hold in its ways, and a way gives the values
-that differ further.
+has a unit, its value over the period in the baseline, and one basis: source (the passage that states it), result
+(the cell of a saved compute result, which the store reads) or assumption (the reasoning, with the passages and saved
+results it rests on). Each of given_values says: given these propositions true (given) and these false (given_not),
+these inputs take these values, each with what it rests on.
 
-The baseline is the formula at the inputs' values. For each outcome in by_outcome the store returns the revenue
-within the period, the shortfall against the baseline, the shortfall as a share of the denominator, revenue deferred
-past the period and the revenue lost (both only where the deferral's formula is given), the contribution loss
-(where the contribution formula is given), and cash delayed."""
+events names the proposition the case is about. The case's worlds are the combinations of its events and of the
+propositions its given values name that the links allow: a way is true only where what it divides is true, exactly
+one of the ways beside one another is true there, and a proposition that implies another is true only where that one
+is. A way named brings the ways beside it. What a company or its counterparties do once an outcome is known is a
+proposition of its own that implies that outcome, so it divides the outcome for this case and leaves the event's
+ways as they are.
+
+The baseline is the formula at the inputs' values. In each world an input takes the value of the one given value
+that holds there and whose worlds lie strictly within those of every other that holds there and sets it; an input
+none sets stands at its own value. For each world the store returns the propositions true and false in it, the inputs
+that take another value there, the revenue within the period, the shortfall against the baseline, the shortfall as a
+share of the denominator, revenue deferred past the period and the revenue lost (both only where the deferral's
+formula is given), the contribution loss (where the contribution formula is given), and cash delayed."""
 
 
-@server.tool(description="Calculate the revenue at stake without saving, from a draft of a case's model. "
-                         "save_opportunity runs the same calculation.\n\n" + MODEL)
-def calculate_exposure(case: Calculation) -> dict:
-    return _call("calculate_exposure", tools.calculate_exposure, case.model_dump(mode="json"))
+@server.tool(description="Calculate each world's figures without saving, from a draft of a case's model. save_case runs "
+                         "the same calculation.\n\n" + MODEL + "\n\n" + PROPOSITIONS)
+def calculate_exposure(case: Draft, propositions: list[Proposition] = []) -> dict:
+    return _call("calculate_exposure", tools.calculate_exposure, case.model_dump(mode="json"),
+                 [p.model_dump(mode="json", exclude_none=True) for p in propositions])
 
 
-@server.tool(description="""Save a case for contacting a company: one company, one event, one affected revenue stream.
-The company is given in full or by ID (with its id, the object edits that company); the event by key or ID, or in
-full, which saves its definition: the claim that will turn out true or false, its window, the record that will show
-how it turned out, and the ways of each side, each a claim stated the same way. A definition given in full keeps
-every outcome another saved case gives values for.
+@server.tool(description="""Save a case for contacting a company: one company, one revenue stream, and the event or
+events the stream depends on. The company is given in full or by ID (with its id, the object edits that company).
 
 """ + MODEL + """
 
+""" + PROPOSITIONS + """
+
 Each basis is checked: a passage is the section of text that states the figure, never the number alone, and appears
-word for word in the stored record; a result cell is one row of a saved result. opportunity_id revises a case; a
-different company, event or stream_key is a different case. A saved case goes in front of the operator in their CRM
-at once, and a revision or a withdrawal updates it there. Returns the IDs, the revision, the condition as read from
-the event, the results and any warnings.""")
-def save_opportunity(opportunity: Opportunity) -> dict:
-    return _call("save_opportunity", tools.save_opportunity, opportunity.model_dump(mode="json"))
+word for word in the stored record; a result cell is one row of a saved result. case_id revises a case; a different
+company, events or stream_key is a different case. A saved case goes in front of the operator in their CRM at once,
+and a revision or a withdrawal updates it there. Returns the IDs, the revision, the condition, the worlds with their
+figures, any warnings, and the other saved cases a restated proposition moved.""")
+def save_case(case: Case, propositions: list[Proposition] = []) -> dict:
+    return _call("save_case", tools.save_case, case.model_dump(mode="json"),
+                 [p.model_dump(mode="json", exclude_none=True) for p in propositions])
 
 
 if __name__ == "__main__":

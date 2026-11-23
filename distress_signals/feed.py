@@ -63,9 +63,9 @@ def describe(use):
     if name == "record_finding":
         f = i.get("finding") or {}
         return f"Recorded a finding ({f.get('kind')}): {(f.get('statement') or '')[:400]}"
-    if name == "save_opportunity":
+    if name == "save_case":
         from .watch import _company_name, title_label
-        o = i.get("opportunity") or {}
+        o = i.get("case") or {}
         return f"Saving the case for {_company_name(o.get('company'))}: {title_label(o.get('stream_key'))}"
     if name == "StructuredOutput":
         return "Writing the final answer"
@@ -86,7 +86,7 @@ class Feed:
         self.run_id, self.obj, self.hs_id = run_id, obj, hs_id
         self.path = OUT / "runs" / f"{run_id}.jsonl"
         self.offset, self.items, self.uses = 0, [], {}
-        self.calls, self.cases, self.done, self.now = 0, {}, False, ""  # cases: opportunity ID -> company ID
+        self.calls, self.cases, self.done, self.now = 0, {}, False, ""  # cases: case ID -> company ID
         self.since = time.strftime("%H:%M")
 
     def read(self):
@@ -134,10 +134,10 @@ class Feed:
                         continue
                     if isinstance(result, dict) and (result.get("source_errors") or result.get("errors")):
                         self.items.append(("Search", _esc(_search_result(result))))
-                elif name == "save_opportunity":
+                elif name == "save_case":
                     self._saved(use, text)
                 elif name == "record_finding" and ((use.get("input") or {}).get("finding") or {}).get("withdraw_case"):
-                    oid = use["input"]["finding"].get("opportunity_id")
+                    oid = use["input"]["finding"].get("case_id")
                     self.cases.pop(oid, None)
                     self.items.append(("Case", _esc(f"Withdrew case {oid}: {use['input']['finding'].get('statement', '')[:400]}")))
         elif t == "system" and e.get("subtype") == "compact_boundary":
@@ -152,8 +152,8 @@ class Feed:
         except ValueError:
             return
         from .watch import _company_name
-        oid = out.get("opportunity_id")
-        name = _company_name(out.get("company_id") or ((use.get("input") or {}).get("opportunity") or {}).get("company"))
+        oid = out.get("case_id")
+        name = _company_name(out.get("company_id") or ((use.get("input") or {}).get("case") or {}).get("company"))
         self.cases[oid] = out.get("company_id") or name
         con = db.connect()
         try:

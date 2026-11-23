@@ -4,16 +4,16 @@
   research --company NAME [--company NAME ...] | --event TEXT | --source URL | --lead ID | --brief FILE
            [--question TEXT] [--workers N] [--model MODEL] [--timeout MINUTES]
                             run it on the subject or brief the operator selects
-  refresh OPP_ID [--question TEXT]
+  refresh CASE_ID [--question TEXT]
                             research a saved case again and save what changed
   leads                     follow-on leads not yet researched
-  show ID_OR_QUERY          a saved opportunity, company or event, or a search
+  show ID_OR_QUERY          a saved case, company or proposition
   transcript RUN_ID         render a run's transcript (reasoning summaries, tool calls, results) to
                             out/runs/RUN_ID.md; works while the run is going
-  export OPP_ID             print one case whole, as JSON
+  export CASE_ID            print one case whole, as JSON
   ledgers [--verify]        list payment ledgers; --verify re-tests mapped invoice dates on live data
   hubspot-setup             create the "Distress signals" deal and contact properties in HubSpot
-  push-hubspot [OPP_ID ...] [--dry-run]
+  push-hubspot [CASE_ID ...] [--dry-run]
                             deliver cases to HubSpot: the ones named, or every active case and any
                             delivered case that changed
   pull-outcomes             read each deal's stage, outcome and note back onto its case
@@ -58,10 +58,10 @@ def report(r):
     print(f"  transcript: {r['transcript']} (assignment: {r['assignment']})")
     for oid in r["saved"]:
         o = tools.lookup(oid)
-        res, cur = o["results"], o["opportunity"]["currency"]
+        res, cur = o["results"], o["case"]["currency"]
         share = f" ({res['max_share']:.1%} of {res['denominator']['label']})" if res.get("max_share") is not None else ""
-        print(f"  {oid} [{o['status']}] {o['company']['name']}: {o['opportunity']['stream']} | revenue at stake "
-              f"{cur} {res['max_shortfall']:,.0f}{share} | priority {o['opportunity']['case']['priority']}")
+        print(f"  {oid} [{o['status']}] {o['company']['name']}: {o['case']['stream']} | revenue at stake "
+              f"{cur} {res['max_shortfall']:,.0f}{share} | priority {o['case']['reasons']['priority']}")
     for x in r["leads"]:
         print(f"  lead: {x['company_or_event']}: {x['reason'][:140]}")
 
@@ -81,15 +81,15 @@ def main():
     s.add_argument("--workers", type=int, default=3)
     s.add_argument("--model")
     s.add_argument("--timeout", type=int, default=180, help="minutes per run")
-    s = sub.add_parser("refresh"); s.add_argument("opportunity_id"); s.add_argument("--question"); s.add_argument("--model")
+    s = sub.add_parser("refresh"); s.add_argument("case_id"); s.add_argument("--question"); s.add_argument("--model")
     s.add_argument("--timeout", type=int, default=60, help="minutes")
     sub.add_parser("leads")
     s = sub.add_parser("show"); s.add_argument("id_or_query")
     s = sub.add_parser("transcript"); s.add_argument("run_id")
-    s = sub.add_parser("export"); s.add_argument("opportunity_id")
+    s = sub.add_parser("export"); s.add_argument("case_id")
     s = sub.add_parser("ledgers"); s.add_argument("--verify", action="store_true")
     sub.add_parser("hubspot-setup")
-    s = sub.add_parser("push-hubspot"); s.add_argument("opportunity_ids", nargs="*"); s.add_argument("--dry-run", action="store_true")
+    s = sub.add_parser("push-hubspot"); s.add_argument("case_ids", nargs="*"); s.add_argument("--dry-run", action="store_true")
     sub.add_parser("pull-outcomes")
     sub.add_parser("serve")
     sub.add_parser("install-worker")
@@ -121,7 +121,7 @@ def main():
             r = pipeline.research("mandate", **kw)
         report(r)
     elif a.cmd == "refresh":
-        report(pipeline.research("refresh", a.opportunity_id, opportunity_id=a.opportunity_id, question=a.question,
+        report(pipeline.research("refresh", a.case_id, case_id=a.case_id, question=a.question,
                                  model=a.model, timeout=a.timeout * 60))
     elif a.cmd == "leads":
         con = db.connect()
@@ -135,16 +135,16 @@ def main():
             raise SystemExit(f"no transcript at {events}; runs before the stream-json runner have none")
         print(transcript.render(events, assignment=events.with_suffix(".assignment.md")))
     elif a.cmd == "export":
-        found = briefs.cases(db.connect(), [a.opportunity_id])
+        found = briefs.cases(db.connect(), [a.case_id])
         if not found:
-            raise SystemExit(f"no saved case {a.opportunity_id}")
+            raise SystemExit(f"no saved case {a.case_id}")
         print(json.dumps(briefs.export(found[0]), indent=1, ensure_ascii=False, default=str))
     elif a.cmd == "ledgers":
         cmd_ledgers(a)
     elif a.cmd == "hubspot-setup":
         hubspot.setup()
     elif a.cmd == "push-hubspot":
-        hubspot.push(a.opportunity_ids, a.dry_run)
+        hubspot.push(a.case_ids, a.dry_run)
     elif a.cmd == "pull-outcomes":
         hubspot.pull_outcomes()
     elif a.cmd == "serve":

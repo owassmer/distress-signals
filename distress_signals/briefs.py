@@ -1,8 +1,9 @@
 """Views of saved cases, each read as it stands now (forms.py): the memo, which HubSpot carries on the
-case's deal, and the export (the case whole: company, event, inputs, values by outcome, results,
-evidence, findings, revisions), which `export OPP_ID` prints."""
+case's deal, and the export (the case whole: company, propositions, inputs, given values, worlds,
+evidence, findings, revisions), which `export CASE_ID` prints."""
 
-from . import db, forms, outcomes
+from . import db, forms, worlds
+from .models import FORMULAS
 
 BASIS = {"source": "reported", "result": "read from a result", "assumption": "assumed"}
 
@@ -23,18 +24,25 @@ def pct(x):
 
 def cases(con, ids=None):
     """Saved cases as they stand now; all of them, or those with the given IDs."""
-    out = []
-    rows = db.opportunities(con) if ids is None else [r for r in (db.get_opportunity(con, i) for i in ids) if r]
+    out, props = [], db.propositions(con)
+    rows = db.cases(con) if ids is None else [r for r in (db.get_case(con, i) for i in ids) if r]
     for row in rows:
-        event = db.get_event(con, row["event_id"])["data"]
-        current = forms.snapshot(db.latest_revision(con, row["id"])["snapshot"], event)
+        current = forms.snapshot(db.latest_revision(con, row["id"])["snapshot"], props)
         cited = {o["id"]: o for o in db.cited(con, row["id"])}
-        fs = db.findings(con, "opportunity_id=? OR company_id=?", (row["id"], row["company_id"]))
+        fs = db.findings(con, "case_id=? OR company_id=?", (row["id"], row["company_id"]))
         out.append({"id": row["id"], "row": row, "status": row["status"], "company": current["company"],
-                    "event": event, "case": current["case"], "results": current["results"],
-                    "condition": outcomes.condition(event, current["case"], current["results"]),
+                    "events": [props[k] for k in row["events"]], "props": props, "case": current["case"],
+                    "results": current["results"], "condition": current["results"]["condition"],
                     "cited": cited, "findings": fs, "revisions": db.revisions(con, row["id"])})
     return out
+
+
+def event_title(c):
+    return " and ".join(e["title"] for e in c["events"])
+
+
+def event_date(c):
+    return min(str(e["window_end"]) for e in c["events"])
 
 
 def _passage(cite, cited):
@@ -69,50 +77,69 @@ def _input_line(name, inp, cur, cited):
             f"{' ' + inp['note'] if inp.get('note') else ''} |")
 
 
-def _outcome_lines(c):
-    """The event's outcomes, each way under the outcome it lies within, with the values the case gives it."""
-    ev, case, cur, out = c["event"], c["case"], c["case"]["currency"], []
-    for key, node, _, depth in outcomes.tree(ev):
-        title, text = {"yes": ("Yes", ev["text"]), "no": ("No", "The claim turns out false.")}.get(key, (node["title"], node["text"]))
-        out.append(f"{'  ' * depth}- **{title}**: {text}")
-        for name, g in (case["by_outcome"].get(key) or {}).items():
-            out.append(f"{'  ' * (depth + 1)}- `{name}` = {_shown(g['value'], case['inputs'][name]['unit'], cur)}: "
-                       f"{_rests_on(g['assumption'], c['cited'])}")
+def _read_lines(c):
+    """The propositions the case reads, each way under what it divides."""
+    props, read, out = c["props"], c["results"]["reads"], []
+
+    def line(key, depth):
+        p = props[key]
+        side = " (if not)" if p.get("side") == "no" else ""
+        out.append(f"{'  ' * depth}- **{p['title']}**{side}: {p['text']}")
+        for w in sorted((w for w in props.values() if w.get("parent") == key and w["key"] in read),
+                        key=lambda w: (w["side"] != "yes", w["order"])):
+            line(w["key"], depth + 1)
+
+    for k in read:
+        if not props[k].get("parent") or props[k]["parent"] not in read:
+            line(k, 0)
+    return out
+
+
+def _given_lines(c):
+    case, cur, out = c["case"], c["case"]["currency"], []
+    for g in case["given_values"]:
+        cond = " and ".join([*(c["props"][k]["title"] for k in g["given"]),
+                             *(f"not: {c['props'][k]['title']}" for k in g["given_not"])])
+        for name, v in g["values"].items():
+            out.append(f"- Given {cond}: `{name}` = {_shown(v['value'], case['inputs'][name]['unit'], cur)}. "
+                       f"{_rests_on(v['assumption'], c['cited'])}")
     return out
 
 
 def memo(c):
-    co, ev, case, res = c["company"], c["event"], c["case"], c["results"]
-    cur, buyer, reasons = case["currency"], case["buyer"], case["case"]
-    worst = next(r for r in res["outcomes"] if r["outcome"] == res["worst"])
+    co, case, res, props = c["company"], c["case"], c["results"], c["props"]
+    cur, buyer, reasons = case["currency"], case["buyer"], case["reasons"]
+    worst = next(r for r in res["worlds"] if r["label"] == res["worst"])
     lost = f", of which {money(worst['lost'], cur)} is not recovered later" if worst.get("lost") is not None else ""
     share = f" ({pct(worst['share'])} of {res['denominator']['label']})" if worst.get("share") is not None else ""
     out = [f"# {co['name']}: {case['stream']}", "",
-           f"{'**Withdrawn.** ' if c['status'] == 'withdrawn' else ''}**{ev['title']}.** {reasons['why_now']}", "",
+           f"{'**Withdrawn.** ' if c['status'] == 'withdrawn' else ''}**{event_title(c)}.** {reasons['why_now']}", "",
            f"Revenue at stake: {money(worst['shortfall'], cur)}{share} between {case['period']['start']} and "
-           f"{case['period']['end']}{lost}, in the outcome \"{outcomes.label(ev, worst['outcome'])}\". "
+           f"{case['period']['end']}{lost}, in the world \"{worst['label']}\". "
            f"Priority {reasons['priority']}: {reasons['priority_reason']}", "",
-           "## What has to happen", "", c["condition"], "",
-           f"{ev['description']}" + (f" {ev['timing']}" if ev.get("timing") else "") +
-           f" Decided on or by {ev['window_end']}. Shown by: {ev['resolution_source']}", "",
-           "**The event's outcomes, and the values this case gives them.**", ""] + _outcome_lines(c) + [""]
-    out += [f"- {_passage(e, c['cited'])}" for e in ev.get("evidence") or []]
+           "## What has to happen", "", c["condition"], ""]
+    for ev in c["events"]:
+        out += [" ".join(x for x in (ev.get("description"), ev.get("timing"), f"Decided on or by {ev['window_end']}.",
+                                     f"Shown by: {ev['resolution_source']}" if ev.get("resolution_source") else None) if x), ""]
+    out += ["**The propositions this case reads.**", ""] + _read_lines(c) + [""]
+    out += [f"- {_passage(e, c['cited'])}" for k in res["reads"] for e in props[k].get("evidence") or []]
     out += ["", "## Why the company earns less", "", co.get("description") or "", "", case["dependency"], "",
             "## When it would feel the effect", "", case["timing"], "",
             "## How much of the business is exposed", "",
             f"Period {case['period']['start']} to {case['period']['end']}, {cur}.", "",
-            "| Outcome | Revenue in period | Shortfall | Share | Deferred past period | Not recovered | Contribution loss | Cash delayed |",
+            "| World | Revenue in period | Shortfall | Share | Deferred past period | Not recovered | Contribution loss | Cash delayed |",
             "|---|---|---|---|---|---|---|---|",
             f"| baseline | {money(res['baseline_revenue'], cur)} | – | – | – | – | – | – |"]
-    for r in res["outcomes"]:
-        out.append(f"| {outcomes.label(ev, r['outcome'])} | {money(r['revenue'], cur)} | {money(r['shortfall'], cur)} | "
+    for r in res["worlds"]:
+        out.append(f"| {r['label']} | {money(r['revenue'], cur)} | {money(r['shortfall'], cur)} | "
                    f"{pct(r['share'])} | {money(r['deferred_past_period'], cur)} | {money(r['lost'], cur)} | "
                    f"{money(r['contribution_loss'], cur)} | {money(r['cash_delayed'], cur)} |")
-    out += ["", "**Formulas.**", ""] + [f"- {k.replace('_', ' ')} = `{case[k]}`" for k in forms.FORMULAS if case.get(k)]
+    out += ["", "**Formulas.**", ""] + [f"- {k.replace('_', ' ')} = `{case[k]}`" for k in FORMULAS if case.get(k)]
     if case.get("denominator"):
         out.append(f"- denominator ({case['denominator']['label']}) = `{case['denominator']['formula']}`")
     out += ["", "**Inputs, at their values in the baseline.**", "", "| Input | Value | Basis | |", "|---|---|---|---|"]
     out += [_input_line(k, v, cur, c["cited"]) for k, v in case["inputs"].items()]
+    out += ["", "**Given values.**", ""] + _given_lines(c)
     out += ["", "## Why reach out now", "", reasons["why_now"], "", reasons["why_matters"], "",
             "## Who to approach", "",
             f"{buyer.get('name') or 'Not yet named'}{', ' + buyer['title'] if buyer.get('title') else ''}: {buyer['role']}.", "",
@@ -131,8 +158,10 @@ def _quote(text):
 
 
 def export(c):
-    return {"opportunity_id": c["id"], "status": c["status"], "revision": c["row"]["revision"], "updated": c["row"]["updated"],
-            "company": c["company"], "event": c["event"], "case": c["case"], "results": c["results"],
+    return {"case_id": c["id"], "status": c["status"], "revision": c["row"]["revision"], "updated": c["row"]["updated"],
+            "company": c["company"],
+            "propositions": [worlds.nest(c["props"], k) for k in dict.fromkeys(worlds.root(c["props"], k) for k in c["results"]["reads"])],
+            "case": c["case"], "results": c["results"],
             "sources": [{"observation_id": k, "kind": o["kind"], "url": o.get("url"), "title": (o.get("data") or {}).get("title"),
                          "retrieved_at": o.get("retrieved_at")} for k, o in c["cited"].items()],
             "findings": [{k: f[k] for k in ("id", "kind", "statement", "evidence", "results", "created")} for f in c["findings"]],

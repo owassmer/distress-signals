@@ -14,10 +14,10 @@ For each company it recommends, a case states:
 
 | | |
 |---|---|
-| Condition | What has to happen for the company's revenue to be affected: the outcomes of the event the case gives values for, in the event's words |
+| Condition | What has to happen for the company's revenue to be affected: the worlds in which it differs from the baseline, in the propositions' words |
 | Dependency | Why the company earns less if that happens |
 | Timing | When the company would feel the effect |
-| Exposure | How much of the business is exposed: the revenue at stake in each of those outcomes over a stated period, measured from the baseline, from evidence, with the basis for every estimate |
+| Exposure | How much of the business is exposed: the revenue at stake in each of those worlds over a stated period, measured from the baseline, from evidence, with the basis for every estimate |
 | Person | Who is responsible for the affected business or its financial exposure |
 | Why now | Why it makes sense to reach out now |
 | Opening | A short draft the person could answer from their knowledge of the business |
@@ -80,8 +80,8 @@ store and the exports. `db.py` holds the schema and adds columns when the schema
 | Record | ID | Key |
 |---|---|---|
 | Company | `co_` + hash | Normalized domain; without one, the normalized name |
-| Event | `ev_` + hash | The event's key, chosen by the analyst |
-| Case | `opp_` + hash | Company + event + revenue-stream key |
+| Proposition | Its key | Chosen by the analyst, unique in the store |
+| Case | `case_` + hash | Company + events + revenue-stream key |
 | Observation | `obs_` + hash | Source and native ID, or the address |
 | Finding | `fnd_` + hash | Its kind, statement, subject and time |
 | Workspace result | `wk_` + hash | Its name and query |
@@ -89,57 +89,61 @@ store and the exports. `db.py` holds the schema and adds columns when the schema
 - A company given with its `id` edits that company; an old name stays as an alias. Without an `id`, a
   company matches by domain, else by the one saved company with the same normalized name or alias.
   Several matches are an error that asks for the domain or ID.
-- A save with `opportunity_id` keeps that case's company, event and stream key; a different combination is
-  a different case.
-- `lookup` returns a case in exactly the form `save_opportunity` accepts.
+- A save with `case_id` keeps that case's company, events and stream key; a different combination is a
+  different case.
+- `lookup` returns a case in exactly the form `save_case` accepts.
 
-### The event
+### Propositions
 
-An event is something upcoming outside the companies' control, stated as a claim that will turn out true
-or false (`docs/model.md` section 2). Several companies can depend on the same event; each case gives its
-inputs' values in the outcomes that change its own revenue.
+Every claim is a proposition (`docs/model.md` section 2): an event, a way an event or another claim can turn
+out, and what a company or the parties around it do once an outcome is known. One shape, `models.Proposition`.
 
 | Field | Meaning |
 |---|---|
-| `key` | A short identifier; it stays the same when the event is revised |
-| `title` | The claim in a few words |
-| `text` | The claim in full: what would make the event true |
-| `description` | Who or what decides it, and how |
+| `key` | A short identifier, unique in the store; it stays the same when the wording is revised |
+| `side` | On a way of a proposition that is not itself a way: the side it divides, `yes` where left out |
+| `title`, `text` | The claim in a few words, and in full: what would make it true |
 | `kind` | `scheduled_decision` (a decision scheduled on `window_end`), `hitting` (true where it happens at any time through `window_end`) or `level_at_date` (a level on `window_end`) |
 | `window_start`, `window_end` | The window; `window_end` is the date it is decided on or by |
-| `timing` | The steps between now and `window_end`, each with its date and how firm that date is |
-| `resolution_source` | The record that will show how it turned out |
-| `yes_ways`, `no_ways` | The ways of each side. A way is a claim stated as the event is: a `key`, a `title`, a `text`, a `kind`, a `window_end` (and `window_start` where it has one), a `resolution_source`, and `ways` of its own |
-| `evidence` | Passages that establish what the event is, when it is decided, and what bears on how it turns out |
+| `comparison` | `occurs`, or for a claim about a level one of `>`, `>=`, `<`, `<=`, `==` |
+| `metric`, `unit`, `value`, `upper_comparison`, `upper_value` | For a claim about a level: the quantity, its unit, the threshold, and a band's upper end |
+| `resolution_source` | Where a record will show how it turned out, that record |
+| `description`, `timing` | Who or what decides it and how; the steps to `window_end`, each with its date and how firm it is |
+| `evidence` | Passages that establish what the claim is, when it is decided, and what bears on how it turns out |
+| `implies`, `implies_not` | Keys of the propositions that are true, or false, wherever this one is true |
+| `ways` | The ways it can turn out, each a proposition in full, nested |
 
-**Outcomes.** An event's outcomes are its two sides, with the keys `yes` and `no`, and all their ways. The
-ways of an outcome exclude one another and together make up the outcome, so an outcome has no ways or at
-least two, and saving refuses one alone. Keys are unique within the event. `outcomes.py` reads the tree:
-each outcome's place and words, the outcome each lies within, and for a case the outcomes it gives values
-for and its condition.
+**Stated in full.** A proposition is given in full, its ways nested in it, in the `propositions` of the call
+that introduces or revises it (`save_case`, `calculate_exposure`, `record_finding`). It takes the place of the
+saved one with the same key, its ways with it. The store keeps one row for each proposition, with the key of
+the proposition it is a way of and the side it divides (`worlds.flatten`, `worlds.nest`).
 
-**Revision.** An event given in full with a case or finding is saved, replacing the saved definition of the
-same key. An outcome's key is its identity: wording is revised under the same key, and a finer distinction
-is drawn by giving the outcome ways. A definition that leaves out an outcome an active saved case gives values
-for is refused, with the cases and the outcomes named.
+**What a statement of a proposition must keep.**
+- A key names one proposition: a key that already names a proposition elsewhere is refused.
+- A proposition has no ways on a side, or at least two.
+- The ways beside one another cannot both be true by their level fields. Where their thresholds leave values
+  in none of them, the save says so and stands.
+- Every proposition an active saved case reads stays, and every other saved case that reads a restated
+  proposition is computed again. One left without its figures refuses the statement, naming the case. One whose
+  snapshot changed gets a revision of its own and is delivered again.
 
 ### The case
 
 | Field | Meaning |
 |---|---|
 | `company` | The company, in full or by saved ID |
-| `event` | The event, in full or by saved key or ID |
+| `events` | The key of the event the case is about; two keys where two events are read together on one stream |
 | `stream_key`, `stream` | A short identifier for the affected revenue stream, and the stream in words |
-| `dependency` | Why the company earns less in the outcomes it gives values for |
+| `dependency` | Why the company earns less in those worlds |
 | `timing` | When the company would feel the effect |
 | `period` | The span over which revenue is counted |
 | `currency` | The currency of the revenue figures |
-| `revenue` | The formula for the revenue recognized within the period. At the inputs' values it gives the baseline; with an outcome's values, the revenue in that outcome |
+| `revenue` | The formula for the revenue recognized within the period. At the inputs' values it gives the baseline; at their values in a world, the revenue there |
 | `contribution`, `deferred_past_period`, `cash_delayed` | Formulas over the same inputs, where they apply: revenue less the costs that change with it; revenue recognized after the period instead of within it; cash collected later than it otherwise would be |
-| `inputs` | The figures the formulas use, by name, each at its value in the baseline, with a unit and exactly one basis: `source` (a quoted passage), `result` (the cell of a saved compute result: its `result_id`, `column`, and the `row` columns and values that pick out one row; the store reads the value) or `assumption` (a `note` with the reasoning, and the `evidence` passages and `results` it rests on) |
-| `by_outcome` | For each outcome of the event that changes the revenue, by its key (`yes`, `no` or a way's key): the inputs that take another value there, each with its `value` and the `assumption` it rests on |
+| `inputs` | The figures the formulas use, by name, each at its value over the period in the baseline, with a unit and exactly one basis: `source` (a quoted passage), `result` (the cell of a saved compute result: its `result_id`, `column`, and the `row` columns and values that pick out one row; the store reads the value) or `assumption` (a `note` with the reasoning, and the `evidence` passages and `results` it rests on) |
+| `given_values` | Each: `given`, the keys of the propositions that are true; `given_not`, those that are false; and `values`, the inputs that take another value there, each with its `value` and the `assumption` it rests on |
 | `denominator` | What the shortfall is a share of |
-| `case` | Why the exposure warrants a conversation (`why_matters`), why to reach out now (`why_now`, `why_now_date`), and where the company stands among those worth contacting (`priority` 1–5, `priority_reason`) |
+| `reasons` | Why the exposure warrants a conversation (`why_matters`), why to reach out now (`why_now`, `why_now_date`), and where the company stands among those worth contacting (`priority` 1–5, `priority_reason`) |
 | `buyer` | The person: their responsibility, name, title, and the record that names them |
 | `outreach.draft` | The opening |
 | `evidence` | Passages that support the case's other claims |
@@ -149,32 +153,39 @@ for is refused, with the cases and the outcomes named.
 A case is `active` or `withdrawn`. `record_finding` with `withdraw_case` withdraws it; saving it again
 returns it to the active queue.
 
-**Values by outcome** (`docs/model.md` sections 3 and 4).
-- Saving confirms that each key of `by_outcome` is an outcome of the case's event, and lists the event's
-  outcomes when one is not. Each input it names is one the case states.
-- An outcome's values hold in its ways, and a way gives the values that differ further: the store applies the
-  values of each outcome a way lies within, outermost first, and then the way's own.
+**Worlds and figures** (`docs/model.md` section 4; `worlds.py`, `exposure.py`).
+- A case reads its events, every proposition its given values name, and with each way so named the ways beside
+  it and the ways it lies within, up to its event. An event is a proposition that is not a way.
+- Its worlds are the combinations of those propositions being true or false that the links allow: a way is
+  true only where what it divides is true, exactly one of the ways beside one another is true there, an
+  `implies` or `implies_not` link holds, and so do the relations code reads from level fields. Links are followed
+  through propositions the case does not read.
+- In each world an input takes the value of the one given value that holds there, sets it, and has its worlds
+  strictly within those of every other that holds there and sets it. An input none sets stands at its own value.
+- A given value whose condition holds in no world is refused. So is a world where several given values set one
+  input and none is the most specific, naming the world, the input and the given values.
 - The store reads each `result` input from its cell. A row that picks out no row or several is refused, and so
   is a value given with it that differs from the cell's.
 - Each passage under an assumption is checked in its record as any cited passage is, and each result it rests
   on is one that is saved.
-- The case's condition is the outcomes it gives values for where the revenue differs from the baseline's, read
-  from the event: the save, `lookup`, the memo and the deal all show it in the event's words.
+- The case's condition is the worlds whose revenue differs from the baseline's, in the propositions' words: the
+  save, `lookup`, the memo and the deal all show it.
 
 ### Findings
 
 A finding is a `fact` (with the passage that states it), an `inference` or `conclusion` (with the
 passages or workspace results it rests on), a `question`, or something `dropped` (a company, dependency
-or lead set aside). It can concern a company, an event or a case, and can replace an earlier finding.
+or lead set aside). It can concern a company, a proposition or a case, and can replace an earlier finding.
 
 ### Tables
 
 | Table | Holds |
 |---|---|
 | `companies`, `company_keys` | Companies, and each normalized name and alias |
-| `events` | Event definitions |
-| `opportunities` | Cases: company, event, stream, status, priority, key date, largest shortfall, the case and results, progress, revision |
-| `revisions` | Each saved snapshot, its hash, change note and run |
+| `propositions` | One row for each proposition: its key, the key of the proposition it is a way of, the side it divides, its place among the ways beside it, and its other fields |
+| `cases` | Cases: company, events, stream, status, priority, key date, largest shortfall, the case and results, progress, revision |
+| `case_reads` | The propositions each case reads |
+| `revisions` | Each saved snapshot (the company, the case, the propositions it reads and its results), its hash, change note and run |
 | `observations` | Each record read: kind, source, native ID, address, dates, text, data |
 | `citations` | Which records each case cites |
 | One table for each series, named for it | The records read, a column for each of the series' fields ([section 6](#6-sources)) |
@@ -187,19 +198,19 @@ are different kinds.
 ### Results on read
 
 Every read of a saved case goes through `forms.py`: `lookup`, a refresh, delivery to HubSpot, the run page
-and the export. Its results are computed again from what it states and from its event as the event now
-stands.
+and the export. Its results are computed again from what it states and from the propositions as they now
+stand.
 
 ### What a run can see
 
 `run_reads` records each observation a run reads, whether fetched or reused from the store. Each `compute`
 call runs on an in-memory copy holding that run's observations and their record rows, and its own findings
-and workspace results; saved cases, companies, events and earlier runs' research are not in it.
-`lookup` returns a record by ID, a company by its name, alias or domain, and an event by its key or
+and workspace results; saved cases, companies, propositions and earlier runs' research are not in it.
+`lookup` returns a record by ID, a company by its name, alias or domain, and a proposition by its key or
 title; it doesn't search by topic. The tool descriptions say what each tool does, without presuming
 earlier work; the lookup tool is named `lookup` because the analyst read its earlier name, `get_context`, as
 an invitation to load prior research before starting. A run that reaches a
-saved company or event through its own research finds what is saved about it.
+saved company or proposition through its own research finds what is saved about it.
 
 ## 4. The researcher
 
@@ -211,7 +222,7 @@ saved company or event through its own research finds what is saved about it.
 | `research --company NAME` | That company; the run's cases are for it (save refuses others), and what it learns about other companies becomes findings and leads |
 | `research --event TEXT`, `--source URL`, `--lead ID` | That event, source or saved lead |
 | `research --brief FILE` | The brief's text; a brief is used only when selected |
-| `refresh OPP_ID` | The case, attached in its current form: read its sources again, revise it or withdraw it |
+| `refresh CASE_ID` | The case, attached as it now stands: read its sources again, revise it or withdraw it |
 
 `--question` adds an operator's note to any run. `--workers` runs several company assignments in
 parallel.
@@ -277,10 +288,10 @@ mid-run too. Each revision is stamped with its run.
 | `search_records(series, query, filters, limit, cursor)` | Searches one [series of public records](#6-sources) and returns each record's fields, address and `record_id`, a `cursor` where the search has not reached its end, and a `result_set` ID for every record the search matches. Nothing is stored until it is read |
 | `read_record(id_or_url, find, offset, fresh)` | Reads a record by its `record_id`, every record of a `result_set` (up to 25,000), a web page or a PDF. Stores what it read, fills the series' table, and returns the text in 12,000-character segments with the document's links. `find` returns passages around a term. `fresh` reads the source again and updates the same observation |
 | `compute(sql, save_as, note)` | Runs one read-only SQL query over the records this run has read (each series' table, and the views of dates, names and amounts across series) and the findings and results it has recorded; returns up to 200 rows; `save_as` keeps up to 2,000 under an ID that inputs and findings cite |
-| `record_finding(finding)` | Records a fact, inference, conclusion, question or dropped lead; can withdraw a case, which updates its deal in HubSpot at once |
-| `lookup(id_or_query)` | Returns a saved case (editable form, status, company, event, condition, results, cited passages with their sources, findings, recent revisions, and its deal's stage and conversation outcome), finding or workspace result by ID; a company by ID, name, alias or domain, with its deals in HubSpot (the operator's own included), their stages and conversation outcomes; an event by ID, key or title, with the ways of each side and each case's dated estimate: its period, formula, baseline, and the values, revenue and shortfall in each outcome it gives values for |
-| `calculate_exposure(case)` | Calculates the revenue at stake from a draft of a case's model without saving: the formula, the inputs, the values by outcome, and the event where the draft names ways |
-| `save_opportunity(opportunity)` | Saves a case: checks each basis and that each outcome it gives values for is an outcome of the event, calculates, saves company, event and case, writes a revision when the content changed, and delivers the case to HubSpot at once; refuses an excluded company, or another company in a company run |
+| `record_finding(finding, propositions)` | Records a fact, inference, conclusion, question or dropped lead, about a company, a proposition or a case; can withdraw a case, which updates its deal in HubSpot at once |
+| `lookup(id_or_query)` | Returns a saved case (editable form, status, company, the propositions it reads, condition, worlds and figures, cited passages with their sources, findings, recent revisions, and its deal's stage and conversation outcome), finding or workspace result by ID; a company by ID, name, alias or domain, with its deals in HubSpot (the operator's own included), their stages and conversation outcomes; a proposition by key or title, in full with its ways and links, what its level fields say, and each case that reads it: the case's period, formula, baseline, given values and worlds |
+| `calculate_exposure(case, propositions)` | Calculates each world's figures from a draft of a case's model without saving: the events, the formula, the inputs and the given values |
+| `save_case(case, propositions)` | Saves a case: saves the propositions given in full with it, checks each basis, computes its worlds and their figures, saves the company and the case, writes a revision when the content changed, and delivers the case to HubSpot at once, with each other case a restated proposition moved; refuses an excluded company, or another company in a company run |
 
 WebSearch searches the web and WebFetch reads a page without storing it. A passage can be cited only
 from a record read with `read_record`; a page that can't be read that way may be cited by address with its
@@ -381,23 +392,26 @@ continued search must not repeat one.
 
 ## 7. Calculation
 
-`exposure.py` calculates the revenue at stake in each outcome a case gives values for. `calculate_exposure`,
-`save_opportunity` and every read of a saved case run the same function. A formula is an expression over
-input names using numbers, `+ - * /`, parentheses, `min()` and `max()`. The baseline is the revenue formula
-at the inputs' values. An outcome's figures are the formulas with that outcome's values in place.
+`exposure.py` calculates the revenue at stake in each world of a case, and `worlds.py` gives the worlds
+(section 3). `calculate_exposure`, `save_case` and every read of a saved case run the same function. A formula
+is an expression over input names using numbers, `+ - * /`, parentheses, `min()` and `max()`. The baseline is
+the revenue formula at the inputs' values. A world's figures are the formulas at the inputs' values there.
 
 | Result | Meaning |
 |---|---|
+| `reads` | The propositions the case reads |
 | `baseline_revenue`, `baseline_contribution` | The revenue formula, and the contribution formula where given, at the inputs' values |
-| `outcome` | The outcome of the event the row is for |
-| `revenue` | What the company would recognize within the period in this outcome, work or sales made up within the period included |
-| `shortfall` | Baseline revenue less this outcome's: the revenue at stake within the period |
+| `condition` | The worlds whose revenue differs from the baseline's, in the propositions' words |
+| `world`, `label`, `text` | For each world: the propositions true in it, at their most particular, and those false; and the same in the propositions' titles and texts. A proposition that is not one of the case's events is named only where it could have stood either way |
+| `values` | The inputs that take another value in the world |
+| `revenue` | What the company would recognize within the period in this world, work or sales made up within the period included |
+| `shortfall` | Baseline revenue less this world's: the revenue at stake within the period |
 | `share` | The shortfall as a share of the denominator |
 | `deferred_past_period` | Revenue recognized after the period instead of within it, where the case gives its formula |
 | `lost` | The shortfall less the deferral: given only where the deferral is given, because otherwise later recovery is unknown |
-| `contribution_loss` | Baseline contribution less this outcome's, where the case gives its formula |
+| `contribution_loss` | Baseline contribution less this world's, where the case gives its formula |
 | `cash_delayed` | Cash collected later than it otherwise would be, where the case gives its formula; a timing effect, not lost revenue |
-| `worst`, `max_shortfall`, `max_share` | The outcome with the largest shortfall, and that shortfall and share |
+| `worst`, `max_shortfall`, `max_share` | The world with the largest shortfall, and that shortfall and share |
 
 Where the evidence establishes a shortfall within the period but leaves later recovery unknown, the case
 reports the period shortfall.
@@ -407,15 +421,15 @@ reports the period shortfall.
 HubSpot is the operator's view (§9). Each deal carries the case's memo, rendered from the case in its
 current form (`briefs.py`). The memo covers:
 - a headline;
-- what has to happen (the condition, read from the event), the event's outcomes with the values the case
-  gives each, why the company earns less, and when it would feel the effect;
-- how much of the business is exposed: the baseline, each outcome's revenue, shortfall and share, the
-  formulas, and every input with its basis;
+- what has to happen (the condition), the propositions the case reads, why the company earns less, and when
+  it would feel the effect;
+- how much of the business is exposed: the baseline, each world's revenue, shortfall and share, the formulas,
+  every input with its basis, and every given value with what it rests on;
 - why reach out now, who to approach, and the opening;
 - the findings and the sources.
 
-Locally, `export OPP_ID` prints a case whole: status, company, event, case, results, sources, findings
-and revisions. Each run's transcript stays under `out/runs/`.
+Locally, `export CASE_ID` prints a case whole: status, company, propositions, case, results, sources,
+findings and revisions. Each run's transcript stays under `out/runs/`.
 
 ## 9. HubSpot
 
@@ -425,7 +439,8 @@ what is requested there.
 **Records.**
 - **Company.** Matched by domain, else by name, and created with its name, domain and description. A
   company already in HubSpot is linked, never overwritten.
-- **Deal.** One per case, matched by `distress_opportunity_id` and named "company: event". It carries
+- **Deal.** One per case, matched by `distress_opportunity_id` (the case's ID) and named "company: stream ·
+  event". It carries
   these properties in the "Distress signals" group:
   - the case's fields: `distress_opportunity_id`, `distress_status`, `distress_priority`, `distress_event`,
     `distress_event_date`, `distress_condition`, `distress_dependency`, `distress_timing`,
@@ -576,11 +591,11 @@ python -m distress_signals export-guide RUN_ID [--out FOLDER]
 python -m distress_signals research
 python -m distress_signals research --company NAME [--company NAME ...] [--workers N]
 python -m distress_signals research --event TEXT | --source URL | --lead LEAD_ID | --brief FILE
-python -m distress_signals refresh OPP_ID
+python -m distress_signals refresh CASE_ID
     any research or refresh: [--question TEXT] [--model MODEL] [--timeout MINUTES]
-python -m distress_signals push-hubspot [OPP_ID ...] [--dry-run]
+python -m distress_signals push-hubspot [CASE_ID ...] [--dry-run]
 python -m distress_signals pull-outcomes
-python -m distress_signals export OPP_ID
+python -m distress_signals export CASE_ID
 python -m distress_signals leads
 python -m distress_signals show ID_OR_QUERY
 python -m distress_signals transcript RUN_ID
@@ -611,11 +626,11 @@ python -m distress_signals ledgers [--verify]
 | `config/briefs/` | Briefs, each used only when selected |
 | `config/exclude.yaml`, `exclude.local.yaml` | Companies left aside |
 | `config/ledgers.yaml`, `config/legistar.yaml` | The payment ledgers; the city and county councils on Legistar |
-| `docs/model.md` | The model: the event and its outcomes, the case, the calculation, settlement, the seam with event-risk, and which parts are built |
-| `distress_signals/models.py` | Company, event, way, case, input and its basis, finding, observation |
-| `distress_signals/outcomes.py` | An event's outcomes: the tree, each outcome's words and the outcome it lies within, and a case's condition |
+| `docs/model.md` | The model: propositions and their links, the case, its worlds and figures, the bases, the seam with event-risk, the cases the build passes, and which parts are built |
+| `distress_signals/models.py` | Company, proposition, case, input and its basis, given value, finding, observation |
+| `distress_signals/worlds.py` | Propositions held flat; what the level fields say; the propositions a case reads, its worlds, and each input's value in each world |
 | `distress_signals/db.py` | Schema, migrations, records, workspace tables, findings, revisions, runs, leads |
-| `distress_signals/forms.py` | A saved case as it reads now: its results computed again on its event |
+| `distress_signals/forms.py` | A saved case as it reads now: its figures computed again on the propositions as they stand |
 | `distress_signals/tools.py` | The seven tools' functions |
 | `distress_signals/mcp_server.py` | The tools over MCP, with their descriptions and the tool-call log |
 | `distress_signals/exposure.py` | The calculation |
@@ -648,11 +663,10 @@ python -m distress_signals ledgers [--verify]
 6. **HubSpot as the surface.** Delivery on save, the researcher's view of HubSpot, runs requested in HubSpot,
    the worker as a background service. Built.
 7. **Docs.** The README and `docs/hubspot.md`: using it from HubSpot.
-8. **The model.** `docs/model.md` section 9 lists its parts in order. Events and ways as claims, a case's one
-   formula with its inputs and their values by outcome, and each case's dated estimate printed with its event:
-   built. Then, in order: the event and each case's estimate written in event-risk's terms; what the analyst
-   learns on changing one value and on giving an outcome ways. The whole is then tried on runs on new,
-   unrelated subjects.
+8. **The model.** `docs/model.md` section 10 lists its parts in order. Propositions in one shape with their
+   links, a case's events, model and given values, its worlds and their figures: built. Then, in order: the
+   document that crosses to event-risk; changing one value of a saved case, with each figure before and after.
+   The whole is then tried on runs on new, unrelated subjects.
 
 ## 14. Mandate and briefs
 

@@ -1,6 +1,6 @@
 """The record shapes, declared once. The tools' input schemas, the store and the exports all use
-these. What the researcher states is validated here; what code derives (results) is not part of
-these inputs."""
+these. What the researcher states is validated here; what code derives (worlds, figures) is not part of
+these inputs. docs/model.md states what each shape means."""
 
 from __future__ import annotations
 
@@ -8,10 +8,9 @@ import datetime as dt
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, create_model, model_validator
 
 SLUG = r"^[a-z0-9][a-z0-9-]{1,80}$"
-NAME = r"^[a-z][a-z0-9_]{1,40}$"
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -59,81 +58,103 @@ class Company(Strict):
     contacts: list[Person] = Field(default=[], description="People at the company found in public business sources")
 
 
-# ---------- event ----------
+# ---------- propositions ----------
 
-SIDES = ("yes", "no")
-Kind = Literal["scheduled_decision", "hitting", "level_at_date"]
-KIND = ("scheduled_decision: a decision scheduled on window_end; hitting: true where it happens at any time through "
-        "window_end; level_at_date: a level on window_end")
+LEVELS = (">", ">=", "<", "<=", "==")
 
 
-class Way(Strict):
-    """One way an outcome can turn out: a claim of its own, stated as the event is."""
-    key: str = Field(pattern=SLUG, description="A short identifier for this outcome, in lowercase letters, digits and "
-                                               "hyphens, unique within the event; it stays the same when the wording "
-                                               "is revised")
+class Proposition(Strict):
+    """A claim that will turn out true or false: an event, a way an event or another claim can turn out, or
+    what a company or the parties around it do once an outcome is known. One shape for all of them; its
+    ways and its links tell them apart."""
+    key: str = Field(pattern=SLUG, description="A short identifier, in lowercase letters, digits and hyphens, unique "
+                                               "among all saved propositions; it stays the same when the wording is "
+                                               "revised")
+    side: Literal["yes", "no"] | None = Field(None, description="On a way of an event: the side of the event it divides, "
+                                                                "'yes' where left out")
     title: str = Field(description="The claim, in a few words")
     text: str = Field(description="The claim in full: what would make it true")
-    kind: Kind = Field(description=KIND)
+    kind: Literal["scheduled_decision", "hitting", "level_at_date"] = Field(
+        description="scheduled_decision: a decision scheduled on window_end; hitting: true where it happens at any "
+                    "time through window_end; level_at_date: a level on window_end")
     window_start: dt.date | None = Field(None, description="For a hitting claim, the first day it counts from")
     window_end: dt.date = Field(description="The date it is decided on or by")
-    resolution_source: str = Field(description="The record that will show whether it turned out true: its publisher, "
-                                               "and the document, docket or data it will appear in")
-    ways: list[Way] = Field(default=[], description="The ways this outcome can itself turn out. They exclude one another "
-                                                    "and together make up this outcome")
-
-
-Way.model_rebuild()
-
-
-class Event(Strict):
-    """An upcoming event outside the companies' control, stated as a claim that will turn out true or false.
-    Its outcomes are its two sides, 'yes' (the claim is true) and 'no' (it is false), and all their ways.
-    Several companies can depend on the same event; each case gives its inputs' values in the outcomes that
-    change its own revenue."""
-    id: str | None = Field(None, description="The saved event's ID; when given, it must be the event the key names")
-    key: str = Field(pattern=SLUG, description="A short identifier for the event, in lowercase letters, digits and "
-                                               "hyphens; it stays the same when the event is revised")
-    title: str = Field(description="The claim, in a few words")
-    text: str = Field(description="The claim in full: what would make the event true")
-    description: str = Field(description="Who or what decides it, and how")
-    kind: Kind = Field(description=KIND)
-    window_start: dt.date | None = Field(None, description="For a hitting claim, the first day it counts from")
-    window_end: dt.date = Field(description="The date it is decided on or by")
-    timing: str | None = Field(None, description="The steps between now and window_end, each with its date and how "
-                                                 "firm that date is")
-    resolution_source: str = Field(description="The record that will show how it turned out: its publisher, and the "
-                                               "document, docket or data it will appear in")
-    yes_ways: list[Way] = Field(default=[], description="The ways the 'yes' side can turn out, where what follows for a "
-                                                        "company differs between them, each a claim of its own. A "
-                                                        "side's ways exclude one another and together make up the "
-                                                        "side. Left empty, the side is one outcome")
-    no_ways: list[Way] = Field(default=[], description="The ways the 'no' side can turn out, by the same rule")
-    evidence: list[Cite] = Field(default=[], description="Passages that establish what the event is, when it is "
+    comparison: Literal[">", ">=", "<", "<=", "==", "occurs"] = Field(
+        "occurs", description="occurs where the claim is true when something happens. Where it is about a level: one of "
+                              ">, >=, <, <= and ==, with metric and value")
+    metric: str | None = Field(None, description="For a claim about a level: a short identifier of the quantity, the "
+                                                 "same on every proposition about that quantity")
+    unit: str | None = Field(None, description="The metric's unit")
+    value: float | None = Field(None, description="The threshold the comparison is made against")
+    upper_comparison: Literal["<", "<="] | None = Field(None, description="A band's upper end: with comparison > or >= "
+                                                                          "its lower end")
+    upper_value: float | None = Field(None, description="The band's upper threshold")
+    resolution_source: str | None = Field(None, description="Where a record will show how it turned out, that record: "
+                                                            "its publisher, and the document, docket or data it will "
+                                                            "appear in")
+    description: str | None = Field(None, description="Who or what decides it, and how")
+    timing: str | None = Field(None, description="The steps between now and window_end, each with its date and how firm "
+                                                 "that date is")
+    evidence: list[Cite] = Field(default=[], description="Passages that establish what the claim is, when it is "
                                                          "decided, and what bears on how it turns out")
+    implies: list[str] = Field(default=[], description="Keys of propositions that are true wherever this one is. A "
+                                                       "claim about what follows an outcome implies that outcome")
+    implies_not: list[str] = Field(default=[], description="Keys of propositions that are false wherever this one is "
+                                                           "true")
+    ways: list[Proposition] = Field(default=[], description="The ways it can turn out, each a proposition of its own. "
+                                                            "The ways beside one another exclude one another and "
+                                                            "together make up what they divide. A way divides an "
+                                                            "outcome for every case that reads it")
 
     @model_validator(mode="after")
-    def _outcomes(self):
-        seen = set(SIDES)
-
-        def walk(ways, within):
-            if len(ways) == 1:
-                raise ValueError(f"'{within}' has one way, {ways[0].key!r}. The ways of an outcome exclude one another "
-                                 f"and together make up the outcome, so one way alone is the outcome itself: give the "
-                                 f"other ways '{within}' can turn out, or leave '{within}' whole")
-            for w in ways:
-                if w.key in seen:
-                    raise ValueError(f"outcome key {w.key!r} is used twice; 'yes' and 'no' are the sides' keys, and each "
-                                     "way's key is unique within the event")
-                seen.add(w.key)
-                walk(w.ways, w.key)
-
-        walk(self.yes_ways, "yes")
-        walk(self.no_ways, "no")
+    def _level(self):
+        if self.comparison == "occurs":
+            if any(x is not None for x in (self.value, self.upper_comparison, self.upper_value)):
+                raise ValueError(f"{self.key}: a claim that occurs has no value; a claim about a level states its "
+                                 "comparison")
+        else:
+            if self.metric is None or self.value is None:
+                raise ValueError(f"{self.key}: a claim about a level states its metric and its value")
+            if (self.upper_comparison is None) != (self.upper_value is None):
+                raise ValueError(f"{self.key}: a band states both upper_comparison and upper_value")
+            if self.upper_comparison and self.comparison not in (">", ">="):
+                raise ValueError(f"{self.key}: a band's lower end is > or >=")
         return self
 
 
-# ---------- opportunity ----------
+Proposition.model_rebuild()
+
+
+def check_propositions(roots):
+    """The rules a proposition given in full follows with its ways: keys used once, a side named only on a
+    way of the proposition itself, and no way alone beside nothing."""
+    seen = set()
+
+    def walk(p, depth):
+        if p.key in seen:
+            raise ValueError(f"the key {p.key!r} is used twice; a key names one proposition")
+        seen.add(p.key)
+        if depth != 1 and p.side is not None:
+            raise ValueError(f"{p.key}: side is named on a way of a proposition that is not itself a way")
+        for side in ("yes", "no"):
+            group = [w for w in p.ways if (w.side or "yes") == side]
+            if depth > 0 and side == "no" and group:
+                raise ValueError(f"{p.key}: the ways of a way divide it; they name no side")
+            if len(group) == 1:
+                raise ValueError(f"{group[0].key!r} is the only way of {p.key!r}"
+                                 + (" on its No side" if side == "no" else "") + ". The ways beside one another exclude "
+                                 "one another and together make up what they divide, so one way alone is the whole: "
+                                 "give the other ways, or none")
+        for w in p.ways:
+            walk(w, depth + 1)
+
+    for r in roots:
+        if r.side is not None:
+            raise ValueError(f"{r.key}: side is named on a way, inside the proposition it divides")
+        walk(r, 0)
+
+
+# ---------- the case ----------
 
 class Assumption(Strict):
     """What an assumed value rests on."""
@@ -151,14 +172,19 @@ class Cell(Strict):
 
 
 class Input(Strict):
-    """A figure the formulas use, with exactly one basis. Its value is its value in the baseline."""
+    """A figure the formulas use, with exactly one basis. Its value is its value over the case's period in the
+    baseline."""
     unit: str = Field(description="What the figure counts or measures")
-    value: float | None = Field(None, description="The figure. An amount of money is in whole units of the case's "
-                                                  "currency. Leave it out where result gives it: the store reads it")
-    source: Cite | None = Field(None, description="Observed in words: the passage that states the figure")
+    value: float | None = Field(None, description="The figure, over the case's period. An amount of money is in whole "
+                                                  "units of the case's currency. Leave it out where result gives it: "
+                                                  "the store reads it")
+    source: Cite | None = Field(None, description="Observed in words: the passage that states the figure for the "
+                                                  "case's period")
     result: Cell | None = Field(None, description="Observed by query: the cell of a saved compute result that holds the "
                                                   "figure")
-    assumption: Assumption | None = Field(None, description="Assumed: what the figure rests on")
+    assumption: Assumption | None = Field(None, description="Assumed: what the figure rests on. A figure a record "
+                                                            "states for an earlier period, carried into the case's "
+                                                            "period, is assumed and rests on that record")
     note: str | None = Field(None, description="Anything else a reader needs to interpret the figure")
 
     @model_validator(mode="after")
@@ -170,27 +196,25 @@ class Input(Strict):
         return self
 
 
-class Given(Strict):
-    """An input's value in one outcome of the event."""
-    value: float = Field(description="The input's value in that outcome")
+class Value(Strict):
+    value: float = Field(description="The value the input takes")
     assumption: Assumption = Field(description="What that value rests on")
 
 
-FORMULAS = ("revenue", "contribution", "deferred_past_period", "cash_delayed")
+class Given(Strict):
+    """The values some inputs take given some propositions true and others false."""
+    given: list[str] = Field(default=[], description="Keys of the propositions that are true")
+    given_not: list[str] = Field(default=[], description="Keys of the propositions that are false")
+    values: dict[str, Value] = Field(min_length=1, description="The inputs that take another value there, by name")
 
-
-def check_structure(inputs, by_outcome):
-    """The rules inputs and the values given by outcome follow, for a calculation and a saved case alike."""
-    bad = [k for k in inputs if not IDENT.match(k)]
-    if bad:
-        raise ValueError(f"input names must be identifiers: {bad}")
-    for outcome, values in by_outcome.items():
-        if not values:
-            raise ValueError(f"by_outcome.{outcome}: give the inputs that take another value in this outcome")
-        unknown = [k for k in values if k not in inputs]
-        if unknown:
-            raise ValueError(f"by_outcome.{outcome}: no input named {', '.join(unknown)}; an outcome gives another value "
-                             "to an input the case states")
+    @model_validator(mode="after")
+    def _condition(self):
+        if not self.given and not self.given_not:
+            raise ValueError("a given value names at least one proposition, in given or given_not")
+        both = sorted(set(self.given) & set(self.given_not))
+        if both:
+            raise ValueError(f"{', '.join(both)} named in given and in given_not")
+        return self
 
 
 class Period(Strict):
@@ -227,39 +251,59 @@ class Evidence(Cite):
     supports: str = Field(description="What this passage establishes")
 
 
-class Opportunity(Strict):
-    """A case for contacting a company: one company, one event, one affected revenue stream. Its model is one
-    revenue formula over its inputs, and the inputs' values in each outcome of the event that changes them."""
-    opportunity_id: str | None = Field(None, description="The saved case's ID, when revising it")
+FORMULAS = ("revenue", "contribution", "deferred_past_period", "cash_delayed")
+
+
+def check_model(inputs, given_values):
+    """The rules a case's model follows, for a calculation and a saved case alike."""
+    bad = [k for k in inputs if not IDENT.match(k)]
+    if bad:
+        raise ValueError(f"input names must be identifiers: {bad}")
+    for i, g in enumerate(given_values):
+        unknown = [k for k in g.values if k not in inputs]
+        if unknown:
+            raise ValueError(f"given_values[{i}]: no input named {', '.join(unknown)}; a given value sets an input the "
+                             "case states")
+
+
+class Case(Strict):
+    """A case for contacting a company: one company, one revenue stream, and the event or events the stream
+    depends on. Its model is one revenue formula, its inputs, and the values they take given outcomes."""
+    case_id: str | None = Field(None, description="The saved case's ID, when revising it")
     company: Company | str = Field(description="The company, in full or by saved ID")
-    event: Event | str = Field(description="The event, in full or by saved key or ID")
+    events: list[str] = Field(min_length=1, description="The key of the event the case is about: the proposition, "
+                                                        "upcoming and outside the company's control, that this revenue "
+                                                        "depends on. Two keys where two events are read together on "
+                                                        "one stream")
     stream_key: str = Field(pattern=SLUG, description="A short identifier for the affected revenue stream, in lowercase "
                                                       "letters, digits and hyphens")
-    stream: str = Field(description="The revenue stream that depends on the event")
-    dependency: str = Field(description="Why the company earns less in those outcomes: the contract, customer, "
-                                        "program, facility or channel through which they reach revenue")
+    stream: str = Field(description="The business activity whose revenue depends on the events")
+    dependency: str = Field(description="Why the company earns less in those worlds: the contract, customer, program, "
+                                        "facility or channel through which the events reach the revenue")
     timing: str = Field(description="When the company would feel the effect")
     period: Period
     currency: str = Field(pattern=r"^[A-Z]{3}$", description="The currency of the amounts of money, as an ISO code; "
                                                             "amounts are in whole units of it")
     revenue: str = Field(description="Formula: the revenue the company would recognize within the period, including "
                                      "work or sales made up within it. At the inputs' values it gives the baseline; "
-                                     "with an outcome's values, the revenue in that outcome")
+                                     "at their values in a world, the revenue there")
     contribution: str | None = Field(None, description="Formula: that revenue less the costs that change with it")
     deferred_past_period: str | None = Field(None, description="Formula: revenue the company would recognize after the "
                                                                "period instead of within it. Leave out when later "
                                                                "recovery is unknown")
     cash_delayed: str | None = Field(None, description="Formula: cash the company would collect later than it otherwise "
                                                        "would; a timing effect, not lost revenue")
-    inputs: dict[str, Input] = Field(description="The figures the formulas use, by name, each at its value in the "
-                                                 "baseline")
-    by_outcome: dict[str, dict[str, Given]] = Field(
-        min_length=1, description="For each outcome of the event that changes this revenue, by the outcome's key ('yes', "
-                                  "'no' or a way's key): the inputs that take another value there. An outcome's values "
-                                  "hold in its ways, and a way gives the values that differ further. These outcomes are "
-                                  "the case's condition: what has to happen for this revenue to be affected")
+    inputs: dict[str, Input] = Field(description="The figures the formulas use, by name, each at its value over the "
+                                                 "period in the baseline")
+    given_values: list[Given] = Field(min_length=1, description="Each says: given these propositions true and these "
+                                                                "false, these inputs take these values. The case's "
+                                                                "worlds are the combinations of its events and of the "
+                                                                "propositions named here that the links allow; a way "
+                                                                "named brings the ways beside it. In each world an "
+                                                                "input takes the most specific given value that holds "
+                                                                "there, and otherwise its own value")
     denominator: Denominator | None = None
-    case: Reasons = Field(description="Why the company is worth contacting, and when")
+    reasons: Reasons = Field(description="Why the company is worth contacting, and when")
     buyer: Person = Field(description="The person to approach")
     outreach: Outreach
     evidence: list[Evidence] = Field(default=[], description="Passages that support the case's other claims")
@@ -268,37 +312,20 @@ class Opportunity(Strict):
 
     @model_validator(mode="after")
     def _consistent(self):
-        check_structure(self.inputs, self.by_outcome)
-        return self
+        return _consistent(self)
 
 
-class Calculation(Strict):
-    """A draft of the parts calculate_exposure needs."""
-    event: Event | str | None = Field(None, description="The event, in full or by saved key or ID. With it, each outcome "
-                                                        "named is checked against the event, and an outcome's values "
-                                                        "hold in its ways")
-    revenue: str = Field(description="Formula: the revenue the company would recognize within the period, including "
-                                     "work or sales made up within it. At the inputs' values it gives the baseline; "
-                                     "with an outcome's values, the revenue in that outcome")
-    contribution: str | None = Field(None, description="Formula: that revenue less the costs that change with it")
-    deferred_past_period: str | None = Field(None, description="Formula: revenue the company would recognize after the "
-                                                               "period instead of within it. Leave out when later "
-                                                               "recovery is unknown")
-    cash_delayed: str | None = Field(None, description="Formula: cash the company would collect later than it otherwise "
-                                                       "would; a timing effect, not lost revenue")
-    inputs: dict[str, Input] = Field(description="The figures the formulas use, by name, each at its value in the "
-                                                 "baseline")
-    by_outcome: dict[str, dict[str, Given]] = Field(
-        min_length=1, description="For each outcome of the event that changes this revenue, by the outcome's key ('yes', "
-                                  "'no' or a way's key): the inputs that take another value there. An outcome's values "
-                                  "hold in its ways, and a way gives the values that differ further. These outcomes are "
-                                  "the case's condition: what has to happen for this revenue to be affected")
-    denominator: Denominator | None = None
+def _consistent(m):
+    check_model(m.inputs, m.given_values)
+    if len(set(m.events)) != len(m.events):
+        raise ValueError("events: a key is named twice")
+    return m
 
-    @model_validator(mode="after")
-    def _consistent(self):
-        check_structure(self.inputs, self.by_outcome)
-        return self
+
+MODEL_FIELDS = ("events", *FORMULAS, "inputs", "given_values", "denominator")
+Draft = create_model("Draft", __base__=Strict, __doc__="A draft of a case's model, for calculate_exposure.",
+                     __validators__={"_consistent": model_validator(mode="after")(_consistent)},
+                     **{k: (Case.model_fields[k].annotation, Case.model_fields[k]) for k in MODEL_FIELDS})
 
 
 # ---------- findings: research kept before it is a case ----------
@@ -309,10 +336,10 @@ class Finding(Strict):
                     "what is still open; dropped: a company, dependency or lead set aside")
     statement: str = Field(min_length=10, description="The finding, with its reasons")
     company: Company | str | None = Field(None, description="The company it concerns, in full or by saved ID")
-    event: Event | str | None = Field(None, description="The event it concerns, in full or by saved key or ID")
-    opportunity_id: str | None = Field(None, description="The saved case it concerns")
-    withdraw_case: bool = Field(False, description="Withdraw the case named by opportunity_id from the active queue; "
-                                                   "the finding records why")
+    proposition: str | None = Field(None, description="The key of the proposition it concerns")
+    case_id: str | None = Field(None, description="The saved case it concerns")
+    withdraw_case: bool = Field(False, description="Withdraw the case named by case_id from the active queue; the "
+                                                   "finding records why")
     evidence: list[Cite] = Field(default=[], description="Passages it rests on; a fact needs at least one")
     results: list[str] = Field(default=[], description="Workspace results it rests on")
     supersedes: str | None = Field(None, description="An earlier finding this one replaces")
@@ -321,8 +348,8 @@ class Finding(Strict):
     def _basis(self):
         if self.kind == "fact" and not self.evidence:
             raise ValueError("a fact cites the passage that states it")
-        if self.withdraw_case and not self.opportunity_id:
-            raise ValueError("withdraw_case needs the opportunity_id of the case to withdraw")
+        if self.withdraw_case and not self.case_id:
+            raise ValueError("withdraw_case needs the case_id of the case to withdraw")
         return self
 
 

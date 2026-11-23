@@ -1,22 +1,21 @@
-"""Exposure arithmetic: the revenue at stake in each outcome a case gives values for. The researcher
-states one revenue formula, the inputs at their values in the baseline, and for each outcome of the event
-that changes the revenue, the inputs that take another value there; this computes every result. A formula
-is an expression over input names: numbers, + - * /, parentheses, min() and max(). Nothing else is
-evaluated.
+"""Exposure arithmetic: the revenue at stake in each world of a case (docs/model.md section 4). The
+researcher states one revenue formula, the inputs at their values in the baseline, and the values the
+inputs take given outcomes; this computes every figure. A formula is an expression over input names:
+numbers, + - * /, parentheses, min() and max(). Nothing else is evaluated.
 
-compute() is the one calculation, used by calculate_exposure, save_opportunity and every read of a
-saved case.
+compute() is the one calculation, used by calculate_exposure, save_case and every read of a saved case.
 
-The baseline is the formula at the inputs' values. An outcome's revenue is the formula with that outcome's
-values in place of the baseline's; an outcome's values hold in its ways, and a way's own are applied over
-them. Revenue is what the company recognizes within the period, work or sales made up within the period
-included. The shortfall is the baseline's revenue less the outcome's. Revenue deferred past the period is
-recognized later; lost revenue is the shortfall less that deferral, and is reported only when the
-deferral is stated, because otherwise later recovery is unknown. Cash delayed is a timing effect on
-collections, reported apart."""
+The baseline is the formula at the inputs' values. A world's revenue is the formula at the inputs' values
+there (worlds.py). Revenue is what the company recognizes within the period, work or sales made up within
+the period included. The shortfall is the baseline's revenue less the world's. Revenue deferred past the
+period is recognized later; lost revenue is the shortfall less that deferral, and is reported only when
+the deferral's formula is given, because otherwise later recovery is unknown. Cash delayed is a timing
+effect on collections, reported apart."""
 
 import ast
 import operator
+
+from . import worlds
 
 _BIN = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv}
 _FUNCS = {"min": min, "max": max}
@@ -57,49 +56,46 @@ def evaluate(formula, values):
     return ev(tree)
 
 
-def compute(inputs, formulas, by_outcome, denominator=None, within=None):
-    """inputs {name: value}; formulas {revenue, contribution?, deferred_past_period?, cash_delayed?};
-    by_outcome {outcome key: {input name: value}}; denominator {label, formula} or None; within {outcome
-    key: the key of the outcome it lies within, or None}, from the event. Returns (results, warnings);
-    raises FormulaError for a formula that can't be computed."""
-    if not by_outcome:
-        raise ValueError("give the inputs' values in at least one outcome")
-    within, warnings = within or {}, []
-    den = None
-    if denominator:
-        den = evaluate(denominator["formula"], inputs)
+def compute(case, props):
+    """case: events, the formulas, inputs {name: {value, ...}}, given_values, denominator. props: the saved
+    propositions, flat (worlds.flatten). Returns (results, warnings); raises FormulaError for a formula that
+    can't be computed and worlds.Unstated where the statements don't determine a figure."""
+    inputs = {k: v["value"] for k, v in case["inputs"].items()}
+    given = [{"given": g.get("given") or [], "given_not": g.get("given_not") or [],
+              "values": {k: v["value"] for k, v in g["values"].items()}} for g in case["given_values"]]
+    read = worlds.reads(props, case["events"], given)
+    every = worlds.worlds(props, read)
+    told = [worlds.describe(props, case["events"], read, every, w) for w in every]
+    by_world = worlds.values(every, inputs, given, [label for _, label, _ in told])
+    warnings, den = [], None
+    if case.get("denominator"):
+        den = evaluate(case["denominator"]["formula"], inputs)
         if den <= 0:
-            raise FormulaError(f"denominator {denominator['formula']!r} is {den}, not positive")
+            raise FormulaError(f"denominator {case['denominator']['formula']!r} is {den}, not positive")
     else:
         warnings.append("No denominator, so the shortfall isn't expressed as a share.")
-    opt = lambda k, values: evaluate(formulas[k], values) if formulas.get(k) else None  # noqa: E731
-    base_rev, base_con = evaluate(formulas["revenue"], inputs), opt("contribution", inputs)
+    opt = lambda k, at: evaluate(case[k], at) if case.get(k) else None  # noqa: E731
+    base_rev, base_con = evaluate(case["revenue"], inputs), opt("contribution", inputs)
     rows = []
-    for key in by_outcome:
-        above, at = [], within.get(key)
-        while at is not None:          # the outcomes this one lies within, nearest first
-            above.append(at)
-            at = within.get(at)
-        values = dict(inputs)
-        for k in [*reversed(above), key]:
-            values.update(by_outcome.get(k) or {})
-        rev = evaluate(formulas["revenue"], values)
+    for (which, label, text), at in zip(told, by_world):
+        rev = evaluate(case["revenue"], at)
         shortfall = base_rev - rev
-        deferred, con = opt("deferred_past_period", values), opt("contribution", values)
+        deferred, con = opt("deferred_past_period", at), opt("contribution", at)
         lost = shortfall - deferred if deferred is not None else None
-        rows.append({"outcome": key, "revenue": rev, "shortfall": shortfall,
-                     "share": shortfall / den if den else None, "deferred_past_period": deferred, "lost": lost,
+        rows.append({"world": which, "label": label, "text": text,
+                     "values": {k: v for k, v in at.items() if v != inputs[k]},
+                     "revenue": rev, "shortfall": shortfall, "share": shortfall / den if den else None,
+                     "deferred_past_period": deferred, "lost": lost,
                      "lost_share": lost / den if den and lost is not None else None,
                      "contribution_loss": base_con - con if con is not None else None,
-                     "cash_delayed": opt("cash_delayed", values)})
-        if shortfall < 0:
-            warnings.append(f"{key}: revenue is higher than the baseline (shortfall {shortfall:,.0f}).")
+                     "cash_delayed": opt("cash_delayed", at)})
         if deferred is not None and deferred > shortfall + 1e-6:
-            warnings.append(f"{key}: revenue deferred past the period ({deferred:,.0f}) is more than the shortfall "
+            warnings.append(f"{label}: revenue deferred past the period ({deferred:,.0f}) is more than the shortfall "
                             f"within it ({shortfall:,.0f}); the deferral is part of that shortfall.")
     worst = max(rows, key=lambda r: r["shortfall"])
     known = [r["lost"] for r in rows if r["lost"] is not None]
-    return {"baseline_revenue": base_rev, "baseline_contribution": base_con,
-            "denominator": {"label": denominator["label"], "value": den} if denominator else None,
-            "outcomes": rows, "worst": worst["outcome"], "max_shortfall": worst["shortfall"], "max_share": worst["share"],
-            "max_lost": max(known) if known else None}, warnings
+    return {"reads": read, "baseline_revenue": base_rev, "baseline_contribution": base_con,
+            "denominator": {"label": case["denominator"]["label"], "value": den} if case.get("denominator") else None,
+            "worlds": rows, "worst": worst["label"], "max_shortfall": worst["shortfall"], "max_share": worst["share"],
+            "max_lost": max(known) if known else None,
+            "condition": " Or: ".join(r["text"] for r in rows if abs(r["shortfall"]) > 1e-9)}, warnings

@@ -184,7 +184,7 @@ def add_note(obj, hs_id, body_html):
 def _case_note(con, c, action):
     """The timeline note for a case's deal when it is proposed, revised to a new revision, or withdrawn,
     each once; and what to remember about it. (None, {}) when there is nothing new to say."""
-    prog = (db.get_opportunity(con, c["id"]) or {}).get("progress") or {}
+    prog = (db.get_case(con, c["id"]) or {}).get("progress") or {}
     rev, change = c["row"]["revision"], (c["revisions"][-1]["change_note"] if c["revisions"] else "")
     if c["status"] == "withdrawn":
         if prog.get("noted_withdrawn"):
@@ -302,17 +302,17 @@ def _stream_label(c):
 def deal_properties(c):
     """The deal's case properties for a case in its current form (briefs.cases). The stage, the outcome
     and the run fields are not among them."""
-    case, res, co, ev = c["case"], c["results"], c["company"], c["event"]
-    reasons, buyer = case["case"], case["buyer"]
+    case, res, co = c["case"], c["results"], c["company"]
+    reasons, buyer = case["reasons"], case["buyer"]
     person = ", ".join(x for x in (buyer.get("name"), buyer.get("title")) if x)
     return _blank({
         # company, then the revenue stream (a company can have several cases on one event), then the event
-        "dealname": f"{co['name']}: {_stream_label(c)} · {ev['title']}",
+        "dealname": f"{co['name']}: {_stream_label(c)} · {briefs.event_title(c)}",
         "distress_opportunity_id": c["id"],
         "distress_status": c["status"],
         "distress_priority": reasons["priority"],
-        "distress_event": ev["title"],
-        "distress_event_date": ev.get("window_end"),
+        "distress_event": briefs.event_title(c),
+        "distress_event_date": briefs.event_date(c),
         "distress_condition": c["condition"],
         "distress_dependency": case["dependency"],
         "distress_timing": case["timing"],
@@ -434,7 +434,7 @@ def _deliver(con, c, dry_run=False, planned=None):
                 return "written", f"{c['id']} {name}: deal unchanged; contact {hs_contact} {ct_action}"
         return "unchanged", None
     if dry_run:
-        planned.append({"opportunity_id": c["id"], "deal": deal, "contact": person,
+        planned.append({"case_id": c["id"], "deal": deal, "contact": person,
                         "company": {k: c["company"].get(k) for k in ("name", "domain", "description")}})
         return "planned", f"{c['id']} {name}: would {'update' if prior else 'create'} the deal" + ("" if person else " (no named person)")
     hs_company, co_action = _hs_company(con, c["row"]["company_id"], c["company"]["name"], c["company"].get("domain"), c["company"])
@@ -450,16 +450,16 @@ def _deliver(con, c, dry_run=False, planned=None):
             add_note("deals", hs_deal, note)
         if mark:
             with db.write(con):
-                db.set_progress(con, c["id"], ((db.get_opportunity(con, c["id"]) or {}).get("progress") or {}) | mark)
+                db.set_progress(con, c["id"], ((db.get_case(con, c["id"]) or {}).get("progress") or {}) | mark)
     return "written", (f"{c['id']} {name}: deal {hs_deal} {deal_action}; company {hs_company} {co_action}; "
                        f"contact {hs_contact or '-'} {ct_action}")
 
 
-def sync_case(opportunity_id):
+def sync_case(case_id):
     """Deliver one case now; the save and withdraw tools call it. Reports to stderr only."""
     con = db.connect()
     try:
-        for c in briefs.cases(con, [opportunity_id]):
+        for c in briefs.cases(con, [case_id]):
             _, line = _deliver(con, c)
             if line:
                 print(line, file=sys.stderr)
@@ -467,15 +467,15 @@ def sync_case(opportunity_id):
         con.close()
 
 
-def push(opportunity_ids=None, dry_run=False, quiet=False):
+def push(case_ids=None, dry_run=False, quiet=False):
     """Deliver cases: the ones named, or every active case plus any delivered case that changed (a
     withdrawn case updates its deal). A withdrawn case that was never delivered is left out."""
     con = db.connect()
-    cases = {c["id"]: c for c in briefs.cases(con, opportunity_ids or None)}
-    missing = [i for i in opportunity_ids or [] if i not in cases]
+    cases = {c["id"]: c for c in briefs.cases(con, case_ids or None)}
+    missing = [i for i in case_ids or [] if i not in cases]
     if missing:
         raise SystemExit(f"no saved case {', '.join(missing)}")
-    chosen = [cases[i] for i in opportunity_ids] if opportunity_ids else \
+    chosen = [cases[i] for i in case_ids] if case_ids else \
         [c for c in cases.values() if c["status"] == "active" or _delivered(con, "deal", c["id"])]
     planned, counts = [], {}
     for c in chosen:
@@ -615,10 +615,10 @@ def propose_leads(leads, run_id):
 
 # ---------- outcomes ----------
 
-def apply_outcome(con, opportunity_id, progress):
+def apply_outcome(con, case_id, progress):
     """Record a deal's stage, outcome and note on its case: the case's progress, and a revision whose
     change note says what HubSpot shows. Returns the note, or None when nothing worth a revision changed."""
-    opp = db.get_opportunity(con, opportunity_id)
+    opp = db.get_case(con, case_id)
     if opp is None:
         return None
     old = opp["progress"] or {}
@@ -627,18 +627,18 @@ def apply_outcome(con, opportunity_id, progress):
     moved = old.get("stage") is not None and old.get("stage") != progress.get("stage")
     if not moved and (old.get("outcome"), old.get("outcome_note")) == (progress.get("outcome"), progress.get("outcome_note")):
         with db.write(con):  # only the deal ID or a first reading of the stage: no revision
-            db.set_progress(con, opportunity_id, old | progress)
+            db.set_progress(con, case_id, old | progress)
         return None
     parts = [f"stage {progress['stage']}"] if progress.get("stage") else []
     if progress.get("outcome"):
         parts.append(f"outcome {progress['outcome']}" + (f": {progress['outcome_note']}" if progress.get("outcome_note") else ""))
     note = "From HubSpot: " + ("; ".join(parts) or "outcome cleared")
     with db.write(con):
-        last = db.latest_revision(con, opportunity_id)
+        last = db.latest_revision(con, case_id)
         revision = opp["revision"] + 1
-        db.add_revision(con, opportunity_id, revision, last["hash"], note, last["snapshot"])
-        con.execute("UPDATE opportunities SET revision=? WHERE id=?", (revision, opportunity_id))
-        db.set_progress(con, opportunity_id, old | progress | {"pulled_at": now_iso()})
+        db.add_revision(con, case_id, revision, last["hash"], note, last["snapshot"])
+        con.execute("UPDATE cases SET revision=? WHERE id=?", (revision, case_id))
+        db.set_progress(con, case_id, old | progress | {"pulled_at": now_iso()})
     return note
 
 

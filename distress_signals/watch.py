@@ -20,7 +20,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import activityview, db, example_review, findingsview, hubspot, outcomes, sources
+from . import activityview, db, example_review, findingsview, hubspot, sources
 from .feed import _result_text, _search_label, _search_result
 from .runpage import CHART_JS, FAVICON, FOUND_JS, ICONS, LEADS_HTML, PACE, PAGE, PAGE_STEPS, SHELL_STYLE, STYLE
 from .util import OUT, load_env
@@ -28,7 +28,7 @@ from .util import OUT, load_env
 PORT = int(os.environ.get("DISTRESS_WATCH_PORT", "8790"))
 REPO = "https://github.com/owassmer/distress-signals"
 ICON = {"WebSearch": "search", "WebFetch": "web", "search_records": "search", "read_record": "read", "compute": "calc",
-        "lookup": "lookup", "calculate_exposure": "calc", "record_finding": "finding", "save_opportunity": "save",
+        "lookup": "lookup", "calculate_exposure": "calc", "record_finding": "finding", "save_case": "save",
         "StructuredOutput": "answer"}
 FINDING = {"dropped": "Proposed lead exclusion", "fact": "Source finding", "inference": "Research inference",
            "conclusion": "Research conclusion", "question": "Open research question"}
@@ -100,13 +100,13 @@ def describe(name, i):
     if name == "lookup":
         return {"label": f"Searched saved records for “{i.get('id_or_query')}”"}
     if name == "calculate_exposure":
-        return {"label": "Draft revenue scenario calculation"}
+        return {"label": "Draft revenue calculation"}
     if name == "record_finding":
         f = i.get("finding") or {}
         return {"label": "Case withdrawal request" if f.get("withdraw_case") else FINDING.get(f.get("kind"), "Recorded a finding"),
                 "text": f.get("statement"), "finding": f.get("kind")}
-    if name == "save_opportunity":
-        o = i.get("opportunity") or {}
+    if name == "save_case":
+        o = i.get("case") or {}
         return {"label": f"Case submission for {_company_name(o.get('company'))}", "text": title_label(o.get("stream_key"))}
     if name == "StructuredOutput":
         return {"label": "Run summary and follow-up leads"}
@@ -170,31 +170,31 @@ def outcome(name, i, text, is_error):
             cs = out["companies"]
             k = sum(len(c.get("cases") or []) for c in cs)
             return {"status": "ok", "meta": f"{len(cs)} matching compan{'y' if len(cs) == 1 else 'ies'}, {k} case{'s' if k != 1 else ''}"}
-        if out.get("opportunity"):
+        if out.get("case"):
             return {"status": "ok", "meta": "Saved case returned"}
-        if out.get("event_id"):
+        if out.get("proposition"):
             k = len(out.get("cases") or [])
-            return {"status": "ok", "meta": f"Event record · {k} associated case{'s' if k != 1 else ''}"}
+            return {"status": "ok", "meta": f"Proposition record · {k} associated case{'s' if k != 1 else ''}"}
         return {"status": "ok", "meta": "Saved record returned"}
     if name == "calculate_exposure":
-        n = len((out.get("results") or {}).get("outcomes") or [])
-        return {"status": "ok", "meta": f"{n} outcome{'s' if n != 1 else ''} compared with baseline" if n else None}
-    if name == "save_opportunity":
-        o, res = i.get("opportunity") or {}, out.get("results") or {}
+        n = len((out.get("results") or {}).get("worlds") or [])
+        return {"status": "ok", "meta": f"{n} world{'s' if n != 1 else ''} compared with baseline" if n else None}
+    if name == "save_case":
+        o, res = i.get("case") or {}, out.get("results") or {}
         company = _company_name(out.get("company_id") or o.get("company"))
         return {"status": "ok", "label": f"Saved case for {company}", "case": {
-            "oid": out.get("opportunity_id"), "company": company, "company_id": out.get("company_id"),
+            "oid": out.get("case_id"), "company": company, "company_id": out.get("company_id"),
             "stream": title_label(o.get("stream_key")),
             "detail": o.get("stream"), "revision": out.get("revision"), "stake": res.get("max_shortfall"),
             "share": res.get("max_share"), "of": (res.get("denominator") or {}).get("label"),
-            "currency": o.get("currency"), "deal": _deal_url(out.get("opportunity_id"))}}
+            "currency": o.get("currency"), "deal": _deal_url(out.get("case_id"))}}
     return {"status": "ok"}
 
 
-def _deal_url(opportunity_id):
+def _deal_url(case_id):
     try:
         con = db.connect()
-        d = db.get_delivery(con, hubspot.DEST, "deal", opportunity_id)
+        d = db.get_delivery(con, hubspot.DEST, "deal", case_id)
         con.close()
         return hubspot.record_url("deals", d["external_id"]) if d and hubspot.configured() else None
     except Exception:
@@ -369,34 +369,34 @@ def _case_details(oids, public=False):
     con = db.connect()
     try:
         for c in briefs.cases(con, list(oids)):
-            case, ev, res, buyer = c["case"], c["event"], c["results"], c["case"]["buyer"]
+            case, ev, res, buyer = c["case"], c["events"][0], c["results"], c["case"]["buyer"]
             cited = c.get("cited") or {}
             url_of = lambda oid: (cited.get(oid) or {}).get("url") if oid else None  # noqa: E731
 
-            def changed(key):
-                """The inputs an outcome gives another value, each with its value there."""
-                return "; ".join(f"{title_label(k)} {g['value']:,.4g}" for k, g in (case["by_outcome"].get(key) or {}).items())
+            def changed(r):
+                """The inputs that take another value in a world, each with its value there."""
+                return "; ".join(f"{title_label(k)} {v:,.4g}" for k, v in r["values"].items())
 
             out[c["id"]] = {
                 "oid": c["id"], "status": c["status"], "company": c["company"]["name"],
                 "company_id": c["row"]["company_id"], "stream": title_label(case.get("stream_key")),
-                "event": ev.get("title"), "event_date": ev.get("window_end"), "date_label": "Decided on or by",
-                "event_text": ev.get("text"), "resolution_source": ev.get("resolution_source"),
+                "event": briefs.event_title(c), "event_date": briefs.event_date(c), "date_label": "Decided on or by",
+                "event_text": " ".join(e["text"] for e in c["events"]), "resolution_source": ev.get("resolution_source"),
                 "dependency": case.get("dependency"),
-                "why_now": case["case"].get("why_now"), "stake": res.get("max_shortfall"), "share": res.get("max_share"),
+                "why_now": case["reasons"].get("why_now"), "stake": res.get("max_shortfall"), "share": res.get("max_share"),
                 "of": (res.get("denominator") or {}).get("label"), "denominator_value": (res.get("denominator") or {}).get("value"),
                 "currency": case.get("currency"),
                 "period": f"{case['period']['start']} to {case['period']['end']}",
                 "who": ", ".join(x for x in (buyer.get("name"), buyer.get("title")) if x) or buyer.get("role"),
                 "opening": (case.get("outreach") or {}).get("draft"),
                 "deal": None if public else _deal_url(c["id"]),
-                "why_matters": case["case"].get("why_matters"), "condition": c["condition"], "timing": case.get("timing"),
+                "why_matters": case["reasons"].get("why_matters"), "condition": c["condition"], "timing": case.get("timing"),
                 "event_description": ev.get("description"), "event_timing": ev.get("timing"),
                 "period_start": case["period"]["start"], "period_end": case["period"]["end"],
                 "baseline": {"revenue": res.get("baseline_revenue"), "description": None},
-                "scenarios": [{"label": outcomes.label(ev, r["outcome"]), "description": changed(r["outcome"]),
+                "scenarios": [{"label": r["label"], "description": changed(r),
                                "revenue": r.get("revenue"), "shortfall": r.get("shortfall"), "share": r.get("share")}
-                              for r in res.get("outcomes") or []],
+                              for r in res.get("worlds") or []],
                 "inputs": [_input(k, x, url_of) for k, x in (case.get("inputs") or {}).items()],
                 "evidence": [{"passage": e.get("passage"), "supports": e.get("supports"), "checked": e.get("checked"), "url": url_of(e.get("observation_id"))}
                              for e in case.get("evidence") or []],
@@ -508,7 +508,7 @@ def _index():
         end = dt.datetime.fromisoformat(r["finished"]) if r["finished"] else dt.datetime.now()
         mins = int((end - start).total_seconds() // 60)
         cost = (json.loads(r["stats"]).get("total_cost_usd") if r.get("stats") else None)
-        n = len(json.loads(r["opportunity_ids"] or "[]"))
+        n = len(json.loads(r["case_ids"] or "[]"))
         pill = '<span class="pill running"><span class="pulse"></span>Live</span>' if state == "running" else \
             f'<span class="pill {state}">{state.capitalize()}</span>'
         cards.append(f"<a class='run' href='/runs/{r['id']}'><div class='what'><b>{html.escape(title)}</b>"

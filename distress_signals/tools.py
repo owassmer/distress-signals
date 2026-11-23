@@ -2,15 +2,15 @@
 JSON-able values and raises ToolError with a message the researcher can act on.
 
   search_records, read_record     public records and stored observations
-  compute                         SQL over the retrieved records, saved results the case can cite
+  compute                         SQL over the retrieved records, saved results a case can cite
   record_finding                  research kept before (and beside) a case; can withdraw a case
-  lookup                          saved cases, companies, events, findings and results
+  lookup                          saved cases, companies, propositions, findings and results
   calculate_exposure              the calculation save runs, on a draft
-  save_opportunity                validate, check each basis, compute, store, revise
+  save_case                       validate, check each basis, compute, store, revise
 
 The analyst owns the economic judgment; code observes and computes. Every input in a case has one basis:
 a passage the store checks in its record, a cell of a saved result the store reads, or an assumption with
-what it rests on."""
+what it rests on. docs/model.md states the model."""
 
 import bisect
 import copy
@@ -25,8 +25,8 @@ import unicodedata
 
 from pydantic import ValidationError
 
-from . import db, exposure, forms, names, outcomes
-from .models import FORMULAS, Calculation, Event, Finding, Opportunity
+from . import db, exposure, forms, names, worlds
+from .models import Case, Draft, Finding, Proposition, check_propositions
 from . import sources
 from .sources import web
 from .util import SourceError, exclusions, now_iso
@@ -36,7 +36,7 @@ class ToolError(Exception):
     pass
 
 
-_BRANCHES = {"str", "Event", "Company", "Calculation", "Opportunity", "Finding"}
+_BRANCHES = {"str", "Proposition", "Company", "Draft", "Case", "Finding"}
 
 
 def _invalid(e: ValidationError):
@@ -279,7 +279,7 @@ def _assumption(con, a, where, cited_ids, used):
 
 
 def _provenance(con, case, cited_ids, used):
-    """Check the basis of every input and of every value given by outcome, in place."""
+    """Check the basis of every input and of every given value, in place."""
     for name, inp in case["inputs"].items():
         if inp.get("source"):
             inp["source"] = _cite(con, inp["source"], f"inputs.{name}.source", cited_ids)
@@ -287,17 +287,17 @@ def _provenance(con, case, cited_ids, used):
             _cell(con, name, inp, used)
         else:
             _assumption(con, inp["assumption"], f"inputs.{name}.assumption", cited_ids, used)
-    for outcome, values in case["by_outcome"].items():
-        for name, given in values.items():
-            _assumption(con, given["assumption"], f"by_outcome.{outcome}.{name}.assumption", cited_ids, used)
+    for i, g in enumerate(case["given_values"]):
+        for name, v in g["values"].items():
+            _assumption(con, v["assumption"], f"given_values[{i}].values.{name}.assumption", cited_ids, used)
 
 
-def _cites(case, event):
-    """Every passage a case and its event quote, each as stored."""
+def _cites(case, props=()):
+    """Every passage a case quotes, and those of the propositions given with it, each as stored."""
     out = [i["source"] for i in case["inputs"].values() if i.get("source")]
     out += [c for i in case["inputs"].values() if i.get("assumption") for c in i["assumption"]["evidence"]]
-    out += [c for values in case["by_outcome"].values() for g in values.values() for c in g["assumption"]["evidence"]]
-    return out + list(case["evidence"]) + list(event.get("evidence") or [])
+    out += [c for g in case["given_values"] for v in g["values"].values() for c in v["assumption"]["evidence"]]
+    return out + list(case["evidence"]) + [c for p in props for c in p.get("evidence") or []]
 
 
 def _need_observation(con, oid, where, cited_ids):
@@ -393,74 +393,130 @@ def _principal_check(company):
                         f"about {company['name']} with record_finding, and name it in follow_on_leads.")
 
 
-# ---------- events ----------
+# ---------- propositions ----------
 
-def _outcome_list(event):
-    """The event's outcomes, one to a line, each way under the outcome it lies within."""
-    return "\n".join(f"{'  ' * d}{k}: {n['title']}" for k, n, _, d in outcomes.tree(event))
-
-
-def _event_data(data):
-    """An event as stored: its fields as stated, a way's unstated fields left out."""
-    def way(w):
-        return {k: v for k, v in w.items() if k != "ways" and v is not None} | {"ways": [way(x) for x in w.get("ways") or []]}
-    return {k: v for k, v in data.items() if v is not None and k not in ("yes_ways", "no_ways")} | {
-        "yes_ways": [way(w) for w in data.get("yes_ways") or []], "no_ways": [way(w) for w in data.get("no_ways") or []],
-        "evidence": data.get("evidence") or []}
+def _outline(props, key, depth=0):
+    """A proposition and its ways, one to a line."""
+    p = props[key]
+    side = " (No side)" if p.get("side") == "no" else ""
+    out = [f"{'  ' * depth}{key}{side}: {p['title']}"]
+    for w in sorted((w for w in props.values() if w.get("parent") == key), key=lambda w: (w["side"] != "yes", w["order"])):
+        out += _outline(props, w["key"], depth + 1)
+    return out
 
 
-def _resolve_event(con, e, cited_ids, saving=None):
-    """(event ID, event data). A saved key or ID reads the event; an event given in full is saved,
-    replacing the saved definition of the same key. The other cases on the event read the revised
-    definition from then on, so it keeps every outcome one of them gives values for: an outcome's key is its
-    identity, and a finer distinction is drawn by giving the outcome ways. `saving` is the case being
-    saved with the event, whose own outcomes are checked against the new definition."""
-    if isinstance(e, str):
-        row = db.get_event(con, e)
-        if not row:
-            raise ToolError(f"event: no saved event {e!r}. Give the event in full, or a key or ID from lookup.")
-        cited_ids += [c["observation_id"] for c in row["data"].get("evidence") or []]
-        return row["id"], row["data"]
-    data = e.model_dump(mode="json")
-    given = data.pop("id", None)
-    row = db.get_event(con, data["key"])
-    eid = row["id"] if row else db.make_id("ev_", data["key"])
-    if given and given != eid:
-        raise ToolError(f"event: id {given} belongs to a different event than key {data['key']!r}. The key stays the "
-                        "same when an event is revised; keep the saved key, or leave id out to save a new event.")
-    data["evidence"] = [_cite(con, c, f"event.evidence[{i}]", cited_ids) for i, c in enumerate(data["evidence"])]
-    data = _event_data(data)
-    if row:
-        left = [(r["id"], gone) for r in db.opportunities(con, "event_id=? AND status='active'", (eid,))
-                if r["id"] != saving and (gone := outcomes.unknown(data, r["case_json"]))]
-        if left:
-            raise ToolError(f"event: saved cases on {data['key']!r} give values for outcomes this definition leaves "
-                            "out: " + "; ".join(f"{oid} for {', '.join(gone)}" for oid, gone in left) + ". An outcome's "
-                            "key stays the same when its wording is revised, and a finer distinction is drawn by giving "
-                            "the outcome ways. Keep those outcomes, or revise those cases first.")
-    if not row or row["data"] != data:
-        db.put_event(con, eid, data["key"], data["title"], data)
-    return eid, data
+def _under(props, key):
+    """The keys of every way within a proposition, at any depth."""
+    out = []
+    for w in props.values():
+        if w.get("parent") == key:
+            out += [w["key"], *_under(props, w["key"])]
+    return out
 
 
-def _check_outcomes(event, case):
-    """Every outcome a case gives values for is an outcome of its event."""
-    gone = outcomes.unknown(event, case)
-    if gone:
-        raise ToolError(f"by_outcome: the event has no outcome {', '.join(repr(k) for k in gone)}. An outcome is 'yes', "
-                        f"'no' or the key of one of the event's ways. Its outcomes:\n{_outcome_list(event)}")
+def _lay_over(con, given, cited_ids=None, saving=None):
+    """(the saved propositions with those given in full laid over them, the keys this states anew or
+    otherwise than they were saved, the keys this removes). A proposition given in full replaces the saved one
+    of the same key, its ways with it. `cited_ids` checks each passage of evidence in its record; without it
+    nothing is checked, for a draft."""
+    saved = db.propositions(con)
+    props, stated, gone = dict(saved), [], []
+    for g in given:
+        flat = worlds.flatten([g])
+        for k, f in flat.items():
+            was = saved.get(k)
+            if was and was.get("parent") != f.get("parent"):
+                where = f"a way of {was['parent']!r}" if was.get("parent") else "a proposition of its own"
+                raise ToolError(f"propositions: the key {k!r} already names {where} ({was['title']}). A key names one "
+                                "proposition in the store; give this one another key, or revise that one in its place.")
+            if cited_ids is not None:
+                f["evidence"] = [_cite(con, c, f"propositions.{k}.evidence[{i}]", cited_ids)
+                                 for i, c in enumerate(f.get("evidence") or [])]
+        dropped = [k for k in _under(saved, g["key"]) if k not in flat]
+        for k in dropped:
+            readers = [c for c in db.readers(con, k, active=True) if c != saving]
+            if readers:
+                raise ToolError(f"propositions: this statement of {g['key']!r} leaves out {k!r}, which the saved "
+                                f"case{'s' if len(readers) > 1 else ''} {', '.join(readers)} "
+                                f"read{'' if len(readers) > 1 else 's'}. A key stays the same when a proposition's wording "
+                                "is revised, and a finer distinction is drawn by giving it ways or by linking another "
+                                "proposition to it. Keep it, or revise those cases first.")
+            props.pop(k, None)
+        gone += dropped
+        props |= flat
+        stated += list(flat)
+    for k in stated:
+        for other in [*(props[k].get("implies") or []), *(props[k].get("implies_not") or [])]:
+            if other not in props:
+                raise ToolError(f"propositions.{k}: it is linked to {other!r}, and no saved proposition has that key. Give "
+                                "that proposition in full as well, or name one that is saved.")
+        both = worlds.overlapping(props, k)
+        if both:
+            a, b = both[0]
+            raise ToolError(f"propositions: the ways {a!r} and {b!r} of {props[k]['parent']!r} can both be true by their "
+                            "level fields. The ways beside one another exclude one another; state their thresholds so "
+                            "that no value falls in two of them.")
+    return props, [k for k in stated if saved.get(k) != props[k]], gone
+
+
+def _stated(propositions):
+    """Propositions given in full with a call, validated together."""
+    given = [_validate(Proposition, p) for p in propositions or []]
+    try:
+        check_propositions(given)
+    except ValueError as e:
+        raise ToolError(f"propositions: {e}")
+    return [g.model_dump(mode="json", exclude_none=True) for g in given]
+
+
+def _keep(con, props, stated, gone):
+    for k in reversed(gone):
+        db.delete_proposition(con, k)
+    for k in stated:               # a proposition comes before its ways
+        db.put_proposition(con, props[k])
+
+
+def _proposition_view(props, key):
+    """A proposition in full with its ways, as the save takes it, and what its level fields say."""
+    top = worlds.root(props, key)
+    nested = worlds.nest(props, top)
+
+    def clean(p):
+        p["evidence"] = [{k: v for k, v in c.items() if k != "checked"} for c in p.get("evidence") or []]
+        if not p["evidence"]:
+            del p["evidence"]
+        for w in p.get("ways") or []:
+            clean(w)
+        if not p.get("ways"):
+            p.pop("ways", None)
+        return p
+
+    keys = [top, *_under(props, top)]
+    return {"proposition": clean(nested), "outline": "\n".join(_outline(props, top)),
+            "level_fields": [f"{a} {rel} {b}" for a, rel, b in worlds.read_fields(props, keys)] + _uncovered(props, keys)}
+
+
+def _uncovered(props, keys):
+    """What the level fields of the ways beside one another leave in no way, in words."""
+    seen, out = set(), []
+    for k in keys:
+        group = tuple(worlds.beside(props, k))
+        if group and group not in seen:
+            seen.add(group)
+            out += [f"{a} and {b} leave the values between them in no way of {props[k]['parent']}" for a, b in worlds.gaps(props, k)]
+    return out
 
 
 # ---------- the calculation ----------
 
-def _key_date(event, case):
-    return event.get("window_end") or case["case"].get("why_now_date")
+def _key_date(props, case):
+    return min(str(props[k]["window_end"]) for k in case["events"]) if case["events"] else case["reasons"].get("why_now_date")
 
 
-def _derive(event, case):
-    """The one calculation path, on the stored forms of a case and its event."""
+def _derive(case, props):
+    """The one calculation path, on the stored forms of a case and the propositions."""
     try:
-        return forms.results(event, case)
+        return exposure.compute(case, props)
     except ValueError as e:
         raise ToolError(str(e))
 
@@ -469,71 +525,62 @@ def _digest(snapshot):
     return hashlib.sha1(db.dumps(snapshot).encode()).hexdigest()
 
 
-def _write(con, oid, row_ids, case, results, event, snapshot, change_note, last):
-    """Write a revision when the snapshot differs from the last one. Returns (revision, changed)."""
-    digest = _digest(snapshot)
-    if last and last["hash"] == digest:
-        return last["revision"], False
-    revision = (last["revision"] if last else 0) + 1
-    db.put_opportunity(con, {"id": oid, **row_ids, "priority": case["case"]["priority"],
-                             "key_date": _key_date(event, case), "max_loss": results["max_shortfall"],
-                             "currency": case["currency"], "case_json": case, "results": results,
-                             "revision": revision})
-    db.add_revision(con, oid, revision, digest, change_note, snapshot)
-    return revision, True
+def _events(props, case):
+    for k in case["events"]:
+        if k not in props:
+            raise ToolError(f"events: no saved proposition {k!r}. Give it in full in propositions, or name one that is "
+                            "saved.")
+        if props[k].get("parent"):
+            raise ToolError(f"events: {k!r} is a way of {props[k]['parent']!r}. A case's event is a proposition of its "
+                            f"own; name {worlds.root(props, k)!r}, and give values for the way.")
 
 
-def calculate_exposure(case: dict) -> dict:
-    """Run the calculation save_opportunity runs, on a draft."""
-    c = _validate(Calculation, case)
-    draft = c.model_dump(mode="json", exclude={"event"})
+def calculate_exposure(case: dict, propositions: list | None = None) -> dict:
+    """Run the calculation save_case runs, on a draft."""
+    c = _validate(Draft, case)
+    given = _stated(propositions)
+    draft = c.model_dump(mode="json")
     con = db.connect()
     try:
-        event = None
-        if isinstance(c.event, str):
-            row = db.get_event(con, c.event)
-            if not row:
-                raise ToolError(f"event: no saved event {c.event!r}. Give the event in full, or a key or ID from lookup.")
-            event = row["data"]
-        elif c.event:
-            event = _event_data(c.event.model_dump(mode="json", exclude={"id"}))
-        if event:
-            _check_outcomes(event, draft)
+        props, _, _ = _lay_over(con, given)
+        _events(props, draft)
         for name, inp in draft["inputs"].items():
             if inp.get("result"):
                 _cell(con, name, inp, [])
     finally:
         con.close()
-    results, warnings = _derive(event, draft)
+    results, warnings = _derive(draft, props)
     return {"results": results, "warnings": warnings}
 
 
 # ---------- save ----------
 
-def save_opportunity(opportunity: dict) -> dict:
-    """Validate, check provenance, compute results, save company, event and case, and write a revision
-    when the content changed."""
-    o = _validate(Opportunity, opportunity)
+def save_case(case: dict, propositions: list | None = None) -> dict:
+    """Validate, check each basis, compute the worlds and their figures, save the propositions given, the
+    company and the case, and write a revision when the content changed."""
+    c = _validate(Case, case)
+    given = _stated(propositions)
     con = db.connect()
     try:
         with db.write(con):
-            out = _save(con, o)
+            out = _save(con, c, given)
     finally:
         con.close()
-    _deliver(out["opportunity_id"])
+    for cid in [out["case_id"], *out["also_revised"]]:
+        _deliver(cid)
     return out
 
 
-def _deliver(opportunity_id):
+def _deliver(case_id):
     """Put a saved or withdrawn case in front of the operator in HubSpot. A delivery problem never fails
     the save: the worker delivers changed cases again."""
     from . import hubspot
     if not hubspot.configured():
         return
     try:
-        hubspot.sync_case(opportunity_id)
+        hubspot.sync_case(case_id)
     except Exception as e:
-        print(f"HubSpot delivery of {opportunity_id} failed: {type(e).__name__}: {str(e)[:300]}", file=sys.stderr)
+        print(f"HubSpot delivery of {case_id} failed: {type(e).__name__}: {str(e)[:300]}", file=sys.stderr)
 
 
 def _crm(con, company_row):
@@ -548,31 +595,78 @@ def _crm(con, company_row):
         return {}
 
 
-def _save(con, o: Opportunity):
+def _snapshot(company_id, company, case, props, results):
+    """A case as it stands: the company, the case, the propositions it reads with what they lie within, and
+    the figures."""
+    held = worlds._closure(props, results["reads"])
+    return {"company": {"id": company_id, **company}, "case": case,
+            "propositions": {k: props[k] for k in held}, "results": results}
+
+
+def _revise(con, cid, row, snapshot, change_note):
+    """Write a revision when the snapshot differs from the last one. Returns (revision, changed)."""
+    last = db.latest_revision(con, cid)
+    digest = _digest(snapshot)
+    if last and last["hash"] == digest:
+        return last["revision"], False
+    revision = (last["revision"] if last else 0) + 1
+    case, results = snapshot["case"], snapshot["results"]
+    db.put_case(con, {"id": cid, **row, "priority": case["reasons"]["priority"],
+                      "key_date": _key_date(snapshot["propositions"], case), "max_loss": results["max_shortfall"],
+                      "currency": case["currency"], "case_json": case, "results": results, "revision": revision},
+                results["reads"])
+    db.add_revision(con, cid, revision, digest, change_note, snapshot)
+    return revision, True
+
+
+def _others(con, props, touched, but=None):
+    """The other saved cases that read a proposition this call stated or removed, each as it now stands. A
+    statement that leaves one of them without a figure is refused, naming it."""
+    out = []
+    for cid in sorted({c for k in touched for c in db.readers(con, k)} - {but}):
+        row = db.get_case(con, cid)
+        last = db.latest_revision(con, cid)["snapshot"]
+        try:
+            results, _ = exposure.compute(row["case_json"], props)
+        except ValueError as e:
+            raise ToolError(f"propositions: as stated here, the saved case {cid} no longer has its figures: {e} "
+                            "Keep what that case reads, or revise that case first.")
+        snapshot = _snapshot(last["company"]["id"], {k: v for k, v in last["company"].items() if k != "id"},
+                             row["case_json"], props, results)
+        revision, changed = _revise(con, cid, {"company_id": row["company_id"], "events": row["events"],
+                                               "stream_key": row["stream_key"]}, snapshot,
+                                    "A proposition this case reads was restated: " + ", ".join(
+                                        k for k in touched if k in last["propositions"]))
+        if changed:
+            out.append(cid)
+    return out
+
+
+def _save(con, c: Case, given):
     cited_ids, results_used, warnings = [], [], []
-    company_id, company = _resolve_company(con, o.company, warnings)
+    company_id, company = _resolve_company(con, c.company, warnings)
     _principal_check(company)
     if not company.get("description"):
         warnings.append("The company has no description of how it earns its revenue.")
-    key = o.event if isinstance(o.event, str) else o.event.key
-    event_id = (db.get_event(con, key) or {}).get("id") or db.make_id("ev_", key)
-    oid = o.opportunity_id or db.make_id("opp_", company_id, event_id, o.stream_key)
-    existing = db.get_opportunity(con, oid)
-    if o.opportunity_id:
+    events = sorted(c.events)
+    cid = c.case_id or db.make_id("case_", company_id, *events, c.stream_key)
+    existing = db.get_case(con, cid)
+    if c.case_id:
         if not existing:
-            raise ToolError(f"opportunity_id: no saved case {o.opportunity_id!r}")
-        was = (existing["company_id"], existing["event_id"], existing["stream_key"])
-        if was != (company_id, event_id, o.stream_key):
-            co, ev = db.get_company(con, was[0]), db.get_event(con, was[1])
-            raise ToolError(f"{o.opportunity_id} is the case for {co['name']} / {ev['key']} / {was[2]}, but this save "
-                            "names a different company, event or stream_key. Keep them to revise that case, or save a "
-                            "different exposure without opportunity_id.")
+            raise ToolError(f"case_id: no saved case {c.case_id!r}")
+        was = (existing["company_id"], existing["events"], existing["stream_key"])
+        if was != (company_id, events, c.stream_key):
+            co = db.get_company(con, was[0])
+            raise ToolError(f"{c.case_id} is the case for {co['name']} / {', '.join(was[1])} / {was[2]}, but this save "
+                            "names a different company, events or stream_key. Keep them to revise that case, or save a "
+                            "different exposure without case_id.")
     elif existing:
-        warnings.append(f"Revised the saved case {oid} for this company, event and stream_key.")
-    event_id, event = _resolve_event(con, o.event, cited_ids, saving=oid)
+        warnings.append(f"Revised the saved case {cid} for this company, these events and this stream_key.")
+    props, stated, gone = _lay_over(con, given, cited_ids, saving=cid)
 
-    case = o.model_dump(mode="json", exclude={"opportunity_id", "company", "event", "change_note"})
-    _check_outcomes(event, case)
+    case = c.model_dump(mode="json", exclude={"case_id", "company", "change_note"})
+    case["events"] = events
+    _events(props, case)
     _provenance(con, case, cited_ids, results_used)
     case["evidence"] = [_cite(con, ev, f"evidence[{i}]", cited_ids) | {"supports": ev["supports"]}
                         for i, ev in enumerate(case["evidence"])]
@@ -584,70 +678,71 @@ def _save(con, o: Opportunity):
         warnings.append("No person named yet.")
 
     scaled = re.compile(r"(?i)\b(thousands?|millions?|billions?|mn|bn|mm)\b")
-    money = re.compile(rf"(?i)\b{o.currency}\b|[$€£¥]")
+    money = re.compile(rf"(?i)\b{c.currency}\b|[$€£¥]")
     for name, inp in case["inputs"].items():
         if money.search(inp["unit"]) and scaled.search(inp["unit"]):
             warnings.append(f"inputs.{name}: its unit is '{inp['unit']}', but amounts of money are in whole units of "
-                            f"{o.currency}, so the results read {inp['value']:,} as {o.currency} {inp['value']:,}.")
-    results, calc_warnings = _derive(event, case)
+                            f"{c.currency}, so the results read {inp['value']:,} as {c.currency} {inp['value']:,}.")
+    results, calc_warnings = _derive(case, props)
     warnings += calc_warnings
-    snapshot = {"company": {"id": company_id, **company}, "event": {"id": event_id, **event},
-                "case": case, "results": results}
-    last = db.latest_revision(con, oid)
-    revision, changed = _write(con, oid, {"company_id": company_id, "event_id": event_id, "stream_key": o.stream_key},
-                               case, results, event, snapshot, o.change_note, last)
+    _keep(con, props, stated, gone)
+    snapshot = _snapshot(company_id, company, case, props, results)
+    cited_ids += [e["observation_id"] for p in snapshot["propositions"].values() for e in p.get("evidence") or []]
+    revision, changed = _revise(con, cid, {"company_id": company_id, "events": events, "stream_key": c.stream_key},
+                                snapshot, c.change_note)
     if changed:
-        db.set_citations(con, oid, cited_ids)
+        db.set_citations(con, cid, cited_ids)
     if existing and existing.get("status") == "withdrawn":
-        db.set_status(con, oid, "active")
-        warnings.append(f"{oid} was withdrawn; saving it returns it to the active queue.")
-    unchecked = sum(not c["checked"] for c in _cites(case, event))
-    return {"opportunity_id": oid, "company_id": company_id, "event_id": event_id, "revision": revision,
-            "changed": changed, "condition": outcomes.condition(event, case, results),
-            "results": results, "warnings": warnings,
-            "unchecked_passages": unchecked, "workspace_results_used": sorted(set(results_used))}
+        db.set_status(con, cid, "active")
+        warnings.append(f"{cid} was withdrawn; saving it returns it to the active queue.")
+    also = _others(con, props, [*stated, *gone], but=cid)
+    warnings += _uncovered(props, stated)
+    unchecked = sum(not x["checked"] for x in _cites(case, [props[k] for k in stated]))
+    return {"case_id": cid, "company_id": company_id, "revision": revision, "changed": changed,
+            "condition": results["condition"], "results": results, "warnings": warnings,
+            "unchecked_passages": unchecked, "workspace_results_used": sorted(set(results_used)),
+            "propositions_saved": stated, "also_revised": also}
 
 
 # ---------- findings ----------
 
-def record_finding(finding: dict) -> dict:
+def record_finding(finding: dict, propositions: list | None = None) -> dict:
     f = _validate(Finding, finding)
+    given = _stated(propositions)
     con = db.connect()
     try:
         with db.write(con):
             warnings, cited = [], []
             company_id = _resolve_company(con, f.company, warnings)[0] if f.company else None
-            event_id = None
-            if isinstance(f.event, Event):
-                event_id = _resolve_event(con, f.event, cited)[0]
-            elif f.event:
-                row = db.get_event(con, f.event)
-                if not row:
-                    raise ToolError(f"event: no saved event {f.event!r}; give the event in full to save it")
-                event_id = row["id"]
-            if f.opportunity_id and not db.get_opportunity(con, f.opportunity_id):
-                raise ToolError(f"opportunity_id: no saved case {f.opportunity_id!r}")
+            props, stated, gone = _lay_over(con, given, cited)
+            _keep(con, props, stated, gone)
+            also = _others(con, props, [*stated, *gone])
+            if f.proposition and f.proposition not in props:
+                raise ToolError(f"proposition: no saved proposition {f.proposition!r}; give it in full in propositions "
+                                "to save it")
+            if f.case_id and not db.get_case(con, f.case_id):
+                raise ToolError(f"case_id: no saved case {f.case_id!r}")
             for rid in f.results:
                 if not db.get_result(con, rid):
                     raise ToolError(f"results: no saved result {rid!r}")
             if f.supersedes and not db.get_finding(con, f.supersedes):
                 raise ToolError(f"supersedes: no finding {f.supersedes!r}")
             evidence = [_cite(con, c.model_dump(mode="json"), f"evidence[{i}]", cited) for i, c in enumerate(f.evidence)]
-            fid = db.make_id("fnd_", f.kind, f.statement, company_id, event_id, now_iso())
+            fid = db.make_id("fnd_", f.kind, f.statement, company_id, f.proposition, now_iso())
             db.put_finding(con, {"id": fid, "kind": f.kind, "statement": f.statement, "company_id": company_id,
-                                 "event_id": event_id, "opportunity_id": f.opportunity_id, "evidence": evidence,
+                                 "proposition": f.proposition, "case_id": f.case_id, "evidence": evidence,
                                  "results": f.results, "supersedes": f.supersedes})
             if f.withdraw_case:
-                db.set_status(con, f.opportunity_id, "withdrawn")
-                db.set_progress(con, f.opportunity_id, {**(db.get_opportunity(con, f.opportunity_id)["progress"] or {}),
-                                                        "withdrawn_by": fid})
+                db.set_status(con, f.case_id, "withdrawn")
+                db.set_progress(con, f.case_id, {**(db.get_case(con, f.case_id)["progress"] or {}), "withdrawn_by": fid})
     finally:
         con.close()
-    if f.withdraw_case:
-        _deliver(f.opportunity_id)
-    return {"finding_id": fid, "company_id": company_id, "event_id": event_id,
-            **({"withdrawn": f.opportunity_id} if f.withdraw_case else {}),
-            "unchecked_passages": sum(not e["checked"] for e in evidence), "warnings": warnings}
+    for cid in [*([f.case_id] if f.withdraw_case else []), *also]:
+        _deliver(cid)
+    return {"finding_id": fid, "company_id": company_id, "proposition": f.proposition,
+            **({"withdrawn": f.case_id} if f.withdraw_case else {}),
+            "unchecked_passages": sum(not e["checked"] for e in evidence), "warnings": warnings,
+            "propositions_saved": stated, "also_revised": also}
 
 
 # ---------- the workspace ----------
@@ -731,71 +826,63 @@ def compute(sql: str, save_as: str | None = None, note: str | None = None) -> di
 
 # ---------- reading saved research ----------
 
-def _editable(oid, current):
-    """The saved case in the exact form save_opportunity accepts: company and event by ID, store-set
-    fields removed."""
+def _editable(cid, current):
+    """The saved case in the exact form save_case accepts: the company by ID, store-set fields removed."""
     case = copy.deepcopy(current["case"])
-    for c in _cites(case, {}):
+    for c in _cites(case):
         c.pop("checked", None)
-    return {"opportunity_id": oid, "company": current["company"]["id"], "event": current["event"]["id"], **case,
-            "change_note": ""}
-
-
-def _event_view(data):
-    e = copy.deepcopy(data)
-    e["evidence"] = [{k: v for k, v in c.items() if k != "checked"} for c in e.get("evidence") or []]
-    return e
+    return {"case_id": cid, "company": current["company"]["id"], **case, "change_note": ""}
 
 
 def _finding_view(con, f):
     return {"finding_id": f["id"], "kind": f["kind"], "statement": f["statement"], "company_id": f["company_id"],
-            "event_id": f["event_id"], "opportunity_id": f["opportunity_id"], "results": f["results"],
+            "proposition": f["proposition"], "case_id": f["case_id"], "results": f["results"],
             "evidence": [{"observation_id": e["observation_id"], "passage": e["passage"]} for e in f["evidence"]],
             "created": f["created"]}
 
 
-def _brief(con, row):
-    """A case's dated estimate in brief: who, which stream, over what period, the revenue formula, the
-    baseline, and the revenue and shortfall in each outcome the case gives values for. lookup of the case
-    gives the inputs and their bases."""
-    c, e = db.get_company(con, row["company_id"]), db.get_event(con, row["event_id"])
+def _brief(con, row, props):
+    """A case's dated estimate in brief: who, which stream, over what period, the formula, the given values,
+    and the revenue and shortfall in each world. lookup of the case gives the inputs and their bases."""
+    c = db.get_company(con, row["company_id"])
     last = db.latest_revision(con, row["id"])
-    current = forms.snapshot(last["snapshot"], e["data"])
-    case, res, event = current["case"], current["results"], e["data"]
-    return {"opportunity_id": row["id"], "status": row["status"], "company": c["name"], "event": e["key"],
+    current = forms.snapshot(last["snapshot"], props)
+    case, res = current["case"], current["results"]
+    return {"case_id": row["id"], "status": row["status"], "company": c["name"], "events": row["events"],
             "stream": case["stream"], "period": case["period"], "estimated": last["saved_at"],
-            "condition": outcomes.condition(event, case, res), "revenue": case["revenue"],
-            "baseline_revenue": res["baseline_revenue"],
-            "outcomes": [{"outcome": r["outcome"], "values": {k: g["value"] for k, g in case["by_outcome"][r["outcome"]].items()},
-                          "revenue": r["revenue"], "shortfall": r["shortfall"], "share": r["share"]} for r in res["outcomes"]],
+            "condition": res["condition"], "revenue": case["revenue"], "baseline_revenue": res["baseline_revenue"],
+            "given_values": [{"given": g["given"], "given_not": g["given_not"],
+                              "values": {k: v["value"] for k, v in g["values"].items()}} for g in case["given_values"]],
+            "worlds": [{"world": w["label"], "values": w["values"], "revenue": w["revenue"], "shortfall": w["shortfall"],
+                        "share": w["share"]} for w in res["worlds"]],
             "priority": row["priority"], "max_shortfall": res["max_shortfall"], "currency": row["currency"],
             "revision": row["revision"], "updated": row["updated"]}
 
 
-UPDATE = ("Edit 'opportunity' and pass it to save_opportunity with a change_note. To edit the company or the event, put "
-          "its object (with its id) in 'opportunity' in place of the ID. record_finding with withdraw_case withdraws "
-          "the case. read_record(observation_id) returns any cited record in full.")
+UPDATE = ("Edit 'case' and pass it to save_case with a change_note. To revise a proposition, give it in full, its ways "
+          "with it, in propositions; to edit the company, put its object (with its id) in 'case' in place of the ID. "
+          "record_finding with withdraw_case withdraws the case. read_record(observation_id) returns any cited record "
+          "in full.")
 
 
 def lookup(id_or_query: str) -> dict:
-    """A saved case (opp_...), company (co_...), event (ev_...), finding (fnd_...) or workspace result
-    (wk_...) by its ID; a company by its name, alias or domain; an event by its key or title. Cases and
-    events are given in their current form."""
+    """A saved case (case_...), company (co_...), finding (fnd_...) or workspace result (wk_...) by its ID; a
+    proposition by its key or title; a company by its name, alias or domain."""
     q = (id_or_query or "").strip()
     if not q:
-        raise ToolError("give an ID, a company's name, alias or domain, or an event's key or title")
+        raise ToolError("give an ID, a proposition's key or title, or a company's name, alias or domain")
     con = db.connect()
     try:
-        if q.startswith("opp_"):
-            row = db.get_opportunity(con, q)
+        props = db.propositions(con)
+        if q.startswith("case_"):
+            row = db.get_case(con, q)
             if not row:
                 raise ToolError(f"no saved case {q!r}")
-            ev_row = db.get_event(con, row["event_id"])
-            current = forms.snapshot(db.latest_revision(con, q)["snapshot"], ev_row["data"])
+            current = forms.snapshot(db.latest_revision(con, q)["snapshot"], props)
             company = db.get_company(con, row["company_id"])
             current["company"] = {"id": company["id"], **company["data"]}
             titles = {o["id"]: o for o in db.cited(con, q)}
-            case, event = current["case"], ev_row["data"]
+            case, res = current["case"], current["results"]
 
             def passages(at, cites, **more):
                 return [{"at": at, "passage": c["passage"], "checked": c.get("checked"), **more,
@@ -804,20 +891,20 @@ def lookup(id_or_query: str) -> dict:
             evidence = []
             for k, v in case["inputs"].items():
                 evidence += passages(f"inputs.{k}", [v["source"]] if v.get("source") else (v.get("assumption") or {}).get("evidence") or [])
-            for o, values in case["by_outcome"].items():
-                for k, g in values.items():
-                    evidence += passages(f"by_outcome.{o}.{k}", g["assumption"]["evidence"])
+            for i, g in enumerate(case["given_values"]):
+                for k, v in g["values"].items():
+                    evidence += passages(f"given_values[{i}].values.{k}", v["assumption"]["evidence"])
             for i, e in enumerate(case["evidence"]):
                 evidence += passages(f"evidence[{i}]", [e], supports=e["supports"])
             for e in evidence:
                 o = titles.get(e["observation_id"]) or {}
                 e["source"] = {"title": (o.get("data") or {}).get("title"), "url": o.get("url"), "kind": o.get("kind")}
-            fs = db.findings(con, "opportunity_id=? OR company_id=?", (q, row["company_id"]))
-            return {"opportunity": _editable(q, current), "status": row["status"],
+            fs = db.findings(con, "case_id=? OR company_id=?", (q, row["company_id"]))
+            roots = list(dict.fromkeys(worlds.root(props, k) for k in res["reads"]))
+            return {"case": _editable(q, current), "status": row["status"],
                     "company_id": company["id"], "company": company["data"],
-                    "event_id": ev_row["id"], "event": _event_view(ev_row["data"]),
-                    "condition": outcomes.condition(event, case, current["results"]),
-                    "results": current["results"],
+                    "propositions": [_proposition_view(props, k)["proposition"] for k in roots],
+                    "condition": res["condition"], "results": res,
                     "warnings": current["warnings"], "evidence": evidence,
                     "findings": [_finding_view(con, f) for f in fs], "revision": row["revision"],
                     **({"crm": {k: v for k, v in (row["progress"] or {}).items() if k in ("stage", "outcome", "outcome_note")}}
@@ -829,7 +916,7 @@ def lookup(id_or_query: str) -> dict:
             if not c:
                 raise ToolError(f"no saved company {q!r}")
             return {"company_id": q, "company": c["data"],
-                    "cases": [_brief(con, r) for r in db.opportunities(con, "company_id=?", (q,))],
+                    "cases": [_brief(con, r, props) for r in db.cases(con, "company_id=?", (q,))],
                     "findings": [_finding_view(con, f) for f in db.findings(con, "company_id=?", (q,))], **_crm(con, c)}
         if q.startswith("fnd_"):
             f = db.get_finding(con, q)
@@ -842,24 +929,25 @@ def lookup(id_or_query: str) -> dict:
                 raise ToolError(f"no saved result {q!r}")
             return {"result_id": q, "name": r["name"], "sql": r["sql"], "note": r["note"], "columns": r["columns"],
                     "rows": r["rows"][:SHOW_ROWS], "row_count": r["row_count"], "created": r["created"]}
-        e = db.get_event(con, q)
-        if e:
-            return {"event_id": e["id"], "event": _event_view(e["data"]),
-                    "cases": [_brief(con, r) for r in db.opportunities(con, "event_id=?", (e["id"],))],
-                    "findings": [_finding_view(con, f) for f in db.findings(con, "event_id=?", (e["id"],))]}
-        key, domain = names.vendor_key(q), names.domain_key(q)
-        cos = {r["id"]: r for r in db.companies_by_key(con, key)} if key else {}
+        key = db.find_proposition(con, q)
+        if key:
+            top = worlds.root(props, key)
+            within = [top, *_under(props, top)]
+            readers = sorted({c for k in within for c in db.readers(con, k)})
+            marks = ",".join("?" * len(within))
+            return {**_proposition_view(props, key), **({"way_of": top} if top != key else {}),
+                    "cases": [_brief(con, db.get_case(con, c), props) for c in readers],
+                    "findings": [_finding_view(con, f) for f in db.findings(con, f"proposition IN ({marks})", within)]}
+        name_key, domain = names.vendor_key(q), names.domain_key(q)
+        cos = {r["id"]: r for r in db.companies_by_key(con, name_key)} if name_key else {}
         if domain and "." in domain and db.companies_by_domain(con, domain):
             row = db.companies_by_domain(con, domain)
             cos[row["id"]] = row
         if not cos:
-            row = con.execute("SELECT id FROM events WHERE lower(title)=?", (q.lower(),)).fetchone()
-            if row:
-                return lookup(row["id"])
-            raise ToolError(f"Nothing saved is named {q!r}. lookup takes an ID, a company's name, alias or domain, "
-                            "or an event's key or title.")
+            raise ToolError(f"Nothing saved is named {q!r}. lookup takes an ID, a proposition's key or title, or a "
+                            "company's name, alias or domain.")
         return {"companies": [{"company_id": c["id"], "company": c["data"],
-                               "cases": [_brief(con, r) for r in db.opportunities(con, "company_id=?", (c["id"],))],
+                               "cases": [_brief(con, r, props) for r in db.cases(con, "company_id=?", (c["id"],))],
                                "findings": [_finding_view(con, f) for f in db.findings(con, "company_id=?", (c["id"],))],
                                **_crm(con, c)}
                               for c in cos.values()]}

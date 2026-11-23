@@ -119,6 +119,9 @@ class Proposition(Strict):
                 raise ValueError(f"{self.key}: a band states both upper_comparison and upper_value")
             if self.upper_comparison and self.comparison not in (">", ">="):
                 raise ValueError(f"{self.key}: a band's lower end is > or >=")
+            if self.upper_value is not None and self.upper_value <= self.value:
+                raise ValueError(f"{self.key}: a band runs from value up to upper_value, and here they are "
+                                 f"{self.value:g} and {self.upper_value:g}. A single value is comparison ==")
         return self
 
 

@@ -369,7 +369,8 @@ def _case_details(oids, public=False):
     con = db.connect()
     try:
         for c in briefs.cases(con, list(oids)):
-            case, ev, res, buyer = c["case"], c["events"][0], c["results"], c["case"]["buyer"]
+            case, res, buyer = c["case"], c["results"], c["case"]["buyer"]
+            of_events = lambda k: " ".join(e[k] for e in c["events"] if e.get(k)) or None  # noqa: E731
             cited = c.get("cited") or {}
             url_of = lambda oid: (cited.get(oid) or {}).get("url") if oid else None  # noqa: E731
 
@@ -381,7 +382,7 @@ def _case_details(oids, public=False):
                 "oid": c["id"], "status": c["status"], "company": c["company"]["name"],
                 "company_id": c["row"]["company_id"], "stream": title_label(case.get("stream_key")),
                 "event": briefs.event_title(c), "event_date": briefs.event_date(c), "date_label": "Decided on or by",
-                "event_text": " ".join(e["text"] for e in c["events"]), "resolution_source": ev.get("resolution_source"),
+                "event_text": of_events("text"), "resolution_source": of_events("resolution_source"),
                 "dependency": case.get("dependency"),
                 "why_now": case["reasons"].get("why_now"), "stake": res.get("max_shortfall"), "share": res.get("max_share"),
                 "of": (res.get("denominator") or {}).get("label"), "denominator_value": (res.get("denominator") or {}).get("value"),
@@ -391,13 +392,16 @@ def _case_details(oids, public=False):
                 "opening": (case.get("outreach") or {}).get("draft"),
                 "deal": None if public else _deal_url(c["id"]),
                 "why_matters": case["reasons"].get("why_matters"), "condition": c["condition"], "timing": case.get("timing"),
-                "event_description": ev.get("description"), "event_timing": ev.get("timing"),
+                "event_description": of_events("description"), "event_timing": of_events("timing"),
                 "period_start": case["period"]["start"], "period_end": case["period"]["end"],
                 "baseline": {"revenue": res.get("baseline_revenue"), "description": None},
                 "scenarios": [{"label": r["label"], "description": changed(r),
                                "revenue": r.get("revenue"), "shortfall": r.get("shortfall"), "share": r.get("share")}
                               for r in res.get("worlds") or []],
-                "inputs": [_input(k, x, url_of) for k, x in (case.get("inputs") or {}).items()],
+                "inputs": [_input(k, x, url_of) for k, x in (case.get("inputs") or {}).items()]
+                + [_input(k, {"value": v["value"], "unit": case["inputs"][k]["unit"], "assumption": v["assumption"]}, url_of)
+                   | {"name": f"{title_label(k)}, given {briefs.given_condition(c, g)}"}
+                   for g in case["given_values"] for k, v in g["values"].items()],
                 "evidence": [{"passage": e.get("passage"), "supports": e.get("supports"), "checked": e.get("checked"), "url": url_of(e.get("observation_id"))}
                              for e in case.get("evidence") or []],
                 "role": buyer.get("role"), "next_action": case.get("next_action")}

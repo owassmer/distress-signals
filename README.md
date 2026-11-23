@@ -40,7 +40,7 @@ line tool signed in to a Claude account, and a HubSpot account with a private ap
 
 ## Using HubSpot
 
-On a company record, use **Distress run** to search for new prospects, investigate that company, or find businesses exposed to a particular event. Each opportunity appears as a **Proposed** deal with the research memo and draft outreach.
+On a company record, use **Distress run** to search for new prospects, investigate that company, or find businesses exposed to a particular event. Each case appears as a **Proposed** deal with the research memo and draft outreach.
 
 Use **Refresh this case** on a deal to check whether the exposure has changed. Record the result of a conversation in **Distress outcome** so the agent can refer to it the next time it researches that company. [HubSpot reference](SPEC.md#9-hubspot)
 
@@ -50,7 +50,7 @@ Use **Refresh this case** on a deal to check whether the exposure has changed. R
 .venv/bin/python -m distress_signals research                    # find new prospects
 .venv/bin/python -m distress_signals research --company NAME     # investigate one company
 .venv/bin/python -m distress_signals research --event TEXT       # find companies exposed to an event
-.venv/bin/python -m distress_signals refresh OPP_ID              # check a saved case again
+.venv/bin/python -m distress_signals refresh CASE_ID             # check a saved case again
 .venv/bin/python -m distress_signals push-hubspot                # send changed cases to HubSpot
 .venv/bin/python -m distress_signals export-guide RUN_ID         # one run as a visual guide, for sharing
 .venv/bin/python -m distress_signals show ID_OR_NAME             # a saved case, company or event

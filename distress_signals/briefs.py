@@ -24,10 +24,11 @@ def pct(x):
 
 def cases(con, ids=None):
     """Saved cases as they stand now; all of them, or those with the given IDs."""
-    out, props = [], db.propositions(con)
+    out, saved = [], db.propositions(con)
     rows = db.cases(con) if ids is None else [r for r in (db.get_case(con, i) for i in ids) if r]
     for row in rows:
-        current = forms.snapshot(db.latest_revision(con, row["id"])["snapshot"], props)
+        current = forms.read(row, db.latest_revision(con, row["id"])["snapshot"], saved)
+        props = current["propositions"]
         cited = {o["id"]: o for o in db.cited(con, row["id"])}
         fs = db.findings(con, "case_id=? OR company_id=?", (row["id"], row["company_id"]))
         out.append({"id": row["id"], "row": row, "status": row["status"], "company": current["company"],
@@ -95,13 +96,17 @@ def _read_lines(c):
     return out
 
 
+def given_condition(c, g):
+    """What a given value is given, in the propositions' titles."""
+    return " and ".join([*(c["props"][k]["title"] for k in g["given"]),
+                         *(f"not: {c['props'][k]['title']}" for k in g["given_not"])])
+
+
 def _given_lines(c):
     case, cur, out = c["case"], c["case"]["currency"], []
     for g in case["given_values"]:
-        cond = " and ".join([*(c["props"][k]["title"] for k in g["given"]),
-                             *(f"not: {c['props'][k]['title']}" for k in g["given_not"])])
         for name, v in g["values"].items():
-            out.append(f"- Given {cond}: `{name}` = {_shown(v['value'], case['inputs'][name]['unit'], cur)}. "
+            out.append(f"- Given {given_condition(c, g)}: `{name}` = {_shown(v['value'], case['inputs'][name]['unit'], cur)}. "
                        f"{_rests_on(v['assumption'], c['cited'])}")
     return out
 
@@ -109,7 +114,7 @@ def _given_lines(c):
 def memo(c):
     co, case, res, props = c["company"], c["case"], c["results"], c["props"]
     cur, buyer, reasons = case["currency"], case["buyer"], case["reasons"]
-    worst = next(r for r in res["worlds"] if r["label"] == res["worst"])
+    worst = max(res["worlds"], key=lambda r: r["shortfall"])
     lost = f", of which {money(worst['lost'], cur)} is not recovered later" if worst.get("lost") is not None else ""
     share = f" ({pct(worst['share'])} of {res['denominator']['label']})" if worst.get("share") is not None else ""
     out = [f"# {co['name']}: {case['stream']}", "",

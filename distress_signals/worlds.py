@@ -29,8 +29,11 @@ def flatten(roots):
 
 
 def nest(props, key):
-    """A proposition in full, its ways nested in it, from the flat form."""
+    """A proposition in full, its ways nested in it, from the flat form, as a statement gives it: the side is
+    named on a way of a proposition that is not itself a way, and the ways of a way divide it."""
     p = {k: v for k, v in props[key].items() if k not in ("parent", "order") and v not in (None, [], "")}
+    if props[key].get("parent") and props[props[key]["parent"]].get("parent"):
+        p.pop("side", None)
     ways = sorted((w for w in props.values() if w.get("parent") == key), key=lambda w: w["order"])
     return p | {"ways": [nest(props, w["key"]) for w in ways]}
 
@@ -67,10 +70,12 @@ def interval(p):
 
 
 def comparable(a, b):
-    """Two claims about one level: one metric and resolution source, decided the same way on the same date."""
-    return bool(interval(a) and interval(b) and a.get("metric") and a.get("metric") == b.get("metric")
-                and a.get("resolution_source") == b.get("resolution_source") and a.get("kind") == b.get("kind")
-                and str(a.get("window_end")) == str(b.get("window_end")))
+    """Two claims about one level: one metric in one unit and one resolution source, decided the same way over
+    the same window."""
+    same = lambda k: a.get(k) == b.get(k)  # noqa: E731
+    return bool(interval(a) and interval(b) and a.get("metric") and same("metric") and same("unit")
+                and same("resolution_source") and same("kind") and str(a.get("window_end")) == str(b.get("window_end"))
+                and str(a.get("window_start")) == str(b.get("window_start")))
 
 
 def _within(x, y):
@@ -84,15 +89,30 @@ def _apart(x, y):
 
 
 def read_fields(props, keys):
-    """What the level fields of some propositions say of one another: [(a, 'implies' | 'excludes', b)]."""
+    """What the level fields of some propositions say of one another: [(a, 'implies' | 'excludes', b)]. One
+    whose values all lie among another's implies it. Two with no value in common exclude one another where the
+    level is read once, on a date or at a decision; a level reached at any time through a window can reach
+    both."""
     out = []
     for a, b in itertools.permutations(keys, 2):
         if comparable(props[a], props[b]):
             if _within(interval(props[a]), interval(props[b])):
                 out.append((a, "implies", b))
-            elif a < b and _apart(interval(props[a]), interval(props[b])):
+            elif a < b and props[a]["kind"] != "hitting" and _apart(interval(props[a]), interval(props[b])):
                 out.append((a, "excludes", b))
     return out
+
+
+def outside(props, key):
+    """For a way whose level fields are compared with those of what it divides: whether they put it outside.
+    A way of the Yes side lies within the proposition's values; a way of the No side has none of them."""
+    p = props[key]
+    parent = props.get(p.get("parent"))
+    if not parent or not comparable(p, parent):
+        return False
+    if p["side"] == "no":
+        return parent["kind"] != "hitting" and not _apart(interval(p), interval(parent))
+    return not _within(interval(p), interval(parent))
 
 
 def overlapping(props, key):
@@ -103,18 +123,50 @@ def overlapping(props, key):
 
 
 def gaps(props, key):
-    """[(a, b)] among the ways beside a way, in order of their thresholds, where values lie between one way's
-    upper end and the next way's lower end: the level fields leave them in no way."""
+    """The values the ways beside a way leave in none of them, each as (low, low included, high, high
+    included). They are looked for among the values of what the ways divide, where its level fields are
+    compared with theirs: the proposition's own values on its Yes side, the rest on its No side. Otherwise
+    between the lowest of the ways' values and the highest."""
     ways = [w for w in beside(props, key) if interval(props[w])]
     if len(ways) < 2 or not all(comparable(props[ways[0]], props[w]) for w in ways[1:]):
         return []
-    ways.sort(key=lambda w: (interval(props[w])[0], not interval(props[w])[1]))
-    out = []
-    for a, b in zip(ways, ways[1:]):
-        (_, _, hi, hi_in), (lo, lo_in, _, _) = interval(props[a]), interval(props[b])
-        if hi < lo or (hi == lo and not hi_in and not lo_in):
-            out.append((a, b))
-    return out
+    spans = sorted((interval(props[w]) for w in ways), key=lambda s: (s[0], not s[1]))
+    parent, side, inf = props[props[key]["parent"]], props[key]["side"], float("inf")
+    if comparable(props[ways[0]], parent) and not (side == "no" and parent["kind"] == "hitting"):
+        lo, lo_in, hi, hi_in = interval(parent)
+        whole = [(lo, lo_in, hi, hi_in)] if side == "yes" else [(-inf, False, lo, not lo_in), (hi, not hi_in, inf, False)]
+    else:
+        top = max(spans, key=lambda s: (s[2], s[3]))
+        whole = [(spans[0][0], spans[0][1], top[2], top[3])]
+    return [piece for stretch in whole for piece in _left(stretch, spans)]
+
+
+def _left(stretch, spans):
+    """What a stretch of values keeps once the spans, in the order of their lower ends, are taken out of it."""
+    (cur, cur_in, hi, hi_in), out = stretch, []
+    for s_lo, s_in, s_hi, s_hi_in in spans:
+        if s_lo > cur or (s_lo == cur and cur_in and not s_in):
+            out.append((cur, cur_in, s_lo, not s_in))
+        if s_hi > cur or (s_hi == cur and cur_in and s_hi_in):
+            cur, cur_in = s_hi, not s_hi_in
+    out.append((cur, cur_in, hi, hi_in))
+    kept = []
+    for a, a_in, b, b_in in out:
+        if b > hi or (b == hi and b_in and not hi_in):
+            b, b_in = hi, hi_in
+        if a < b or (a == b and a_in and b_in):
+            kept.append((a, a_in, b, b_in))
+    return kept
+
+
+def values_in(span):
+    """A stretch of values in the comparisons a proposition's fields use: '>= 0.4 and < 0.5'."""
+    lo, lo_in, hi, hi_in = span
+    if lo == hi:
+        return f"== {lo:g}"
+    parts = ([f"{'>=' if lo_in else '>'} {lo:g}"] if lo != float("-inf") else []) \
+        + ([f"{'<=' if hi_in else '<'} {hi:g}"] if hi != float("inf") else [])
+    return " and ".join(parts)
 
 
 # ---------- worlds ----------
@@ -208,17 +260,17 @@ def worlds(props, read):
 
 def describe(props, events, read, all_worlds, world):
     """A world in the propositions' words: which are true in it, at their most particular, and which are false.
-    A proposition that is not one of the case's events is named only where it could have stood either way."""
+    The case's events come first and are always named. Each other proposition is named where, with those
+    before it as they stand in this world, it could still have stood either way; so no two worlds read alike."""
     roots = list(dict.fromkeys(root(props, k) for k in read))
-    true, false, titles, texts = [], [], [], []
+    true, false, titles, texts, before = [], [], [], [], []
     for r in roots:
         mine = [k for k in read if root(props, k) == r]
         deepest = [k for k in mine if world[k] and not any(world[c] for c in mine if props[c].get("parent") == k)]
-        if r not in events:
-            others = {k: v for k, v in world.items() if root(props, k) != r}
-            alike = [w for w in all_worlds if all(w[k] == v for k, v in others.items())]
-            if len({tuple(w[k] for k in mine) for w in alike}) < 2:
-                continue
+        alike = [w for w in all_worlds if all(w[k] == world[k] for k in before)]
+        before += mine
+        if r not in events and len({tuple(w[k] for k in mine) for w in alike}) < 2:
+            continue
         if deepest:
             true += deepest
             titles += [props[k]["title"] for k in deepest]

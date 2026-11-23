@@ -471,18 +471,21 @@ def push(case_ids=None, dry_run=False, quiet=False):
     """Deliver cases: the ones named, or every active case plus any delivered case that changed (a
     withdrawn case updates its deal). A withdrawn case that was never delivered is left out."""
     con = db.connect()
-    cases = {c["id"]: c for c in briefs.cases(con, case_ids or None)}
-    missing = [i for i in case_ids or [] if i not in cases]
-    if missing:
-        raise SystemExit(f"no saved case {', '.join(missing)}")
-    chosen = [cases[i] for i in case_ids] if case_ids else \
-        [c for c in cases.values() if c["status"] == "active" or _delivered(con, "deal", c["id"])]
-    planned, counts = [], {}
-    for c in chosen:
-        what, line = _deliver(con, c, dry_run, planned)
-        counts[what] = counts.get(what, 0) + 1
-        if line and not (quiet and what == "skipped"):
-            print(line, flush=True)
+    try:
+        cases = {c["id"]: c for c in briefs.cases(con, case_ids or None)}
+        missing = [i for i in case_ids or [] if i not in cases]
+        if missing:
+            raise SystemExit(f"no saved case {', '.join(missing)}")
+        chosen = [cases[i] for i in case_ids] if case_ids else \
+            [c for c in cases.values() if c["status"] == "active" or _delivered(con, "deal", c["id"])]
+        planned, counts = [], {}
+        for c in chosen:
+            what, line = _deliver(con, c, dry_run, planned)
+            counts[what] = counts.get(what, 0) + 1
+            if line and not (quiet and what == "skipped"):
+                print(line, flush=True)
+    finally:
+        con.close()
     if dry_run:
         OUT.mkdir(exist_ok=True)
         (OUT / "hubspot_payloads.jsonl").write_text("".join(json.dumps(p, default=str) + "\n" for p in planned))
@@ -645,6 +648,13 @@ def apply_outcome(con, case_id, progress):
 def pull_outcomes(quiet=False):
     """Read every delivered deal's stage, outcome and note back onto its case."""
     con = db.connect()
+    try:
+        return _pull_outcomes(con, quiet)
+    finally:
+        con.close()
+
+
+def _pull_outcomes(con, quiet):
     rows = db.deliveries(con, DEST, "deal")
     if not rows:
         if not quiet:

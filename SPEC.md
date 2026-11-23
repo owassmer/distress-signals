@@ -1,8 +1,8 @@
 # distress-signals specification
 
 This file is the reference for the code. When the code and this file disagree, change one of them in the
-same commit. `docs/model.md` states the model the code implements: the event and its outcomes, the case, the
-calculation, settlement, and the seam with event-risk. Read it first.
+same commit. `docs/model.md` states the model the code implements: propositions and their links, the case, its
+worlds and figures, the bases, and the seam with event-risk. Read it first.
 
 ## 1. What it does
 
@@ -39,7 +39,7 @@ flowchart LR
     W --> R["Researcher (claude -p)"]
     R <--> T["Seven tools (MCP)"]
     R <--> X["WebSearch / WebFetch"]
-    T <--> S[("distress.db: records, workspace, findings, events, cases")]
+    T <--> S[("distress.db: records, workspace, findings, propositions, cases")]
     T -->|"each save or withdrawal"| D["HubSpot: company, deal, contact"]
     D -->|"lookup: the company's deals, stages, outcomes"| T
     W -->|"run status, results, proposed leads"| H
@@ -121,11 +121,15 @@ the proposition it is a way of and the side it divides (`worlds.flatten`, `world
 **What a statement of a proposition must keep.**
 - A key names one proposition: a key that already names a proposition elsewhere is refused.
 - A proposition has no ways on a side, or at least two.
-- The ways beside one another cannot both be true by their level fields. Where their thresholds leave values
-  in none of them, the save says so and stands.
-- Every proposition an active saved case reads stays, and every other saved case that reads a restated
-  proposition is computed again. One left without its figures refuses the statement, naming the case. One whose
-  snapshot changed gets a revision of its own and is delivered again.
+- Level fields are compared between two propositions on one metric, in one unit, with one resolution source,
+  decided the same way over the same window (`worlds.comparable`). The ways beside one another cannot both be
+  true by them, and a way's values lie within those of what it divides, or apart from them on its No side. Where
+  the ways' thresholds leave values in none of them, the save says which and stands.
+- Every proposition an active case reads stays, and so does every proposition another is linked to.
+- Where a call states or removes a proposition, every other active case is computed again on the propositions
+  as they then stand. One left without its figures refuses the statement, naming the case. One whose
+  propositions or figures differ gets a revision of its own, cites what its propositions now cite, and is
+  delivered again.
 
 ### The case
 
@@ -151,7 +155,8 @@ the proposition it is a way of and the side it divides (`worlds.flatten`, `world
 | `change_note` | What a save changed |
 
 A case is `active` or `withdrawn`. `record_finding` with `withdraw_case` withdraws it; saving it again
-returns it to the active queue.
+returns it to the active queue. A withdrawn case reads as its last revision held it, with the propositions as
+they stood then.
 
 **Worlds and figures** (`docs/model.md` section 4; `worlds.py`, `exposure.py`).
 - A case reads its events, every proposition its given values name, and with each way so named the ways beside
@@ -198,8 +203,8 @@ are different kinds.
 ### Results on read
 
 Every read of a saved case goes through `forms.py`: `lookup`, a refresh, delivery to HubSpot, the run page
-and the export. Its results are computed again from what it states and from the propositions as they now
-stand.
+and the export. An active case's results are computed again from what it states and from the propositions as
+they now stand; a withdrawn case's, from the propositions as its last revision held them (`forms.read`).
 
 ### What a run can see
 
@@ -260,7 +265,8 @@ end point (the structured final answer), and supplied a short length itself.
 `llm.ask` runs `claude -p` in stream-json mode for input and output:
 
 - `--mcp-config` launches `distress_signals.mcp_server`, with its environment given in full (database,
-  run ID, log, and for a company run the company the cases are limited to), because Claude passes stdio
+  run ID, log, the HubSpot key as the launcher has it, and for a company run the company the cases are limited
+  to), because Claude passes stdio
   servers only a minimal environment. `--strict-mcp-config` keeps other servers out.
 - `--tools WebSearch,WebFetch`, and `--allowedTools` listing those and the seven tools.
 - The model from `AGENT_MODEL` (default `opus`) and its reasoning effort from `AGENT_EFFORT` (default `xhigh`),
@@ -402,7 +408,7 @@ the revenue formula at the inputs' values. A world's figures are the formulas at
 | `reads` | The propositions the case reads |
 | `baseline_revenue`, `baseline_contribution` | The revenue formula, and the contribution formula where given, at the inputs' values |
 | `condition` | The worlds whose revenue differs from the baseline's, in the propositions' words |
-| `world`, `label`, `text` | For each world: the propositions true in it, at their most particular, and those false; and the same in the propositions' titles and texts. A proposition that is not one of the case's events is named only where it could have stood either way |
+| `world`, `label`, `text` | For each world: the propositions true in it, at their most particular, and those false; and the same in the propositions' titles and texts. The case's events come first and are always named. Each other proposition is named where, with those before it as they stand in the world, it could still have stood either way, so no two worlds read alike |
 | `values` | The inputs that take another value in the world |
 | `revenue` | What the company would recognize within the period in this world, work or sales made up within the period included |
 | `shortfall` | Baseline revenue less this world's: the revenue at stake within the period |
@@ -578,7 +584,8 @@ HubSpot shows.
 
 ## 10. Commands
 
-Day to day, everything happens in HubSpot. From a terminal:
+Day to day, everything happens in HubSpot. `DISTRESS_DB=FILE` names the store a command uses, and a command
+given an empty `HUBSPOT_SERVICE_KEY` writes nothing to HubSpot, its run's tools included. From a terminal:
 
 ```
 python -m distress_signals hubspot-setup
@@ -608,9 +615,9 @@ python -m distress_signals ledgers [--verify]
 |---|---|
 | The receivables pipeline (`discover`, `verify`, `collect`, `changes`, `backtest`, `run`, `score.py`, its classifiers, cache and exclusion lists), its samples and docs | The tool prospects on revenue exposure |
 | Prediction-market search and reads, protection fields and payouts | As above |
-| Event probabilities and probability-weighted results (`expected_loss`, `expected_lost`) | The operator decides whom to contact from the shortfall under each outcome. The probability of each outcome is event-risk's (`docs/model.md` section 7) |
-| The requirement that each case model every outcome of a shared event, and the `save_event` tool with its outcome renames | A case gives values for the outcomes that change its revenue. The event is saved with a case or finding, and an outcome keeps its key when its wording is revised |
-| A formula for the baseline and one for each version of the condition, with a name, a description and a timeline for each version | One revenue formula, and the inputs' values by outcome. Two figures for an outcome are two ways of it |
+| Event probabilities and probability-weighted results (`expected_loss`, `expected_lost`) | The operator decides whom to contact from the shortfall under each outcome. The probability of each outcome is event-risk's (`docs/model.md` section 8) |
+| The requirement that each case model every outcome of a shared event, and the `save_event` tool with its outcome renames | A case gives values for the outcomes that change its revenue. A proposition is saved with a case or finding, and keeps its key when its wording is revised |
+| A formula for the baseline and one for each version of the condition, with a name, a description and a timeline for each version | One revenue formula, and the values its inputs take given outcomes. A second figure for an outcome is a second proposition |
 | `cash_shifted` | Replaced by revenue made up within the period, `deferred_past_period` and `cash_delayed` |
 | The local queue page, CSV and memo files | HubSpot is the operator's view; the memo is on the deal, and `export` prints a case |
 | The digest of saved research in every prompt | It handed the analyst earlier cases, rankings and figures as its starting list; prior research is read with `lookup` |
@@ -650,7 +657,7 @@ python -m distress_signals ledgers [--verify]
 | `distress_signals/names.py`, `util.py` | Name normalization, HTTP, dates, exclusions |
 | `distress_signals/__main__.py` | The commands |
 | `docs/data-sources.md` | The series, how each is reached, and the keys some need |
-| `tests/` | The registry's tests, the tests of events' outcomes and the cases that name them, and the harness that tries a series against its publisher |
+| `tests/` | The registry's tests, the model's tests (the cases of `docs/model.md` section 9, and what the store does with propositions and cases), and the harness that tries a series against its publisher |
 
 ## 13. Build order
 

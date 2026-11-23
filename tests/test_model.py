@@ -5,13 +5,16 @@ import copy
 import os
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
-from distress_signals import briefs, db, tools
+from distress_signals import briefs, db, tools, worlds
 
 REPORT = ("The Company's largest program is the Regional Transit Program.\nIn fiscal 2026 the Company recognized $100 of "
-          "revenue under the\nprogram. The agency's proposed budget would fund the program at 70% of\nits current level.")
+          "revenue under the\nprogram. The agency's proposed budget would fund the program at 70% of\nits current level. "
+          "The Company's contract fixes its\nfee for the program year beginning July 1, 2027 at $100.")
+MINUTES = "The board will vote on the program in June.\nIt met twice this year."
 FUNDING = {"metric": "program_funding_share", "unit": "share of this year's funding"}
 
 
@@ -50,7 +53,9 @@ def case(given_values=None, company="Northfield Transit Services", events=("prog
             "dependency": "The program is funded year to year by the agency.", "timing": "From the next fiscal year.",
             "period": {"start": "2027-07-01", "end": "2028-06-30"}, "currency": "USD",
             "revenue": "program_revenue * share_kept",
-            "inputs": {"program_revenue": {"unit": "USD", "value": 100, "source": {"observation_id": "obs_report", "passage": "recognized $100 of revenue under the"}},
+            "inputs": {"program_revenue": {"unit": "USD", "value": 100, "assumption": {
+                           "note": "The program's fiscal 2026 revenue, carried into the period.",
+                           "evidence": [{"observation_id": "obs_report", "passage": "recognized $100 of revenue under the"}]}},
                        "share_kept": {"unit": "share of this year's funding", "value": 1, "assumption": dict(A)}},
             "given_values": copy.deepcopy(given_values if given_values is not None else ILLUSTRATION),
             "denominator": {"label": "program revenue", "formula": "program_revenue"},
@@ -69,9 +74,11 @@ class Model(unittest.TestCase):
         self.addCleanup(env.stop)
         os.environ.pop("HUBSPOT_SERVICE_KEY", None)
         os.environ.pop("DISTRESS_RUN_PRINCIPAL", None)
-        with db.connect() as con:
+        with closing(db.connect()) as con:
             db.put_observation(con, {"id": "obs_report", "kind": "page", "source": "example.org", "retrieved_at": "2026-11-23",
                                      "url": "https://example.org/annual-report", "text": REPORT})
+            db.put_observation(con, {"id": "obs_minutes", "kind": "page", "source": "example.org", "retrieved_at": "2026-11-23",
+                                     "url": "https://example.org/minutes", "text": MINUTES, "data": {"title": "Board minutes"}})
             db.put_result(con, {"id": "wk_programs", "name": "program_revenue_by_company", "sql": "SELECT 1",
                                 "columns": ["company", "program", "revenue"], "row_count": 3,
                                 "rows": [["Northfield", "transit", 100.0], ["Northfield", "paratransit", 20.0],
@@ -169,7 +176,7 @@ class Model(unittest.TestCase):
         gapped = program()
         gapped["ways"][2]["value"] = 0.4
         out = self.save(propositions=[gapped, SUBCONTRACT])
-        self.assertIn("cut-half-or-more and cut-under-half leave the values between them in no way of program-renewal", out["warnings"])
+        self.assertIn("The ways of program-renewal leave program_funding_share >= 0.4 and < 0.5 in none of them", out["warnings"])
 
     def test_11_the_store_reads_an_observed_value_from_its_result(self):
         cell = {"result_id": "wk_programs", "column": "revenue", "row": {"company": "Northfield", "program": "transit"}}
@@ -221,7 +228,7 @@ class Model(unittest.TestCase):
         self.refused("'cut-under-half' is a way of 'program-renewal'", events=["cut-under-half"])
         orphan = claim("orphan", "A claim", implies=["nothing-saved"])
         self.refused("linked to 'nothing-saved'", propositions=[program(), SUBCONTRACT, orphan])
-        with db.connect() as con:
+        with closing(db.connect()) as con:
             self.assertEqual(db.propositions(con), {})                                 # a refused save stored nothing
 
     def test_a_proposition_is_stated_whole(self):
@@ -263,10 +270,138 @@ class Model(unittest.TestCase):
         self.assertEqual(out["also_revised"], [first])
         seen = tools.lookup(first)
         self.assertEqual((seen["revision"], seen["revisions"][-1]["change_note"]),
-                         (2, "A proposition this case reads was restated: program-renewal"))
-        with db.connect() as con:                                                    # the first estimate stands as issued
+                         (2, "The propositions this case rests on changed: program-renewal"))
+        with closing(db.connect()) as con:                                                    # the first estimate stands as issued
             was = con.execute("SELECT snapshot FROM revisions WHERE case_id=? AND revision=1", (first,)).fetchone()[0]
         self.assertIn("The agency renews the program by June 30, 2027.", was)
+
+    def skeleton(self):
+        """A case that reads `deep-cut`, which implies a way of `program-renewal` the case does not read."""
+        deep = claim("deep-cut", "The agency cuts to a skeleton program", implies=["cut-half-or-more"])
+        return self.save([given({"share_kept": 0.2}, "deep-cut")], propositions=[program(), deep])["case_id"]
+
+    def test_a_statement_keeps_what_a_saved_proposition_is_linked_to(self):
+        first = self.skeleton()
+        coarser = program()
+        coarser["ways"] = []
+        self.refused("leaves out 'cut-half-or-more', which the saved proposition 'deep-cut'", company="Lakeshore Transit",
+                     given_values=[given({"share_kept": 0}, not_=["program-renewal"])], propositions=[coarser])
+        with closing(db.connect()) as con:
+            self.assertIn("cut-half-or-more", db.propositions(con))
+        self.assertEqual(len(tools.lookup(first)["results"]["worlds"]), 3)
+
+    def test_a_statement_moves_every_case_its_propositions_reach(self):
+        first = self.skeleton()                                   # through a link: the case does not read the way restated
+        moved = program()
+        moved["ways"][2]["text"] = "The agency funds the program at less than half of this year's level."
+        out = self.save([given({"share_kept": 0}, not_=["program-renewal"])], company="Lakeshore Transit", propositions=[moved])
+        self.assertEqual(out["also_revised"], [first])
+        seen = tools.lookup(first)
+        self.assertEqual(seen["revisions"][-1]["change_note"], "The propositions this case rests on changed: cut-half-or-more")
+        with closing(db.connect()) as con:
+            self.assertIn("less than half of this year's level", db.dumps(db.latest_revision(con, first)["snapshot"]))
+        # through the ways beside one it reads: a way added to an event divides the side for the case that reads another
+        ways = [claim("goes-to-a-rival", "A rival takes the route"), claim("route-closed", "The route closes")]
+        route = claim("route-rebid", "The agency rebids the route", ways=ways)
+        second = self.save([given({"share_kept": 0}, "goes-to-a-rival")], events=["route-rebid"], stream_key="route",
+                           propositions=[route])
+        self.assertEqual(len(second["results"]["worlds"]), 3)
+        route["ways"] = ways + [claim("split-in-two", "The route is split between two operators")]
+        out = tools.record_finding({"kind": "question", "statement": "Could the route be split between operators?",
+                                    "proposition": "route-rebid"}, [route])
+        self.assertEqual(out["also_revised"], [second["case_id"]])
+        seen = tools.lookup(second["case_id"])
+        self.assertEqual((seen["revision"], len(seen["results"]["worlds"])), (2, 4))
+        with closing(db.connect()) as con:
+            self.assertEqual(len(db.get_case(con, second["case_id"])["results"]["worlds"]), 4)
+
+    def test_a_case_another_statement_moves_cites_what_its_propositions_now_cite(self):
+        first = self.save()["case_id"]
+        more = program()
+        more["evidence"] = [{"observation_id": "obs_minutes", "passage": "will vote on the program in June"}]
+        out = self.save([given({"share_kept": 0}, not_=["program-renewal"])], company="Lakeshore Transit", propositions=[more])
+        self.assertEqual(out["also_revised"], [first])
+        with closing(db.connect()) as con:
+            self.assertEqual([o["id"] for o in db.cited(con, first)], ["obs_minutes", "obs_report"])
+            self.assertIn('- "The board will vote on the program in June." (Board minutes)', briefs.memo(briefs.cases(con, [first])[0]))
+
+    def test_a_withdrawn_case_reads_as_its_last_revision_held_it(self):
+        first = self.save()["case_id"]
+        tools.record_finding({"kind": "conclusion", "statement": "The agency has funded the program for two years.",
+                              "case_id": first, "withdraw_case": True})
+        coarser = program()
+        coarser["ways"] = []
+        out = self.save([given({"share_kept": 0}, not_=["program-renewal"])], company="Lakeshore Transit", propositions=[coarser])
+        self.assertEqual(out["also_revised"], [])
+        with closing(db.connect()) as con:                           # the ways are gone from the store
+            self.assertEqual(sorted(db.propositions(con)), ["program-renewal", "subcontract-won"])
+            self.assertIn("**Withdrawn.**", briefs.memo(briefs.cases(con, [first])[0]))
+        seen = tools.lookup(first)
+        self.assertEqual((seen["status"], seen["revision"], len(seen["results"]["worlds"])), ("withdrawn", 1, 5))
+        self.assertEqual([w["key"] for w in seen["propositions"][0]["ways"]], ["renewed-in-full", "cut-under-half", "cut-half-or-more"])
+        self.assertIn("reads as its last revision held it", seen["how_to_update"])
+        self.assertEqual(len(tools.lookup("program-renewal")["cases"]), 2)
+        with self.assertRaises(tools.ToolError) as e:                 # saved again, it is computed on what now stands
+            tools.save_case(seen["case"] | {"change_note": "Back in the queue"}, [])
+        self.assertIn("no saved proposition 'cut-under-half'", str(e.exception))
+        back = tools.save_case(seen["case"] | {"change_note": "Back in the queue"}, seen["propositions"])
+        self.assertEqual((tools.lookup(first)["status"], len(back["results"]["worlds"])), ("active", 5))
+
+    def test_a_case_as_lookup_returns_it_saves_as_it_is(self):
+        out = self.save([given({"share_kept": 0.2}, "under-a-quarter-left")], propositions=[self.nested(), SUBCONTRACT])
+        seen = tools.lookup(out["case_id"])
+        deep = seen["propositions"][0]["ways"][2]["ways"][0]
+        self.assertEqual((deep["key"], "side" in deep), ("quarter-or-more-left", False))
+        again = tools.save_case(seen["case"] | {"change_note": "As it was"}, seen["propositions"])
+        self.assertEqual((again["revision"], again["changed"], again["propositions_saved"]), (1, False, []))
+
+    def test_no_two_worlds_read_alike(self):
+        won = claim("rebid-won", "The contractor wins the rebid", implies=["rebid-awarded"], implies_not=["program-renewal"])
+        awarded = claim("rebid-awarded", "The rebid is awarded to the contractor", implies=["rebid-won"], implies_not=["program-renewal"])
+        out = self.save([given({"share_kept": 0.5}, not_=["program-renewal"]), given({"share_kept": 0.2}, "rebid-won", "rebid-awarded")],
+                        propositions=[program(), won, awarded])
+        self.assertEqual(self.worlds(out), [("The agency renews the program", 100, 0),
+                                            ("Not: The agency renews the program; The contractor wins the rebid", 20, 80),
+                                            ("Not: The agency renews the program; Not: The contractor wins the rebid", 50, 50)])
+        with closing(db.connect()) as con:
+            self.assertIn("Revenue at stake: $80 ", briefs.memo(briefs.cases(con, [out["case_id"]])[0]))
+
+    def test_level_fields_are_compared_between_claims_about_one_level(self):
+        band = lambda key, lo, hi, **more: claim(key, key, comparison=">=", value=lo, upper_comparison="<", upper_value=hi, **FUNDING, **more)  # noqa: E731
+        for lo, hi in ((0.5, 0.5), (1, 0.5)):
+            with self.subTest(band=(lo, hi)):
+                self.refused("a band runs from value up to upper_value", propositions=[program([band("no-values", lo, hi)]), SUBCONTRACT])
+        flat = lambda *claims: worlds.flatten(copy.deepcopy(list(claims)))  # noqa: E731
+        at = lambda key, value, **more: claim(key, key, comparison=">=", value=value, metric="funding", **more)  # noqa: E731
+        apart = [claim("high", "high", comparison=">=", value=120, metric="price"), claim("low", "low", comparison="<", value=80, metric="price")]
+        hit = [dict(c, kind="hitting") for c in apart]
+        for props, said in ((flat(at("in-percent", 50, unit="percent"), at("in-dollars", 100, unit="USD")), []),
+                            (flat(at("from-january", 10, kind="hitting", window_start="2027-01-01"),
+                                  at("from-july", 10, kind="hitting", window_start="2027-07-01")), []),
+                            (flat(at("at-ten", 10), at("at-twenty", 20)), [("at-twenty", "implies", "at-ten")]),
+                            (flat(*apart), [("high", "excludes", "low")]),      # one reading of the level cannot be both
+                            (flat(*hit), [])):                                  # a level can reach both within a window
+            with self.subTest(props=list(props)):
+                self.assertEqual(worlds.read_fields(props, list(props)), said)
+
+    def test_a_ways_values_lie_within_those_of_what_it_divides(self):
+        level = lambda *ways: claim("funding-held", "Funding holds at half or more", comparison=">=", value=0.5, **FUNDING, ways=list(ways))  # noqa: E731
+        way = lambda key, **more: claim(key, key, **FUNDING, **more)  # noqa: E731
+        top = way("nine-tenths-or-more", comparison=">=", value=0.9)
+        case_on = dict(events=["funding-held"], given_values=[given({"share_kept": 0.2}, not_=["funding-held"])])
+        self.refused("the way 'under-three-tenths' (program_funding_share < 0.3) and 'funding-held' (>= 0.5)", "the way has values the proposition does not",
+                     propositions=[level(way("under-three-tenths", comparison="<", value=0.3), top)], **case_on)
+        self.refused("share values", "none of its values", **case_on, propositions=[level(
+            way("under-three-tenths", side="no", comparison="<", value=0.3),
+            way("three-to-six-tenths", side="no", comparison=">=", value=0.3, upper_comparison="<", upper_value=0.6))])
+        out = self.save(**case_on, propositions=[level(
+            way("six-to-eight-tenths", comparison=">=", value=0.6, upper_comparison="<", upper_value=0.8), top,
+            way("under-three-tenths", side="no", comparison="<", value=0.3),
+            way("three-to-four-tenths", side="no", comparison=">=", value=0.3, upper_comparison="<", upper_value=0.4))])
+        self.assertEqual(out["warnings"][-3:], [
+            "The ways of funding-held leave program_funding_share >= 0.5 and < 0.6 in none of them",
+            "The ways of funding-held leave program_funding_share >= 0.8 and < 0.9 in none of them",
+            "The ways of funding-held on its No side leave program_funding_share >= 0.4 and < 0.5 in none of them"])
 
     def test_a_proposition_shows_its_ways_its_level_fields_and_its_cases(self):
         self.save(propositions=[self.nested(), SUBCONTRACT])
@@ -307,16 +442,28 @@ class Model(unittest.TestCase):
             with self.subTest(said=said):
                 self.refused(said, given_values=values)
 
+    def test_an_observed_value_is_the_passage_that_states_it_for_the_period(self):
+        stated = {"unit": "USD", "value": 100, "source": {"observation_id": "obs_report", "passage": "fee for the program year beginning July 1, 2027"}}
+        out = self.save(inputs=case()["inputs"] | {"program_revenue": stated})
+        seen = tools.lookup(out["case_id"])
+        self.assertEqual(seen["case"]["inputs"]["program_revenue"]["source"]["passage"],
+                         "The Company's contract fixes its fee for the program year beginning July 1, 2027 at $100.")
+        with closing(db.connect()) as con:
+            self.assertIn("| `program_revenue` | $100 | reported | \"The Company's contract fixes its fee",
+                          briefs.memo(briefs.cases(con, [out["case_id"]])[0]))
+        stated["source"]["passage"] = "fee for the program year beginning July 1, 2028"
+        self.refused("passage not found word for word", inputs=case()["inputs"] | {"program_revenue": stated})
+
     def test_a_draft_is_calculated_and_nothing_is_saved(self):
         draft = {k: v for k, v in case().items() if k in ("events", "revenue", "inputs", "given_values", "denominator")}
         out = tools.calculate_exposure(draft, [program(), SUBCONTRACT])
         self.assertEqual(len(out["results"]["worlds"]), 5)
-        with db.connect() as con:
+        with closing(db.connect()) as con:
             self.assertEqual((db.propositions(con), db.cases(con)), ({}, []))
 
     def test_the_memo_reads_the_case_and_its_propositions(self):
         cid = self.save()["case_id"]
-        with db.connect() as con:
+        with closing(db.connect()) as con:
             memo = briefs.memo(briefs.cases(con, [cid])[0])
         self.assertIn("**The agency renews the program.** The board votes in June.", memo)
         self.assertIn('Revenue at stake: $100 (100.0% of program revenue)', memo)
@@ -327,7 +474,8 @@ class Model(unittest.TestCase):
         self.assertIn("- Given Subcontract won: `share_kept` = 0.5 share of this year's funding. Stated for the test", memo)
         self.assertIn("- Given not: The agency renews the program: `share_kept` = 0 share", memo)
         self.assertIn("- revenue = `program_revenue * share_kept`", memo)
-        self.assertIn('| `program_revenue` | $100 | reported | "In fiscal 2026 the Company recognized $100 of revenue under the program."', memo)
+        self.assertIn('| `program_revenue` | $100 | assumed | The program\'s fiscal 2026 revenue, carried into the period. '
+                      '"In fiscal 2026 the Company recognized $100 of revenue under the program."', memo)
 
     def test_a_finding_can_concern_a_proposition_and_withdraw_a_case(self):
         cid = self.save()["case_id"]

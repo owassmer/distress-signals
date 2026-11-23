@@ -58,9 +58,11 @@ once an outcome is known. They have one shape and are told apart by their links.
 | `way` | A proposition, to each way it can turn out. On an event the link names the side it divides, `yes` or `no` | The ways beside one another exclude one another and together make up the proposition, or the side of the event, they divide. A way can have ways of its own |
 | `implies`, `implies_not` | A proposition, to another | Wherever the first is true, the second is true (`implies`) or false (`implies_not`). The outcomes the second adds to the first are a way of it beside the first |
 
-**Level fields.** Two propositions on one metric and resolution source, decided the same way on the same
-date, are compared by their fields. Code reads from them that one implies the other, that two cannot both
-be true, and where the ways beside one another overlap or leave values in none of them.
+**Level fields.** Two propositions on one metric, in one unit, with one resolution source, decided the
+same way over the same window, are compared by their fields. Code reads from them that one implies the
+other, and that two cannot both be true where the level is read once, on a date or at a decision. A way's
+values lie within those of what it divides, and code reads where the ways beside one another overlap or
+leave values in none of them.
 
 **What gets a proposition.** A way divides an outcome for every case that reads it: how far a decision
 goes, which form a filing takes, who is selected. What one company or its counterparties do once an
@@ -73,8 +75,8 @@ a proposition's links name propositions by key.
 
 **One statement, one place.** A proposition is stated once, and every case that reads it refers to that
 statement. A proposition given in full takes the place of the saved one, its ways with it, and keeps every
-proposition a saved case reads: wording is revised under the same key, and a finer distinction is drawn by
-giving a proposition ways or by linking another to it.
+proposition an active case reads and every proposition another is linked to: wording is revised under the
+same key, and a finer distinction is drawn by giving a proposition ways or by linking another to it.
 
 ## 3. The case
 
@@ -141,7 +143,7 @@ least half of its program work as a subcontractor within a year of a non-renewal
 ```
 revenue = program_revenue * share_kept
 
-inputs         program_revenue   100    observed: the contractor's annual report
+inputs         program_revenue   100    assumed: this year's figure in the annual report, carried into the period
                share_kept        1      assumed: funding continues at this year's level
 
 given values   given not program-renewal    share_kept = 0
@@ -181,7 +183,7 @@ beside it, its ways and its links included. The same call with nothing saved cal
 
 | The analyst | It learns in return |
 |---|---|
-| States a case | Each world, with the propositions true and false in it, the inputs that take another value there, the revenue and the shortfall; the baseline; the condition; the result of each basis check; the propositions the call saved; and each other saved case a restated proposition moved, which gets a revision of its own |
+| States a case | Each world, with the propositions true and false in it, the inputs that take another value there, the revenue and the shortfall; the baseline; the condition; the result of each basis check; the propositions the call saved; and each other active case the call's propositions moved, which gets a revision of its own |
 | Calculates a draft | The same worlds and figures, with nothing saved |
 | Looks up a proposition | It in full with its ways and links, what code reads from its level fields, and each case that reads it: the case's formula, given values and worlds |
 | Looks up a case | The case as it now stands, with the propositions it reads and its revisions |
@@ -193,16 +195,19 @@ beside it, its ways and its links included. The same call with nothing saved cal
   every other: the refusal names the world, the input and those given values;
 - a key that already names a proposition elsewhere in the store;
 - a given value whose condition holds in no world;
-- ways beside one another whose level fields overlap, or one way alone;
+- ways beside one another whose level fields overlap, a way whose values lie outside those of what it
+  divides, or one way alone;
 - a passage that is not in its record, a result cell that picks out no row or several, a formula that
   cannot be evaluated;
-- a statement of a proposition that leaves out one a saved case reads, or that leaves a saved case without
-  its figures, naming the case.
+- a statement of a proposition that leaves out one an active case reads or one another proposition is
+  linked to, or that leaves an active case without its figures, naming the case or the proposition.
 
 ## 7. Estimates
 
 Each save writes a revision with its date and its run: the case, the propositions it reads, the inputs and
-their bases, and the figures, as they stood. A case's revisions, in order, are its estimates.
+their bases, and the figures, as they stood. A case's revisions, in order, are its estimates. A statement of
+a proposition moves every active case it reaches, by being read, through the ways beside what a case reads,
+or through a link; each such case gets an estimate of its own. A withdrawn case reads as its last estimate.
 
 ## 8. The seam with event-risk
 

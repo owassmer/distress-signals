@@ -236,8 +236,8 @@ def _cite(con, cite, where, cited_ids):
             db.put_observation(con, obs)
         checked = False
     else:
-        raise ToolError(f"{where}: {obs['id']} has no text to quote. Compute the figure from its rows with compute "
-                        "and cite the result as derived.")
+        raise ToolError(f"{where}: {obs['id']} has no text to quote. Compute the figure from its rows with "
+                        "compute(save_as=...), and give the input the cell of that result.")
     return {"observation_id": obs["id"], "passage": passage, "checked": checked}
 
 
@@ -445,11 +445,24 @@ def _lay_over(con, given, cited_ids=None, saving=None):
         gone += dropped
         props |= flat
         stated += list(flat)
-    for k in stated:
-        for other in [*(props[k].get("implies") or []), *(props[k].get("implies_not") or [])]:
-            if other not in props:
+    for k, p in props.items():
+        for other in [*(p.get("implies") or []), *(p.get("implies_not") or [])]:
+            if other not in props and k in stated:
                 raise ToolError(f"propositions.{k}: it is linked to {other!r}, and no saved proposition has that key. Give "
                                 "that proposition in full as well, or name one that is saved.")
+            if other not in props:
+                raise ToolError(f"propositions: this statement leaves out {other!r}, which the saved proposition {k!r} "
+                                f"({p['title']}) is linked to. Keep it, or give {k!r} in full as well, without that link.")
+    for k in stated:
+        if worlds.outside(props, k):
+            way, of = props[k], props[props[k]["parent"]]
+            said = (f"the way {k!r} ({way['metric']} {worlds.values_in(worlds.interval(way))}) and {of['key']!r} "
+                    f"({worlds.values_in(worlds.interval(of))})")
+            raise ToolError(f"propositions: by their level fields, {said} share values. A way of a proposition's No "
+                            "side holds where the proposition is false, so it has none of its values."
+                            if way["side"] == "no" else
+                            f"propositions: by their level fields, {said}: the way has values the proposition does "
+                            "not. A way holds only where what it divides does, so its values lie within that one's.")
         both = worlds.overlapping(props, k)
         if both:
             a, b = both[0]
@@ -497,13 +510,15 @@ def _proposition_view(props, key):
 
 
 def _uncovered(props, keys):
-    """What the level fields of the ways beside one another leave in no way, in words."""
+    """The values the level fields of the ways beside one another leave in none of them, in words."""
     seen, out = set(), []
     for k in keys:
         group = tuple(worlds.beside(props, k))
         if group and group not in seen:
             seen.add(group)
-            out += [f"{a} and {b} leave the values between them in no way of {props[k]['parent']}" for a, b in worlds.gaps(props, k)]
+            side = " on its No side" if props[k]["side"] == "no" else ""
+            out += [f"The ways of {props[k]['parent']}{side} leave {props[k]['metric']} {worlds.values_in(span)} in none "
+                    "of them" for span in worlds.gaps(props, k)]
     return out
 
 
@@ -603,6 +618,14 @@ def _snapshot(company_id, company, case, props, results):
             "propositions": {k: props[k] for k in held}, "results": results}
 
 
+def _cited(snapshot):
+    """The records a case cites as it stands: under its figures and claims, and under the propositions its
+    worlds rest on."""
+    case = snapshot["case"]
+    return [c["observation_id"] for c in _cites(case, snapshot["propositions"].values())] \
+        + [case["buyer"]["observation_id"]] * bool(case["buyer"].get("observation_id"))
+
+
 def _revise(con, cid, row, snapshot, change_note):
     """Write a revision when the snapshot differs from the last one. Returns (revision, changed)."""
     last = db.latest_revision(con, cid)
@@ -616,15 +639,18 @@ def _revise(con, cid, row, snapshot, change_note):
                       "currency": case["currency"], "case_json": case, "results": results, "revision": revision},
                 results["reads"])
     db.add_revision(con, cid, revision, digest, change_note, snapshot)
+    db.set_citations(con, cid, _cited(snapshot))
     return revision, True
 
 
 def _others(con, props, touched, but=None):
-    """The other saved cases that read a proposition this call stated or removed, each as it now stands. A
-    statement that leaves one of them without a figure is refused, naming it."""
+    """The other active cases a call's statements moved, where it stated or removed a proposition. Each is
+    computed again on the propositions as they now stand, since a proposition reaches a case's worlds through
+    the ways beside what it reads and through links as well as by being read. One whose propositions or
+    figures differ gets a revision. A statement that leaves one without a figure is refused, naming it."""
     out = []
-    for cid in sorted({c for k in touched for c in db.readers(con, k)} - {but}):
-        row = db.get_case(con, cid)
+    for row in db.cases(con, "status='active' AND id<>?", (but or "",)) if touched else []:
+        cid = row["id"]
         last = db.latest_revision(con, cid)["snapshot"]
         try:
             results, _ = exposure.compute(row["case_json"], props)
@@ -633,10 +659,11 @@ def _others(con, props, touched, but=None):
                             "Keep what that case reads, or revise that case first.")
         snapshot = _snapshot(last["company"]["id"], {k: v for k, v in last["company"].items() if k != "id"},
                              row["case_json"], props, results)
+        was, now = last["propositions"], snapshot["propositions"]
+        moved = [k for k in dict.fromkeys([*was, *now]) if was.get(k) != now.get(k)]
         revision, changed = _revise(con, cid, {"company_id": row["company_id"], "events": row["events"],
                                                "stream_key": row["stream_key"]}, snapshot,
-                                    "A proposition this case reads was restated: " + ", ".join(
-                                        k for k in touched if k in last["propositions"]))
+                                    "The propositions this case rests on changed: " + ", ".join(moved))
         if changed:
             out.append(cid)
     return out
@@ -687,11 +714,8 @@ def _save(con, c: Case, given):
     warnings += calc_warnings
     _keep(con, props, stated, gone)
     snapshot = _snapshot(company_id, company, case, props, results)
-    cited_ids += [e["observation_id"] for p in snapshot["propositions"].values() for e in p.get("evidence") or []]
     revision, changed = _revise(con, cid, {"company_id": company_id, "events": events, "stream_key": c.stream_key},
                                 snapshot, c.change_note)
-    if changed:
-        db.set_citations(con, cid, cited_ids)
     if existing and existing.get("status") == "withdrawn":
         db.set_status(con, cid, "active")
         warnings.append(f"{cid} was withdrawn; saving it returns it to the active queue.")
@@ -846,7 +870,7 @@ def _brief(con, row, props):
     and the revenue and shortfall in each world. lookup of the case gives the inputs and their bases."""
     c = db.get_company(con, row["company_id"])
     last = db.latest_revision(con, row["id"])
-    current = forms.snapshot(last["snapshot"], props)
+    current = forms.read(row, last["snapshot"], props)
     case, res = current["case"], current["results"]
     return {"case_id": row["id"], "status": row["status"], "company": c["name"], "events": row["events"],
             "stream": case["stream"], "period": case["period"], "estimated": last["saved_at"],
@@ -865,6 +889,11 @@ UPDATE = ("Edit 'case' and pass it to save_case with a change_note. To revise a 
           "in full.")
 
 
+WITHDRAWN = ("This case is withdrawn, and reads as its last revision held it, with the propositions as they stood then. "
+             "Saving 'case' with a change_note returns it to the active queue, computed on the propositions as they "
+             "now stand; lookup of a proposition's key returns it as it now stands.")
+
+
 def lookup(id_or_query: str) -> dict:
     """A saved case (case_...), company (co_...), finding (fnd_...) or workspace result (wk_...) by its ID; a
     proposition by its key or title; a company by its name, alias or domain."""
@@ -878,7 +907,8 @@ def lookup(id_or_query: str) -> dict:
             row = db.get_case(con, q)
             if not row:
                 raise ToolError(f"no saved case {q!r}")
-            current = forms.snapshot(db.latest_revision(con, q)["snapshot"], props)
+            current = forms.read(row, db.latest_revision(con, q)["snapshot"], props)
+            props = current["propositions"]
             company = db.get_company(con, row["company_id"])
             current["company"] = {"id": company["id"], **company["data"]}
             titles = {o["id"]: o for o in db.cited(con, q)}
@@ -909,7 +939,7 @@ def lookup(id_or_query: str) -> dict:
                     "findings": [_finding_view(con, f) for f in fs], "revision": row["revision"],
                     **({"crm": {k: v for k, v in (row["progress"] or {}).items() if k in ("stage", "outcome", "outcome_note")}}
                        if row["progress"] else {}),
-                    "updated": row["updated"], "how_to_update": UPDATE,
+                    "updated": row["updated"], "how_to_update": UPDATE if row["status"] == "active" else WITHDRAWN,
                     "revisions": db.revisions(con, q)[-8:]}
         if q.startswith("co_"):
             c = db.get_company(con, q)

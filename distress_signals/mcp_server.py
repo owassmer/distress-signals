@@ -97,8 +97,8 @@ def read_record(id_or_url: str, find: str | None = None, offset: int = 0, fresh:
 
 COMPUTE = """Run one read-only SQLite query over the records read with read_record and the findings and results
 recorded with record_finding and compute. Returns the columns and up to 200 rows. save_as stores the result (up
-to 2,000 rows) under a result_id; an input whose value comes from it cites it as derived, and saving checks the
-value is in it. SQLite's date functions (date, julianday, strftime) work on the date columns. A query stops
+to 2,000 rows) under a result_id; an input observed by query names one cell of it, which the store reads, and an
+assumption names the results it rests on. SQLite's date functions (date, julianday, strftime) work on the date columns. A query stops
 after 15 seconds.
 
 Each series is a table of the same name, with one row for each of its records read: a column for each field in

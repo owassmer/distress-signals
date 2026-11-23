@@ -6,6 +6,7 @@ import json
 import os
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
@@ -80,7 +81,7 @@ class Registry(unittest.TestCase):
 
     def test_search_read_cite_and_read_again(self):
         found = tools.search_records("widgets", filters={"widget_id": "12"})
-        with db.connect() as con:
+        with closing(db.connect()) as con:
             self.assertEqual(con.execute("SELECT COUNT(*) FROM observations").fetchone()[0], 0)
         first = tools.read_record(found["records"][0]["record_id"])
         self.assertIn("made_date: 2026-01-13", first["text"])
@@ -201,7 +202,7 @@ class FailedReads(unittest.TestCase):
             self.addCleanup(p.stop)
 
     def stored(self):
-        with db.connect() as con:
+        with closing(db.connect()) as con:
             return con.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
 
     def test_a_failed_download_fails_the_read_and_stores_nothing(self):
@@ -311,7 +312,7 @@ class Citations(unittest.TestCase):
     def test_a_cited_passage_is_stored_as_the_whole_sentences_it_falls_in(self):
         with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, DISTRESS_DB=str(Path(folder) / "test.db"),
                                                                     DISTRESS_RUN_ID="test"):
-            with db.connect() as con:
+            with closing(db.connect()) as con:
                 db.put_observation(con, {"id": "obs_q", "kind": "record", "source": "edgar_filing_documents",
                                          "retrieved_at": "2026-11-21", "url": "https://example.org/10q", "text": self.TEXT})
             cases = {
@@ -332,7 +333,7 @@ class Citations(unittest.TestCase):
             for given, stored in cases.items():
                 with self.subTest(given=given):
                     tools.record_finding({"kind": "fact", "statement": "The filing states this.", "evidence": [{"observation_id": "obs_q", "passage": given}]})
-                    with db.connect() as con:
+                    with closing(db.connect()) as con:
                         got = json.loads(con.execute("SELECT evidence FROM findings ORDER BY rowid DESC LIMIT 1").fetchone()[0])[0]
                     self.assertEqual(got["passage"], stored)
                     self.assertTrue(tools.quoted(got["passage"], self.TEXT))  # a revision that sends it back is checked the same way
@@ -365,7 +366,7 @@ class Citations(unittest.TestCase):
 
     def test_a_url_citation_resolves_to_the_record_holding_the_passage(self):
         url = "https://example.org/ratings.zip"
-        with tempfile.TemporaryDirectory() as folder, db.connect(Path(folder) / "test.db") as con:
+        with tempfile.TemporaryDirectory() as folder, closing(db.connect(Path(folder) / "test.db")) as con:
             cites = []
 
             def cite(passage):

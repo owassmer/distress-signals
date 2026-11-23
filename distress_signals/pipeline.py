@@ -1,6 +1,7 @@
 """Research runs: launch the researcher on a seed with its tools, and record what it produced."""
 
 import json
+import os
 import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -23,9 +24,11 @@ def _brief_text(brief):
 
 def _mcp_config(rid, log, principal=None):
     """The researcher's one MCP server. Its environment is given in full: Claude passes stdio servers
-    only a minimal environment of its own. A company run names its principal company."""
+    only a minimal environment of its own. A company run names its principal company. The HubSpot key goes
+    as the launcher has it, so a run started with an empty key delivers nothing."""
     env = {"PYTHONPATH": str(ROOT), "DISTRESS_DB": str(db.path().resolve()), "DISTRESS_RUN_ID": rid,
-           "DISTRESS_RUN_LOG": str(log), **({"DISTRESS_RUN_PRINCIPAL": principal} if principal else {})}
+           "DISTRESS_RUN_LOG": str(log), **({"DISTRESS_RUN_PRINCIPAL": principal} if principal else {}),
+           **({"HUBSPOT_SERVICE_KEY": os.environ["HUBSPOT_SERVICE_KEY"]} if "HUBSPOT_SERVICE_KEY" in os.environ else {})}
     cfg = {"mcpServers": {"ds": {"command": sys.executable, "args": ["-m", "distress_signals.mcp_server"], "env": env}}}
     f = tempfile.NamedTemporaryFile("w", suffix=".json", prefix=f"{rid}_", delete=False)
     json.dump(cfg, f)

@@ -583,6 +583,14 @@ retains the reader’s position when moving between sections.
 - **Case details** (`#case/<id>`) groups the exposure, event timing, scenarios, model inputs,
   evidence and suggested outreach. The section selector jumps within a case. Previous and Next
   open adjacent cases, and the timestamp opens the research entry where the case was saved.
+- **The memo.** A case opens to its typeset memo (§8): **Memo** and **PDF** on the case's details and under
+  its stream in the findings. `/cases/<id>/memo` is the memo as a page, with the way back to the case and the
+  PDF across the top of the screen; `/cases/<id>/memo.pdf` is the same printed, named for the company and the
+  event. Both are made from the case as it stands when asked for, and a case's PDF is kept until the case next
+  changes. A page exported to stand alone carries no memo links.
+- **Cases** (`/cases`) lists every saved case as it stands, the latest first, with the largest shortfall, its
+  share and period, and the memo as a page and a PDF. The list of runs and the list of cases switch between
+  each other.
 - **Research log** (`#research`) displays the run's entries in chronological order. Readers can expand
   an entry to read its full text or inspect its searches, documents and calculations. Each saved finding
   appears at its timestamp with a link to the case.

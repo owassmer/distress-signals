@@ -17,7 +17,7 @@ STYLE = r"""
 .finding-date,.finding-source,.finding-period,.finding-condition,.finding-role{display:block;color:var(--mute);font-size:12px;line-height:1.4;font-weight:450}
 .finding-date{margin-top:4px}
 .prospect-table .stream-link{color:var(--blue);font-weight:650;text-decoration:none}.prospect-table .stream-link:hover{text-decoration:underline}
-.finding-source{margin-top:5px}.finding-source a{color:var(--mute);text-decoration:underline;text-decoration-color:#bdc8d7;text-underline-offset:3px}
+.finding-source{margin-top:5px}.finding-source+.finding-memo{margin-top:1px}.finding-memo a{font-weight:600}.finding-source a{color:var(--mute);text-decoration:underline;text-decoration-color:#bdc8d7;text-underline-offset:3px}
 .finding-measure{display:flex;align-items:baseline;flex-wrap:wrap;gap:0 7px}
 .finding-amount{color:var(--ink);font-size:21px;font-weight:700;line-height:1.2;letter-spacing:-.035em;font-variant-numeric:tabular-nums}
 .finding-period{white-space:normal}.finding-condition,.finding-role{margin-top:3px}
@@ -113,6 +113,10 @@ function findingSource(c) {
   } catch { return ""; }
 }
 
+function memoLinks(c) {
+  return c.memo ? `<span class="finding-source finding-memo"><a href="${esc(c.memo)}" target="_blank" rel="noopener">Memo</a> · <a href="${esc(c.memo)}.pdf" download>PDF</a></span>` : "";
+}
+
 function exposureCell(c) {
   const worst = (c.scenarios || []).filter(s => s.shortfall != null).reduce(
     (max, next) => !max || next.shortfall > max.shortfall ? next : max, null);
@@ -128,7 +132,7 @@ function prospectRow(c, eventCell, source, dealId) {
   const name = comma === -1 ? contact : contact.slice(0, comma);
   const role = comma === -1 ? "" : contact.slice(comma + 2);
   return `<tr${eventCell ? "" : ' class="stream-continuation"'}>${eventCell}
-    <th class="finding-stream" scope="row"><a class="stream-link" href="${esc(url)}">${esc(c.stream || "View case")}</a>${source}</th>
+    <th class="finding-stream" scope="row"><a class="stream-link" href="${esc(url)}">${esc(c.stream || "View case")}</a>${source}${memoLinks(c)}</th>
     ${dealId ? "" : exposureCell(c)}
     <td class="finding-person">${name ? `<span class="mobile-label">Contact · </span><span class="finding-contact">${esc(name)}</span>` : ""}
       ${role ? `<span class="finding-role">${esc(role)}</span>` : ""}</td>

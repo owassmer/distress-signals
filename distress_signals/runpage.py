@@ -124,6 +124,8 @@ h2{font-size:24px;letter-spacing:-.02em;line-height:1.25;margin:0 0 6px;font-wei
 .case-actions a{font-size:14px}.case-actions form{display:flex;align-items:center;gap:6px;margin:0}
 .case-actions label,.case-actions select{font:inherit;font-size:13px;color:var(--soft)}
 .case-actions select{max-width:100%;background:white;border:1px solid var(--line);border-radius:6px;padding:5px}
+.case-actions .memo-actions{display:inline-flex;gap:8px;margin-left:auto}.case-actions .memo-actions .btn{font-size:13px}
+.case-actions .memo-actions .btn.dark{color:#fff}.case-actions .memo-actions .btn:hover{text-decoration:none}
 .crumbs{display:flex;align-items:center;gap:10px;margin-bottom:24px;font-size:14px;color:var(--mute)}
 .crumbs a.back{font-weight:650}
 .casehead{display:flex;gap:24px;align-items:flex-start;justify-content:space-between}
@@ -509,6 +511,7 @@ function quote(text, url) { return (text ? `<blockquote class="quote">${esc(text
 function sourceNote(cite) {
   return cite.checked === false ? '<small class="note">Source excerpt only.</small>' : "";
 }
+const DOC_ICON = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M4 1.75h5.25L12.5 5v9.25h-8.5z"/><path d="M9.25 1.75V5h3.25"/><path d="M6.25 8.25h4M6.25 10.75h4"/></svg>';
 function caseView() {
   const box = $("#v-case"), i = M.found.findIndex(f => f.oid === route.oid);
   const listLabel = DATA?.example_deal ? "Prospects" : "Findings";
@@ -523,7 +526,9 @@ function caseView() {
     + (c.stake != null ? `<div class="stake"><b>${esc(money(c.stake, c.currency))}</b><span>${esc(shortfallLabel(c))}</span>${basis(c) ? `<span>${esc(basis(c))}</span>` : ""}</div>` : "") + `</div>`
     + `<div class="case-actions"><form id="jump"><label for="case-section">Section</label><select id="case-section"></select><button class="btn sm">Go</button></form>`
     + `<a href="#found/${esc(f.oid)}">Research entry · ${clock(f.el)}</a>`
-    + (c.deal ? `<a href="${esc(c.deal)}" target="_blank" rel="noopener">Open in HubSpot</a>` : "") + `</div><div class="doc2">`
+    + (c.deal ? `<a href="${esc(c.deal)}" target="_blank" rel="noopener">Open in HubSpot</a>` : "")
+    + (c.memo ? `<span class="memo-actions"><a class="btn sm dark" href="${esc(c.memo)}" target="_blank" rel="noopener">${DOC_ICON}Memo</a>`
+        + `<a class="btn sm" href="${esc(c.memo)}.pdf" download>PDF</a></span>` : "") + `</div><div class="doc2">`
     + sec("Exposure", p(c.why_matters) + p(c.dependency))
     + sec("Event and timing", (eventLabel(c) ? `<p class="event-label">${eventLabel(c)}</p>` : "") + p(c.event_text) + p(c.event_description) + p(c.event_timing) + p(c.resolution_source ? "Shown by: " + c.resolution_source : ""))
     + sec("Revenue scenarios", p(c.condition) + scenarios(c) + p(c.timing))

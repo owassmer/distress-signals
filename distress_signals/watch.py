@@ -4,6 +4,9 @@ cases appear as they are saved, with the revenue at stake and a link to their de
 run replays the same way, with its summary and leads. It reads each run's event stream
 (out/runs/<id>.jsonl) and the store, and nothing else.
 
+A case opens to its memo: /cases/<id>/memo is the typeset memo as a page, and /cases/<id>/memo.pdf the same
+printed, each made from the case as it stands when asked for. /cases lists every saved case with both.
+
 export_html writes one run as a single self-contained page, with a replay button, for sharing; public=True
 leaves out links into the operator's HubSpot.
 
@@ -20,7 +23,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import activityview, db, example_review, findingsview, hubspot, sources
+from . import activityview, briefs, db, example_review, findingsview, hubspot, memo, sources
 from .feed import _result_text, _search_label, _search_result
 from .runpage import CHART_JS, FAVICON, FOUND_JS, ICONS, LEADS_HTML, PACE, PAGE, PAGE_STEPS, SHELL_STYLE, STYLE
 from .util import OUT, load_env
@@ -363,12 +366,12 @@ def _input(name, x, url_of):
             "how": how}
 
 
-def _case_details(oids, public=False):
+def _case_details(oids, public=False, memo_links=False):
     """The final form of the cases a run saved: the findings cards, and each case's own page with the event,
-    the outcomes, the figures behind them, the evidence, and who to call."""
+    the outcomes, the figures behind them, the evidence, and who to call. memo_links gives each the address of
+    its memo on this server; a page exported to stand alone has none."""
     if not oids:
         return {}
-    from . import briefs
     out = {}
     con = db.connect()
     try:
@@ -396,6 +399,7 @@ def _case_details(oids, public=False):
                 "period": f"{case['period']['start']} to {case['period']['end']}",
                 "who": ", ".join(x for x in (person.get("name"), person.get("title")) if x) or person.get("role"),
                 "deal": None if public else _deal_url(c["id"]),
+                "memo": f"/cases/{c['id']}/memo" if memo_links and not public else None,
                 "condition": c["condition"], "timing": case.get("timing"),
                 "event_description": of_events("description"), "event_timing": of_events("timing"),
                 "period_start": case["period"]["start"], "period_end": case["period"]["end"],
@@ -524,23 +528,127 @@ def _index():
                      f"<div>{html.escape(sub or r['id'])}</div></div><div class='n'>{start.strftime('%b %-d, %-I:%M %p')}<br>"
                      f"{mins} min · {n} case{'s' if n != 1 else ''}{f' · ${cost:.2f}' if cost else ''}</div>{pill}</a>")
     body = "".join(cards) or "<div class='empty'>No runs yet. Request one in HubSpot with a record's Distress run field.</div>"
-    return (f"<!doctype html><html lang='en'><head><meta charset='utf-8'><title>Runs · distress-signals</title>"
-            f"<link rel='icon' href=\"{FAVICON}\"><style>{STYLE}</style></head><body><div class='top'><div class='in'>"
-            f"<span class='brand'><img src=\"{FAVICON}\" alt=''>distress-signals</span><div class='divider'></div>"
-            f"<div><div class='ttl'>Runs</div><div class='sub'>Open one to watch it live, or replay a finished one.</div></div>"
+    return _listing("Runs", "Open one to watch it live, or replay a finished one.", body, "runs")
+
+
+LIST_STYLE = """
+.top .switch{margin-left:auto;display:flex;gap:4px;background:#eceef2;border-radius:99px;padding:3px}
+.top .switch a{font-size:13px;font-weight:600;color:var(--mute);padding:6px 14px;border-radius:99px}
+.top .switch a:hover{text-decoration:none;color:var(--ink)}.top .switch a.on{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.case{display:flex;align-items:center;gap:18px;background:var(--card);border:1px solid var(--line);border-radius:15px;padding:15px 20px;margin-bottom:10px}
+.case .what{flex:1;min-width:0}.case .what a{color:var(--ink);font-weight:650}.case .what div{color:var(--mute);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.case .n{font-size:13px;color:var(--mute);text-align:right;min-width:170px;font-variant-numeric:tabular-nums}.case .n b{color:var(--ink);font-size:15px}
+.case .go{display:flex;gap:8px}.case .go .btn.dark{color:#fff}.case.withdrawn{opacity:.6}
+@media(max-width:640px){.case{flex-wrap:wrap}.case .n{text-align:left;min-width:0}.top .switch{margin-left:0}}
+"""
+
+
+def _listing(title, sub, body, on):
+    """The frame the two lists share: runs and cases, with the switch between them."""
+    switch = "".join(f"<a href='{href}'{' class=on' if key == on else ''}>{label}</a>"
+                     for key, href, label in (("runs", "/", "Runs"), ("cases", "/cases", "Cases")))
+    return (f"<!doctype html><html lang='en'><head><meta charset='utf-8'><title>{title} · distress-signals</title>"
+            f"<link rel='icon' href=\"{FAVICON}\"><style>{STYLE}{LIST_STYLE}</style></head><body><div class='top'><div class='in'>"
+            f"<a class='brand' href='/'><img src=\"{FAVICON}\" alt=''>distress-signals</a><div class='divider'></div>"
+            f"<div><div class='ttl'>{title}</div><div class='sub'>{sub}</div></div><div class='switch'>{switch}</div>"
             f"</div></div><div class='runs'>{body}</div></body></html>")
+
+
+DOC_ICON = ('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">'
+            '<path d="M4 1.75h5.25L12.5 5v9.25h-8.5z"/><path d="M9.25 1.75V5h3.25"/><path d="M6.25 8.25h4M6.25 10.75h4"/></svg>')
+
+
+def _home(con, case_id):
+    """Where a case is shown in full: the page of the latest run that saved it, at the case."""
+    known = {r["id"] for r in con.execute("SELECT id FROM runs")}
+    run = next((r["run_id"] for r in reversed(db.revisions(con, case_id)) if r["run_id"] in known), None)
+    return f"/runs/{run}#case/{case_id}" if run else None
+
+
+def _cases_index():
+    """Every saved case as it stands now, the latest first: what is at stake, and its memo as a page and a PDF."""
+    con = db.connect()
+    try:
+        found = sorted(briefs.cases(con), key=lambda c: c["row"]["updated"], reverse=True)
+        homes = {c["id"]: _home(con, c["id"]) for c in found}
+    finally:
+        con.close()
+    cards = []
+    for c in found:
+        res, cur, e = c["results"], c["case"]["currency"], html.escape
+        d = memo.document(c)
+        share = f" · {d['at_stake']['share']}" if d["at_stake"]["share"] else ""
+        name = e(c["company"]["name"])
+        head = f"<a href='{e(homes[c['id']], quote=True)}'>{name}</a>" if homes[c["id"]] else f"<b>{name}</b>"
+        cards.append(
+            f"<div class='case{' withdrawn' if c['status'] == 'withdrawn' else ''}'><div class='what'>{head}"
+            f"<div>{e(d['event'])}{' · withdrawn' if c['status'] == 'withdrawn' else ''}</div></div>"
+            f"<div class='n'><b>{e(briefs.money(res['max_shortfall'], cur))}</b>{e(share)}<br>{e(d['period'])}</div>"
+            f"<div class='go'><a class='btn sm dark' href='/cases/{c['id']}/memo'>{DOC_ICON}Memo</a>"
+            f"<a class='btn sm' href='/cases/{c['id']}/memo.pdf' download='{e(memo.filename(c), quote=True)}.pdf'>PDF</a></div></div>")
+    body = "".join(cards) or "<div class='empty'>No cases yet. A run saves them as it finds them.</div>"
+    return _listing("Cases", "Each as it stands now. Open its memo, or take the PDF.", body, "cases")
+
+
+def _memo_case(case_id):
+    """A case with where it is shown, for its memo; None where the store holds no such case."""
+    con = db.connect()
+    try:
+        found = briefs.cases(con, [case_id])
+        return (found[0], _home(con, case_id)) if found else None
+    finally:
+        con.close()
+
+
+def memo_page(case_id):
+    """A case's memo as a page, with the way back to the case and the PDF across the top; None for no such case."""
+    got = _memo_case(case_id)
+    if not got:
+        return None
+    c, home = got
+    bar = {"back": home or "/cases", "back_label": "Case" if home else "Cases", "pdf": f"/cases/{case_id}/memo.pdf",
+           "name": memo.filename(c) + ".pdf"}
+    return memo.html(memo.document(c), bar=bar)
+
+
+_PDF, _PRINTING = {}, threading.Lock()
+
+
+def memo_pdf(case_id):
+    """(the PDF's bytes, its file name) for a case's memo, printed from the case as it stands; None for no such
+    case. One is printed at a time, and a case's PDF is kept until the case next changes."""
+    got = _memo_case(case_id)
+    if not got:
+        return None
+    c, _ = got
+    key = (case_id, c["row"]["revision"], c["row"]["updated"], c["status"])
+    with _PRINTING:
+        if key not in _PDF:
+            import tempfile
+            d = memo.document(c)
+            with tempfile.TemporaryDirectory() as folder:
+                path = memo.pdf(memo.html(d), os.path.join(folder, "memo.pdf"),
+                                running=f"{d['company']} · {d['event']} · as of {d['as_of']}")
+                with open(path, "rb") as f:
+                    data = f.read()
+            for old in [k for k in _PDF if k[0] == case_id]:
+                del _PDF[old]
+            _PDF[key] = data
+        return _PDF[key], memo.filename(c) + ".pdf"
 
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-    def _send(self, body, kind="text/html; charset=utf-8", status=200):
-        data = body.encode()
+    def _send(self, body, kind="text/html; charset=utf-8", status=200, name=None):
+        data = body if isinstance(body, bytes) else body.encode()
         self.send_response(status)
         self.send_header("Content-Type", kind)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        if name:                                                   # shown in the browser, and saved under this name
+            self.send_header("Content-Disposition", f'inline; filename="{name}"')
         self.end_headers()
         self.wfile.write(data)
 
@@ -558,9 +666,20 @@ class Handler(BaseHTTPRequestHandler):
                     after = int((parse_qs(u.query).get("after") or ["0"])[0])
                     v = view(rid)
                     return self._send(json.dumps({"ops": v.ops[after:], "next": len(v.ops), "status": _status(rid, _run_row(rid), v),
-                                                  "cases": _case_details(v.cases)}, default=str), "application/json")
+                                                  "cases": _case_details(v.cases, memo_links=True)}, default=str), "application/json")
                 if parts[2] == "export":
                     return self._send(export_html(rid, public="public" in parse_qs(u.query)))
+            if parts[0] == "cases" and len(parts) == 1:
+                return self._send(_cases_index())
+            if parts[0] == "cases" and len(parts) == 3 and parts[1].startswith("case_"):
+                if parts[2] == "memo":
+                    page = memo_page(parts[1])
+                    if page:
+                        return self._send(page)
+                if parts[2] == "memo.pdf":
+                    got = memo_pdf(parts[1])
+                    if got:
+                        return self._send(got[0], "application/pdf", name=got[1])
             self._send("Not found", "text/plain", 404)
         except Exception as e:
             self._send(f"{type(e).__name__}: {e}", "text/plain", 500)

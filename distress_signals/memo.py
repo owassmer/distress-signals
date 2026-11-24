@@ -240,6 +240,19 @@ svg.dates .win { fill: #9aa3ad; } svg.dates .per { fill: #1f3a5f; }
 svg.dates .axis { stroke: #9a9a9a; stroke-width: .7; } svg.dates .asof { stroke: #8a4b00; stroke-width: .9; stroke-dasharray: 2.5 2; }
 ol.cond { margin: 2pt 0 7pt; padding-left: 15pt; font-size: 9.4pt; } ol.cond li { margin-bottom: 4pt; }
 .key .n { white-space: nowrap; }
+.bar { display: none; }
+@media screen {
+  .bar { display: block; position: sticky; top: 0; z-index: 5; background: rgba(247,248,250,.94); backdrop-filter: saturate(1.6) blur(12px);
+         border-bottom: 1px solid #e3e5e9; font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 13px; }
+  .bar .in { max-width: 8.5in; margin: 0 auto; padding: 0 20px; height: 52px; display: flex; align-items: center; gap: 14px; }
+  .bar a { text-decoration: none; white-space: nowrap; }
+  .bar .back { color: #1f3a5f; font-weight: 600; }
+  .bar .what { flex: 1; min-width: 0; color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar .open { color: #444; font-weight: 600; }
+  .bar .get { background: #111827; color: #fff; font-weight: 600; padding: 8px 14px; border-radius: 99px; line-height: 1; }
+  .bar a.back:hover, .bar a.open:hover { text-decoration: underline; }
+  @media (max-width: 640px) { .bar .what, .bar .open { display: none; } .bar .in { justify-content: space-between; } }
+}
 tr { break-inside: avoid; }
 tr.worst td { font-weight: 600; }
 tr.asis td { color: #555; }
@@ -342,8 +355,10 @@ def _tag(kind, short=False):
     return f'<span class="tag{" assumed" if kind == "Assumed" else ""}">{_e(SHORT[kind] if short else kind)}</span>'
 
 
-def html(doc):
-    """The document as one self-contained page: no script, no outside resource, print rules for Letter."""
+def html(doc, bar=None):
+    """The document as one self-contained page: no script, no outside resource, print rules for Letter.
+    `bar` is for the page as the watch server shows it: {back, back_label, pdf, name}, a strip across the top of
+    the screen with the way back to the case and the PDF. It is not printed."""
     d, o = doc, []
     add = o.append
 
@@ -374,6 +389,14 @@ def html(doc):
     title = f"{d['company']}: {d['event']}"
     add(f'<!doctype html><html lang="en"><head><meta charset="utf-8"><title>{_e(title)}</title>'
         f'<meta name="viewport" content="width=device-width,initial-scale=1"><style>{CSS}</style></head><body><main>')
+    if bar:
+        q = lambda u: _html.escape(u, quote=True)  # noqa: E731
+        o[-1] = o[-1].replace(
+            "<body><main>",
+            f'<body><nav class="bar"><div class="in"><a class="back" href="{q(bar["back"])}">‹ {_e(bar["back_label"])}</a>'
+            f'<span class="what">{_e(d["company"])} · {_e(d["event"])}</span>'
+            f'<a class="open" href="{q(bar["pdf"])}">Open PDF</a>'
+            f'<a class="get" href="{q(bar["pdf"])}" download="{q(bar["name"])}">Download PDF</a></div></nav><main>')
     add('<p class="kicker">Revenue exposure memo</p>')
     add(f'<h1>{_e(d["company"])}</h1><p class="event">{_e(d["event"])}</p>')
     if d["withdrawn"]:

@@ -9,7 +9,7 @@ from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
-from distress_signals import agent, briefs, db, forms, memo, tools, worlds
+from distress_signals import agent, briefs, db, forms, memo, tools, watch, worlds
 
 # Two pages as the reader stores them: a line is one block of the page (data.blocks).
 REPORT = ("The Company's largest program is the Regional Transit Program.\nIn fiscal 2026 the Company recognized $100 of "
@@ -869,6 +869,60 @@ class Model(unittest.TestCase):
         self.assertGreaterEqual(len(pages), 2)                                        # the notes begin a page of their own
         self.assertIn("Northfield Transit Services", pages[0].extract_text())
         self.assertIn("Revenue under the Regional Transit Program", "".join(p.extract_text() for p in pages))
+
+    def test_the_watch_page_opens_a_case_to_its_memo(self):
+        import threading
+        import urllib.error
+        import urllib.request
+        from http.server import ThreadingHTTPServer
+        out, c = self.memo_case()
+        cid = out["case_id"]
+        # a case's details carry its memo's address for the live page, and none for a page exported to stand alone
+        self.assertEqual(watch._case_details([cid], memo_links=True)[cid]["memo"], f"/cases/{cid}/memo")
+        self.assertIsNone(watch._case_details([cid])[cid]["memo"])
+        self.assertIsNone(watch._case_details([cid], public=True, memo_links=True)[cid]["memo"])
+        server = ThreadingHTTPServer(("127.0.0.1", 0), watch.Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        at = f"http://127.0.0.1:{server.server_address[1]}"
+        get = lambda path: urllib.request.urlopen(at + path, timeout=30)  # noqa: E731
+        listing = get("/cases").read().decode()
+        self.assertIn("Northfield Transit Services", listing)
+        self.assertIn(f"href='/cases/{cid}/memo'", listing)
+        self.assertIn(f"href='/cases/{cid}/memo.pdf' download='northfield-transit-services--program-renewal.pdf'", listing)
+        self.assertIn("<a href='/cases' class=on>Cases</a>", listing)
+        self.assertIn("<a href='/cases'>Cases</a>", get("/").read().decode())           # the runs list leads to it
+        page = get(f"/cases/{cid}/memo").read().decode()
+        self.assertIn('<nav class="bar">', page)
+        self.assertIn('<a class="back" href="/cases">‹ Cases</a>', page)               # no run of this store saved it
+        self.assertIn(f'href="/cases/{cid}/memo.pdf" download="northfield-transit-services--program-renewal.pdf"', page)
+        self.assertNotIn('<nav class="bar">', memo.html(memo.document(c)))             # the page that is printed has no bar
+        with closing(db.connect()) as con:                                             # a run that saved it: the way back is the case
+            db.start_run(con, "run_abc", "company", "Northfield", None, "model", "log", None, "system", "prompt")
+            with db.write(con):
+                con.execute("UPDATE revisions SET run_id='run_abc' WHERE case_id=?", (cid,))
+        self.assertIn(f'<a class="back" href="/runs/run_abc#case/{cid}">‹ Case</a>', get(f"/cases/{cid}/memo").read().decode())
+        for missing in ("/cases/case_nope/memo", "/cases/case_nope/memo.pdf", f"/cases/{cid}/other"):
+            with self.assertRaises(urllib.error.HTTPError) as e:
+                get(missing)
+            self.assertEqual(e.exception.code, 404)
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as pw:
+                pw.chromium.launch(headless=True).close()
+        except Exception as e:                                                         # no headless Chromium on this machine
+            self.skipTest(f"headless Chromium is not installed: {type(e).__name__}")
+        got = get(f"/cases/{cid}/memo.pdf")
+        self.assertEqual((got.headers["Content-Type"], got.headers["Content-Disposition"]),
+                         ("application/pdf", 'inline; filename="northfield-transit-services--program-renewal.pdf"'))
+        first = got.read()
+        self.assertTrue(first.startswith(b"%PDF"))
+        self.assertIs(watch.memo_pdf(cid)[0], watch.memo_pdf(cid)[0])                   # kept until the case changes
+        tools.revise_case(cid, {"timing": "From the fiscal year that begins July 1, 2027.", "change_note": "The timing, restated"})
+        self.assertEqual([k[1] for k in watch._PDF if k[0] == cid], [1])               # the kept one is of revision 1
+        watch.memo_pdf(cid)
+        self.assertEqual([k[1] for k in watch._PDF if k[0] == cid], [2])               # printed again from revision 2
 
 
 if __name__ == "__main__":

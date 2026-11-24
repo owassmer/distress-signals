@@ -290,11 +290,20 @@ def set_citations(con, cid, observation_ids):
     con.executemany("INSERT OR IGNORE INTO citations VALUES (?,?)", [(cid, o) for o in sorted(set(observation_ids))])
 
 
+CITED = ("o.id, o.kind, o.source, o.native_id, o.url, o.published, o.retrieved_at, o.data, "
+         "o.text IS NOT NULL AS has_text")
+
+
 def cited(con, cid):
     return [_row(r, "data") for r in con.execute(
-        "SELECT o.id, o.kind, o.source, o.native_id, o.url, o.published, o.retrieved_at, o.data, "
-        "o.text IS NOT NULL AS has_text FROM observations o JOIN citations c ON c.observation_id=o.id "
+        f"SELECT {CITED} FROM observations o JOIN citations c ON c.observation_id=o.id "
         "WHERE c.case_id=? ORDER BY o.kind, o.id", (cid,))]
+
+
+def observations_cited(con, ids):
+    """Records as a citation shows them (no text), for the ids given."""
+    marks = ",".join("?" * len(ids))
+    return [_row(r, "data") for r in con.execute(f"SELECT {CITED} FROM observations o WHERE o.id IN ({marks})", ids)] if ids else []
 
 
 # ---------- runs and leads ----------

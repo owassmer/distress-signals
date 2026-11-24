@@ -663,7 +663,7 @@ def revise_case(case_id: str, changes: dict, propositions: list | None = None) -
             raise ToolError(f"case_id: no saved case {case_id!r}")
         last = db.latest_revision(con, case_id)["snapshot"]
         before = forms.read(row, last, db.propositions(con))["results"]
-        saved = _editable(case_id, {"case": last["case"], "company": {"id": row["company_id"]}})
+        saved = _editable(case_id, {"case": forms.labelled(last["case"]), "company": {"id": row["company_id"]}})
         c = _validate(Case, _changed(saved, ch) | {"change_note": ch["change_note"]})
         with db.write(con):
             out = _save(con, c, given)

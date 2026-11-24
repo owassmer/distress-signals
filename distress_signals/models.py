@@ -200,6 +200,9 @@ def _basis(m):
 class Input(Strict):
     """One driver of the revenue: a figure the formulas use, at its value over the case's period as things
     stand, with its basis."""
+    label: str = Field(min_length=3, description="What the input is, in words: the quantity, and whose it is. The "
+                                                 "name is how the formulas refer to it; the label is how a reader of "
+                                                 "the case reads it")
     unit: str = Field(description="What the figure counts or measures. For an amount of money, the case's currency "
                                   "code; amounts are in whole units of it")
     value: float | None = Field(None, description="The figure over the case's period, as things stand. Left out where "

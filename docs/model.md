@@ -90,7 +90,7 @@ key identify it, and its deal is named for them.
 | Part | What it is |
 |---|---|
 | The formula | The stream's revenue over the period, as an expression over input names |
-| The inputs | Each figure the formula uses, with its unit, its value over the period in the baseline, and its basis |
+| The inputs | Each figure the formula uses: the name the formula refers to it by, a label that says in words what it is, its unit, its value over the period in the baseline, and its basis |
 | The given values | Each says: given these propositions true and these false, this input takes this value, with what that value rests on |
 
 A given value names the propositions it is given by key: `given` for those that are true, `given_not`

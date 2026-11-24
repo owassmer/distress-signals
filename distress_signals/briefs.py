@@ -1,6 +1,7 @@
-"""Views of saved cases, each read as it stands now (forms.py): the memo, which HubSpot carries on the
-case's deal, and the export (the case whole: company, propositions, inputs, given values, worlds,
-evidence, findings, revisions), which `export CASE_ID` prints."""
+"""Views of saved cases, each read as it stands now (forms.py): the memo in plain text, which HubSpot carries
+on the case's deal; the export (the case whole: company, propositions, inputs, given values, worlds, evidence,
+the records it cites with their own dates, the saved queries its figures are read from, findings, revisions),
+which `export CASE_ID` prints; and what both share with the typeset memo (memo.py)."""
 
 from . import db, forms, worlds
 from .models import FORMULAS
@@ -28,11 +29,27 @@ def cases(con, ids=None):
         props = current["propositions"]
         cited = {o["id"]: o for o in db.cited(con, row["id"])}
         fs = db.findings(con, "case_id=? OR company_id=?", (row["id"], row["company_id"]))
-        out.append({"id": row["id"], "row": row, "status": row["status"], "company": current["company"],
+        more = {e["observation_id"] for f in fs for e in f.get("evidence") or []} - cited.keys()
+        cited |= {o["id"]: o for o in db.observations_cited(con, sorted(more))}      # the records its findings quote
+        computed = {rid: r for rid in result_ids(current["case"], fs) if (r := db.get_result(con, rid))}
+        out.append({"id": row["id"], "row": row, "status": row["status"], "company": current["company"], "computed": computed,
                     "events": [props[k] for k in row["events"]], "props": props, "case": current["case"],
                     "results": current["results"], "condition": current["results"]["condition"],
                     "cited": cited, "findings": fs, "revisions": db.revisions(con, row["id"])})
     return out
+
+
+def result_ids(case, findings=()):
+    """The saved compute results a case's figures are read from or rest on, and its findings rest on, in the
+    order they come."""
+    figures = [*case["inputs"].values(), *(v for g in case["given_values"] for v in g["values"].values())]
+    ids = []
+    for f in figures:
+        ids += [f["result"]["result_id"]] if f.get("result") else []
+        ids += (f.get("assumption") or {}).get("results") or []
+    for f in findings:
+        ids += f.get("results") or []
+    return list(dict.fromkeys(ids))
 
 
 def event_title(c):
@@ -187,7 +204,11 @@ def export(c):
             "company": c["company"],
             "propositions": [worlds.nest(c["props"], k) for k in dict.fromkeys(worlds.root(c["props"], k) for k in c["results"]["reads"])],
             "case": c["case"], "results": c["results"],
-            "sources": [{"observation_id": k, "kind": o["kind"], "url": o.get("url"), "title": (o.get("data") or {}).get("title"),
+            "sources": [{"observation_id": k, "kind": o["kind"], "source": o.get("source"), "url": o.get("url"),
+                         "title": (o.get("data") or {}).get("title"), "published": o.get("published"),
                          "retrieved_at": o.get("retrieved_at")} for k, o in c["cited"].items()],
+            "computations": [{"result_id": k, "name": r.get("name"), "note": r.get("note"), "sql": r["sql"],
+                              "columns": r["columns"], "row_count": r["row_count"], "rows": r["rows"][:200],
+                              "created": r.get("created")} for k, r in c["computed"].items()],
             "findings": [{k: f[k] for k in ("id", "kind", "statement", "evidence", "results", "created")} for f in c["findings"]],
             "revisions": c["revisions"]}

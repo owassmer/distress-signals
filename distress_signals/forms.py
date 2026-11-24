@@ -3,7 +3,33 @@ refresh, the memo, HubSpot, the run page and the exports). An active case's figu
 what it states and from the propositions as they now stand. A withdrawn case reads as its last revision held
 it, with the propositions as they stood then."""
 
+import copy
+
 from . import exposure
+
+
+def label(name, inp, currency):
+    """What an input is, in words. An input saved before inputs had labels reads by the nearest thing it states:
+    its unit where that says more than the currency, else the column of the result it is read from, else its
+    name."""
+    if inp.get("label"):
+        return inp["label"]
+    unit = inp.get("unit") or ""
+    if unit and unit != currency and not unit.startswith(currency + " "):
+        words = unit
+    else:
+        words = ((inp.get("result") or {}).get("column") or name).replace("_", " ")
+    return words[:1].upper() + words[1:]
+
+
+def labelled(case):
+    """The case with a label on every input."""
+    if all(inp.get("label") for inp in case["inputs"].values()):
+        return case
+    case = copy.deepcopy(case)
+    for name, inp in case["inputs"].items():
+        inp["label"] = label(name, inp, case["currency"])
+    return case
 
 
 def snapshot(snap, props=None):
@@ -12,7 +38,7 @@ def snapshot(snap, props=None):
     them."""
     props = props if props is not None else snap["propositions"]
     results, warnings = exposure.compute(snap["case"], props)
-    return {"company": snap["company"], "case": snap["case"], "propositions": props, "results": results,
+    return {"company": snap["company"], "case": labelled(snap["case"]), "propositions": props, "results": results,
             "warnings": warnings}
 
 

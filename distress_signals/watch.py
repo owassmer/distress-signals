@@ -23,7 +23,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import activityview, briefs, db, example_review, findingsview, hubspot, memo, sources
+from . import activityview, briefs, db, example_review, findingsview, forms, hubspot, memo, sources
 from .feed import _result_text, _search_label, _search_result
 from .runpage import CHART_JS, FAVICON, FOUND_JS, ICONS, LEADS_HTML, PACE, PAGE, PAGE_STEPS, SHELL_STYLE, STYLE
 from .util import OUT, load_env
@@ -49,10 +49,13 @@ def _domain(u):
     return d[4:] if d.startswith("www.") else d
 
 
-def title_label(slug):
-    """A stream_key or similar slug as a short title."""
+def title_label(slug, text=""):
+    """A stream_key or similar slug as a short title. A word is written in capitals where it is a known acronym,
+    or where `text` (what the case itself says of the stream) writes it so: 'lmm' beside 'revenue at LMM'."""
     words = [w for w in re.split(r"[-_]+", slug or "") if w]
-    return " ".join(w.upper() if w in ACRONYMS else w if (i and w in SMALL) else w.capitalize() for i, w in enumerate(words))
+    said = set(re.findall(r"\b[A-Z][A-Z0-9]{1,5}\b", text or ""))
+    return " ".join(w.upper() if w in ACRONYMS or w.upper() in said else w if (i and w in SMALL) else w.capitalize()
+                    for i, w in enumerate(words))
 
 
 def _company_name(ref):
@@ -352,7 +355,7 @@ def _assignment(run):
     return " · ".join(part for part in (text, run.get("question")) if part)
 
 
-def _input(name, x, url_of):
+def _input(label, x, url_of):
     """One figure behind a case, with its basis: where it is read (reported: the passage; derived: the result
     cell the store read) and the assumption by which it holds (the reasoning, and the first passage it rests on).
     A figure that rests on an assumption shows as assumed."""
@@ -361,15 +364,21 @@ def _input(name, x, url_of):
     src = x.get("source") or next(iter(a.get("evidence") or []), {})
     read = f"{cell['result_id']}, {cell['column']}" + "".join(f", {k} {v}" for k, v in cell["row"].items()) if cell else None
     how = " ".join(part for part in (f"Read from {read}." if read and a else read, a.get("note")) if part) or None
-    return {"name": title_label(name), "value": x.get("value"), "unit": x.get("unit"), "note": x.get("note"), "kind": kind,
+    return {"name": label, "value": x.get("value"), "unit": x.get("unit"), "note": x.get("note"), "kind": kind,
             "passage": src.get("passage"), "checked": src.get("checked"), "url": url_of(src.get("observation_id")),
             "how": how}
 
 
-def _case_details(oids, public=False, memo_links=False):
+def _served_memo(c):
+    """Where this server gives a case's memo: the page, the PDF, and the name the PDF is saved under."""
+    return {"page": f"/cases/{c['id']}/memo", "pdf": f"/cases/{c['id']}/memo.pdf", "name": memo.filename(c) + ".pdf"}
+
+
+def _case_details(oids, public=False, memo_at=None):
     """The final form of the cases a run saved: the findings cards, and each case's own page with the event,
-    the outcomes, the figures behind them, the evidence, and who to call. memo_links gives each the address of
-    its memo on this server; a page exported to stand alone has none."""
+    the outcomes, the figures behind them, the evidence, and who to call. memo_at(case) says where the case's
+    memo is: {page, pdf, name}. This server gives its own addresses (_served_memo), the guide the files it
+    writes beside the page, and a page exported as one file has none."""
     if not oids:
         return {}
     out = {}
@@ -381,15 +390,19 @@ def _case_details(oids, public=False, memo_links=False):
             cited = c.get("cited") or {}
             url_of = lambda oid: (cited.get(oid) or {}).get("url") if oid else None  # noqa: E731
 
+            cur = case["currency"]
+            label = lambda k: forms.label(k, case["inputs"][k], cur)  # noqa: E731   # an input by what it is, as the memo names it
+            said = " ".join(x for x in (case.get("stream"), case.get("dependency"), c["company"].get("description"),
+                                        (res.get("denominator") or {}).get("label")) if x)
+
             def changed(r):
                 """The inputs that take another value in a world, each with its value there."""
-                cur = case["currency"]
-                return "; ".join(f"{title_label(k)} {briefs.figure(v, case['inputs'][k]['unit'], cur)[0]}"
+                return "; ".join(f"{label(k)}: {briefs.figure(v, case['inputs'][k]['unit'], cur)[0]}"
                                  for k, v in r["values"].items())
 
             out[c["id"]] = {
                 "oid": c["id"], "status": c["status"], "company": c["company"]["name"],
-                "company_id": c["row"]["company_id"], "stream": title_label(case.get("stream_key")),
+                "company_id": c["row"]["company_id"], "stream": title_label(case.get("stream_key"), said),
                 "event": briefs.event_title(c), "event_date": briefs.event_date(c), "date_label": "Decided on or by",
                 "event_text": of_events("text"), "resolution_source": of_events("resolution_source"),
                 "dependency": case.get("dependency"),
@@ -399,7 +412,7 @@ def _case_details(oids, public=False, memo_links=False):
                 "period": f"{case['period']['start']} to {case['period']['end']}",
                 "who": ", ".join(x for x in (person.get("name"), person.get("title")) if x) or person.get("role"),
                 "deal": None if public else _deal_url(c["id"]),
-                "memo": f"/cases/{c['id']}/memo" if memo_links and not public else None,
+                "memo": memo_at(c) if memo_at else None,
                 "condition": c["condition"], "timing": case.get("timing"),
                 "event_description": of_events("description"), "event_timing": of_events("timing"),
                 "period_start": case["period"]["start"], "period_end": case["period"]["end"],
@@ -407,9 +420,8 @@ def _case_details(oids, public=False, memo_links=False):
                 "scenarios": [{"label": r["label"], "summary": r["label"], "description": changed(r),
                                "revenue": r.get("revenue"), "shortfall": r.get("shortfall"), "share": r.get("share")}
                               for r in res.get("worlds") or []],
-                "inputs": [_input(k, x, url_of) for k, x in (case.get("inputs") or {}).items()]
-                + [_input(k, v | {"unit": case["inputs"][k]["unit"]}, url_of)
-                   | {"name": f"{title_label(k)}, given {briefs.given_condition(c, g)}"}
+                "inputs": [_input(label(k), x, url_of) for k, x in (case.get("inputs") or {}).items()]
+                + [_input(f"{label(k)}, given {briefs.given_condition(c, g)}", v | {"unit": case["inputs"][k]["unit"]}, url_of)
                    for g in case["given_values"] for k, v in g["values"].items()],
                 "evidence": [{"passage": e.get("passage"), "supports": e.get("supports"), "checked": e.get("checked"), "url": url_of(e.get("observation_id"))}
                              for e in case.get("evidence") or []],
@@ -430,8 +442,8 @@ def _items(ops):
     return items
 
 
-def public_cases(run_id, ids):
-    return example_review.reviewed_cases(run_id, _case_details(ids, public=True))
+def public_cases(run_id, ids, memo_at=None):
+    return example_review.reviewed_cases(run_id, _case_details(ids, public=True, memo_at=memo_at))
 
 
 def public_leads(run_id, items):
@@ -479,9 +491,10 @@ def _page(run_id, data=None, home="/"):
     return page.replace("__DATA__", json.dumps(data, default=str).replace("</", "<\\/") if data is not None else "null")
 
 
-def export_html(run_id, public=False, home=REPO, *, example_deal=False):
+def export_html(run_id, public=False, home=REPO, *, example_deal=False, memo_at=None):
     """One run as a single self-contained page: everything embedded, no server, with a replay button.
-    public=True leaves out links into the operator's HubSpot."""
+    public=True leaves out links into the operator's HubSpot. memo_at(case) gives each case the files of its
+    memo, for a page written with them beside it (the guide); without it the page links to no memo."""
     v = RunView(run_id)
     v.update()
     status = _status(run_id, _run_row(run_id), v)
@@ -499,10 +512,10 @@ def export_html(run_id, public=False, home=REPO, *, example_deal=False):
     if example_deal:
         data["example_deal"] = True
     if public:
-        data["cases"] = public_cases(run_id, v.cases)
+        data["cases"] = public_cases(run_id, v.cases, memo_at)
         data["lead_review"] = public_leads(run_id, _items(ops))
     else:
-        data["cases"] = _case_details(v.cases)
+        data["cases"] = _case_details(v.cases, memo_at=memo_at)
     return _page(run_id, data, home=home)
 
 
@@ -666,7 +679,7 @@ class Handler(BaseHTTPRequestHandler):
                     after = int((parse_qs(u.query).get("after") or ["0"])[0])
                     v = view(rid)
                     return self._send(json.dumps({"ops": v.ops[after:], "next": len(v.ops), "status": _status(rid, _run_row(rid), v),
-                                                  "cases": _case_details(v.cases, memo_links=True)}, default=str), "application/json")
+                                                  "cases": _case_details(v.cases, memo_at=_served_memo)}, default=str), "application/json")
                 if parts[2] == "export":
                     return self._send(export_html(rid, public="public" in parse_qs(u.query)))
             if parts[0] == "cases" and len(parts) == 1:

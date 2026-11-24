@@ -35,7 +35,7 @@ STYLE = r"""
 .deal-head small{display:block;color:var(--mute);font-size:12px}
 .deal-head h4{margin:2px 0 0;color:var(--ink);font-size:16px;font-weight:650;line-height:1.3}
 .deal-head a{font-size:13px;font-weight:600;white-space:nowrap}
-.deal-head a:hover{text-decoration:underline}
+.deal-head a:hover{text-decoration:underline}.deal-links{display:inline-flex;gap:16px;align-items:baseline}
 .deal-body dl{display:flex;flex-wrap:wrap;gap:8px 28px;margin:0}
 .deal-body dt{font-size:12px;color:var(--mute)}.deal-body dd{margin:2px 0 0}
 .deal-body blockquote{max-width:780px;margin:5px 0 0;padding-left:12px;border-left:2px solid #bdd1ef;color:var(--ink)}
@@ -114,7 +114,7 @@ function findingSource(c) {
 }
 
 function memoLinks(c) {
-  return c.memo ? `<span class="finding-source finding-memo"><a href="${esc(c.memo)}" target="_blank" rel="noopener">Memo</a> · <a href="${esc(c.memo)}.pdf" download>PDF</a></span>` : "";
+  return c.memo ? `<span class="finding-source finding-memo"><a href="${esc(c.memo.page)}" target="_blank" rel="noopener">Memo</a> · <a href="${esc(c.memo.pdf)}" download="${esc(c.memo.name)}">PDF</a></span>` : "";
 }
 
 function exposureCell(c) {
@@ -145,7 +145,7 @@ function exampleDealRow(c, id) {
     <section class="deal-body" id="${esc(id)}" aria-labelledby="${esc(id)}-title" tabindex="-1">
       <div class="deal-head"><div><small>HubSpot deal preview</small>
         <h4 id="${esc(id)}-title">${esc(c.stream || c.company || "Proposed deal")}</h4></div>
-        <a href="#case/${esc(encodeURIComponent(c.oid))}">Open case</a></div>
+        <span class="deal-links">${c.memo ? `<a href="${esc(c.memo.page)}" target="_blank" rel="noopener">Memo</a><a href="${esc(c.memo.pdf)}" download="${esc(c.memo.name)}">PDF</a>` : ""}<a href="#case/${esc(encodeURIComponent(c.oid))}">Open case</a></span></div>
       <dl>${fields.filter(([, value]) => value).map(([name, value]) =>
         `<div><dt>${esc(name)}</dt><dd>${esc(value)}</dd></div>`).join("")}</dl>
       ${c.opening ? `<span class="draft-label">Draft outreach</span><blockquote>${esc(c.opening)}</blockquote>` : ""}

@@ -527,8 +527,8 @@ function caseView() {
     + `<div class="case-actions"><form id="jump"><label for="case-section">Section</label><select id="case-section"></select><button class="btn sm">Go</button></form>`
     + `<a href="#found/${esc(f.oid)}">Research entry · ${clock(f.el)}</a>`
     + (c.deal ? `<a href="${esc(c.deal)}" target="_blank" rel="noopener">Open in HubSpot</a>` : "")
-    + (c.memo ? `<span class="memo-actions"><a class="btn sm dark" href="${esc(c.memo)}" target="_blank" rel="noopener">${DOC_ICON}Memo</a>`
-        + `<a class="btn sm" href="${esc(c.memo)}.pdf" download>PDF</a></span>` : "") + `</div><div class="doc2">`
+    + (c.memo ? `<span class="memo-actions"><a class="btn sm dark" href="${esc(c.memo.page)}" target="_blank" rel="noopener">${DOC_ICON}Memo</a>`
+        + `<a class="btn sm" href="${esc(c.memo.pdf)}" download="${esc(c.memo.name)}">PDF</a></span>` : "") + `</div><div class="doc2">`
     + sec("Exposure", p(c.why_matters) + p(c.dependency))
     + sec("Event and timing", (eventLabel(c) ? `<p class="event-label">${eventLabel(c)}</p>` : "") + p(c.event_text) + p(c.event_description) + p(c.event_timing) + p(c.resolution_source ? "Shown by: " + c.resolution_source : ""))
     + sec("Revenue scenarios", p(c.condition) + scenarios(c) + p(c.timing))

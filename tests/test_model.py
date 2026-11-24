@@ -878,9 +878,17 @@ class Model(unittest.TestCase):
         out, c = self.memo_case()
         cid = out["case_id"]
         # a case's details carry its memo's address for the live page, and none for a page exported to stand alone
-        self.assertEqual(watch._case_details([cid], memo_links=True)[cid]["memo"], f"/cases/{cid}/memo")
-        self.assertIsNone(watch._case_details([cid])[cid]["memo"])
-        self.assertIsNone(watch._case_details([cid], public=True, memo_links=True)[cid]["memo"])
+        name = "northfield-transit-services--program-renewal"
+        self.assertEqual(watch._case_details([cid], memo_at=watch._served_memo)[cid]["memo"],
+                         {"page": f"/cases/{cid}/memo", "pdf": f"/cases/{cid}/memo.pdf", "name": name + ".pdf"})
+        shown = watch._case_details([cid])[cid]
+        self.assertIsNone(shown["memo"])                                                # a page exported as one file
+        self.assertEqual([x["name"] for x in shown["inputs"]][:2],                      # an input by its label, as in the memo
+                         ["Revenue under the Regional Transit Program", "Share of that revenue the company keeps"])
+        self.assertEqual(watch.title_label("lmm-passenger-revenue", "revenue at LMM"), "LMM Passenger Revenue")
+        self.assertEqual(watch.title_label("lmm-passenger-revenue"), "Lmm Passenger Revenue")
+        beside = lambda c: {"page": f"memos/{memo.filename(c)}.html"}  # noqa: E731     # the guide: files beside the page
+        self.assertEqual(watch._case_details([cid], public=True, memo_at=beside)[cid]["memo"], {"page": f"memos/{name}.html"})
         server = ThreadingHTTPServer(("127.0.0.1", 0), watch.Handler)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         self.addCleanup(server.server_close)
@@ -913,6 +921,13 @@ class Model(unittest.TestCase):
                 pw.chromium.launch(headless=True).close()
         except Exception as e:                                                         # no headless Chromium on this machine
             self.skipTest(f"headless Chromium is not installed: {type(e).__name__}")
+        from distress_signals import showcase                                          # the guide's memos, written beside its page
+        folder = Path(self.folder.name) / "guide"
+        self.assertEqual(showcase.write_memos(folder, [c]), [name])
+        beside = (folder / "memos" / f"{name}.html").read_text()
+        self.assertIn(f'<a class="back" href="../index.html#case/{cid}">‹ Case</a>', beside)
+        self.assertIn(f'href="{name}.pdf" download="{name}.pdf"', beside)
+        self.assertTrue((folder / "memos" / f"{name}.pdf").read_bytes().startswith(b"%PDF"))
         got = get(f"/cases/{cid}/memo.pdf")
         self.assertEqual((got.headers["Content-Type"], got.headers["Content-Disposition"]),
                          ("application/pdf", 'inline; filename="northfield-transit-services--program-renewal.pdf"'))

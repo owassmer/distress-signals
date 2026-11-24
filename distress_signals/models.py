@@ -28,8 +28,10 @@ class Cite(Strict):
     url: str | None = Field(None, description="In place of observation_id, the address the store read the record from")
     passage: str = Field(min_length=3, description="Words quoted from the record. The store finds them word for word "
                                                    "in the record it stored ('...' marks an omission), takes a "
-                                                   "quotation of three words or more, and keeps the whole sentence "
-                                                   "or row the quotation falls in where it read the record's layout")
+                                                   "quotation of three or more words and figures with a word among "
+                                                   "them (a table's row with its heading), and keeps the whole "
+                                                   "sentence or row the quotation falls in where it read the record's "
+                                                   "layout")
     checked: SkipJsonSchema[bool | None] = Field(None, exclude=True)  # set by the store; no part of what is stated
 
     @model_validator(mode="after")

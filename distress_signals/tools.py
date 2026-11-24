@@ -172,12 +172,15 @@ def whole_sentences(passage, text, rows_until=0, blocks=None):
 
 
 _WORD = re.compile(r"[^\W\d_]{2,}")  # a word: two or more letters
+_FIGURE = re.compile(r"\d[\d.,]*")
 
 
 def has_text(passage):
-    """A cited passage is the section of text that states the claim: at least three words, so never a
-    number alone."""
-    return len(_WORD.findall(passage or "")) >= 3
+    """A cited passage is the section of text that states the claim: three or more words and figures, with a word
+    among them. A table's row is its heading and its figures, so it counts by both. Never figures alone, which say
+    nothing of what they measure, and never a word or two."""
+    words = len(_WORD.findall(passage or ""))
+    return bool(words) and words + len(_FIGURE.findall(passage)) >= 3
 
 
 def _structure(obs):
@@ -206,9 +209,10 @@ def _cite(con, cite, where, cited_ids):
     Returns {observation_id, passage, checked}."""
     passage = cite["passage"]
     if not has_text(passage):
-        raise ToolError(f"{where}: the quotation {passage[:80]!r} has fewer than three words, and the store takes one "
-                        "of three or more: a figure comes with the words around it, as its sentence or as its row "
-                        "with the row's heading.")
+        raise ToolError(f"{where}: the quotation {passage[:80]!r} is "
+                        f"{'figures with no word' if not _WORD.search(passage) else 'fewer than three words and figures'}"
+                        ", and the store takes three or more words and figures with a word among them: a figure comes "
+                        "with what names it, as its sentence or as its row with the row's heading.")
     if cite.get("url"):
         url = cite["url"].strip()
         oid = db.make_id("obs_", "page", url)

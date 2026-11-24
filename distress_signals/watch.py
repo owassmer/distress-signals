@@ -396,7 +396,7 @@ def _case_details(oids, public=False, memo_at=None):
             cited = c.get("cited") or {}
             url_of = lambda oid: (cited.get(oid) or {}).get("url") if oid else None  # noqa: E731
 
-            cur = case["currency"]
+            cur, lead = case["currency"], briefs.leading(res)
             label = lambda k: forms.label(k, case["inputs"][k], cur)  # noqa: E731   # an input by what it is, as the memo names it
             said = " ".join(x for x in (case.get("stream"), case.get("dependency"), c["company"].get("description"),
                                         (res.get("denominator") or {}).get("label")) if x)
@@ -413,6 +413,9 @@ def _case_details(oids, public=False, memo_at=None):
                 "event_text": of_events("text"), "resolution_source": of_events("resolution_source"),
                 "dependency": case.get("dependency"),
                 "stake": res.get("max_shortfall"), "share": res.get("max_share"),
+                # the headline as a reader meets it: the leading outcome's revenue impact, a loss negative
+                "impact": -lead["shortfall"], "impact_share": -lead["share"] if lead.get("share") is not None else None,
+                "impact_label": lead["label"],
                 "of": (res.get("denominator") or {}).get("label"), "denominator_value": (res.get("denominator") or {}).get("value"),
                 "currency": case.get("currency"),
                 "period": f"{case['period']['start']} to {case['period']['end']}",
@@ -424,7 +427,8 @@ def _case_details(oids, public=False, memo_at=None):
                 "period_start": case["period"]["start"], "period_end": case["period"]["end"],
                 "baseline": {"revenue": res.get("baseline_revenue"), "description": None},
                 "scenarios": [{"label": r["label"], "summary": r["label"], "description": changed(r),
-                               "revenue": r.get("revenue"), "shortfall": r.get("shortfall"), "share": r.get("share")}
+                               "revenue": r.get("revenue"), "shortfall": r.get("shortfall"), "share": r.get("share"),
+                               "impact": -r["shortfall"]}
                               for r in res.get("worlds") or []],
                 "inputs": [_input(label(k), x, url_of) for k, x in (case.get("inputs") or {}).items()]
                 + [_input(f"{label(k)}, given {briefs.given_condition(c, g)}", v | {"unit": case["inputs"][k]["unit"]}, url_of)
@@ -593,13 +597,13 @@ def _cases_index():
     for c in found:
         res, cur, e = c["results"], c["case"]["currency"], html.escape
         d = memo.document(c)
-        share = f" · {d['at_stake']['share']}" if d["at_stake"]["share"] else ""
+        share = f" · {d['at_stake']['share'].lstrip('−+')}" if d["at_stake"]["share"] else ""
         name = e(c["company"]["name"])
         head = f"<a href='{e(homes[c['id']], quote=True)}'>{name}</a>" if homes[c["id"]] else f"<b>{name}</b>"
         cards.append(
             f"<div class='case{' withdrawn' if c['status'] == 'withdrawn' else ''}'><div class='what'>{head}"
             f"<div>{e(d['event'])}{' · withdrawn' if c['status'] == 'withdrawn' else ''}</div></div>"
-            f"<div class='n'><b>{e(briefs.money(res['max_shortfall'], cur))}</b>{e(share)}<br>{e(d['period'])}</div>"
+            f"<div class='n'><b class='{d['at_stake']['tone']}'>{e(d['at_stake']['impact'])}</b>{e(share)}<br>{e(d['period'])}</div>"
             f"<div class='go'><a class='btn sm dark' href='/cases/{c['id']}/memo'>{DOC_ICON}Memo</a>"
             f"<a class='btn sm' href='/cases/{c['id']}/memo.pdf' download='{e(memo.filename(c), quote=True)}.pdf'>PDF</a></div></div>")
     body = "".join(cards) or "<div class='empty'>No cases yet. A run saves them as it finds them.</div>"

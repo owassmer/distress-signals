@@ -5,7 +5,7 @@ import html
 import re
 from pathlib import Path
 
-from . import memo, watch
+from . import briefs, memo, watch
 
 
 LEGACY_PAGE = """<!doctype html><html lang="en"><meta charset="utf-8">
@@ -113,16 +113,16 @@ def home(runs):
         meta = " · ".join(x for x in (f"{start:%b} {start.day}, {start.year}", f"{mins} min" if mins is not None else None, count) if x)
         asked = ASKED.get(run["seed_kind"]) or (run.get("seed") or "")
         rows = []
-        for c in sorted(cases, key=lambda c: -(c["results"]["max_shortfall"] or 0)):
+        for c in sorted(cases, key=lambda c: -abs(briefs.leading(c["results"])["shortfall"])):
             d, name = memo.document(c), memo.filename(c)
-            share = f"{d['at_stake']['share']} of revenue · " if d["at_stake"]["share"] else ""
+            share = f"{d['at_stake']['share'].lstrip('−+')} of revenue · " if d["at_stake"]["share"] else ""
             rows.append(
                 f'<tr><td class="who"><a href="{r["slug"]}/index.html#case/{c["id"]}">{e(c["company"]["name"])}</a>'
                 f'<span>{e(d["event"])}</span></td>'
-                f'<td class="rc-stake r"><b>{e(d["at_stake"]["shortfall"])}</b><span>{e(share + d["period"])}</span></td>'
+                f'<td class="rc-stake r"><b class="{d["at_stake"]["tone"]}">{e(d["at_stake"]["impact"])}</b><span>{e(share + d["period"])}</span></td>'
                 f'<td class="get"><a href="{r["slug"]}/memos/{name}.html">Memo</a>'
                 f'<a href="{r["slug"]}/memos/{name}.pdf" download="{name}.pdf">PDF</a></td></tr>')
-        table = ('<table class="rc-cases"><thead><tr><th>Company and event</th><th class="r">Largest modeled shortfall</th><th></th></tr></thead>'
+        table = ('<table class="rc-cases"><thead><tr><th>Company and event</th><th class="r">Largest modeled revenue impact</th><th></th></tr></thead>'
                  f'<tbody>{"".join(rows)}</tbody></table>') if rows else ""
         cards.append(
             f'<article class="runcard"><div class="rc-head"><div><small>{e(meta)}</small>'

@@ -34,8 +34,15 @@ def _span(start, end):
 
 
 def _share(x):
-    """A share of revenue: to two places under one percent, where one place would show a real shortfall as 0.0%."""
-    return None if x is None else (f"{x:.2%}" if 0 < abs(x) < 0.01 else f"{x:.1%}")
+    """A share of revenue, signed as its impact is: to two places under one percent, where one place would show a
+    real effect as 0.0%."""
+    if x is None:
+        return None
+    return ("−" if x < -1e-12 else "+" if x > 1e-12 else "") + (f"{abs(x):.2%}" if 0 < abs(x) < 0.01 else f"{abs(x):.1%}")
+
+
+def _tone(x):
+    return "loss" if x < -1e-9 else "gain" if x > 1e-9 else ""
 
 
 def _title(o, oid):
@@ -115,22 +122,27 @@ def document(c):
         return {"kind": kind, "read": read, "reasoning": " ".join(x for x in ((a or {}).get("note"), fig.get("note")) if x),
                 "notes": list(dict.fromkeys(refs)), "computations": list(dict.fromkeys(cs))}
 
-    # ---- what is at stake
-    worst = max(res["worlds"], key=lambda w: w["shortfall"])
+    # ---- the revenue impact of each outcome: its revenue less revenue as things stand, a loss negative
+    lead = briefs.leading(res)
     extra = [(k, title) for k, title in (("deferred_past_period", "Deferred past the period"), ("lost", "Not recovered"),
-                                        ("contribution_loss", "Contribution lost"), ("cash_delayed", "Cash delayed"))
+                                        ("contribution_loss", "Contribution impact"), ("cash_delayed", "Cash delayed"))
              if any(w.get(k) is not None for w in res["worlds"])]
+
     def changed(w):
         """The inputs that take another value in an outcome, each by its label."""
         return [{"label": forms.label(k, case["inputs"][k], cur), "value": shown(v, k)[0]} for k, v in w["values"].items()]
 
-    ranked = sorted(res["worlds"], key=lambda w: -w["shortfall"])                  # the largest shortfall first
-    top = worst["shortfall"] if worst["shortfall"] > 0 else None
+    def also(w, k):
+        return briefs.signed(-w[k], cur) if k == "contribution_loss" and w.get(k) is not None else briefs.money(w.get(k), cur)
+
+    # losses first, the largest first; then gains, the largest first; then the outcomes that move nothing
+    ranked = sorted(res["worlds"], key=lambda w: (0 if w["shortfall"] > 1e-9 else 1 if w["shortfall"] < -1e-9 else 2, -abs(w["shortfall"])))
+    top = max(abs(w["shortfall"]) for w in res["worlds"]) or None
     outcomes = [{"outcome": w["label"].split("; "), "revenue": briefs.money(w["revenue"], cur),
-                 "shortfall": briefs.money(w["shortfall"], cur), "share": _share(w["share"]) or "–",
-                 "extra": [briefs.money(w.get(k), cur) for k, _ in extra], "worst": w is worst, "changed": changed(w),
-                 "moves": abs(w["shortfall"]) > 1e-9, "gain": w["shortfall"] < -1e-9,
-                 "against_worst": max(0.0, min(1.0, w["shortfall"] / top)) if top else 0.0}       # drawn as a bar
+                 "impact": briefs.signed(-w["shortfall"], cur), "tone": _tone(-w["shortfall"]),
+                 "share": _share(-w["share"]) if w.get("share") is not None else "–",
+                 "extra": [also(w, k) for k, _ in extra], "lead": w is lead and abs(w["shortfall"]) > 1e-9, "changed": changed(w),
+                 "against_largest": min(1.0, abs(w["shortfall"]) / top) if top else 0.0}          # drawn as a bar
                 for w in ranked]
 
     # ---- the event, and the other propositions the case reads
@@ -198,9 +210,10 @@ def document(c):
         "dates": {"as_of": str(c["row"]["updated"])[:10], "period": [str(case["period"]["start"]), str(case["period"]["end"])]},
         "currency": cur, "case_id": c["id"], "revision": c["row"]["revision"],
         "stream": case["stream"],
-        "at_stake": {"shortfall": briefs.money(worst["shortfall"], cur), "share": _share(worst.get("share")),
-                     "contribution": briefs.money(worst["contribution_loss"], cur) if worst.get("contribution_loss") is not None else None,
-                     "of": (res.get("denominator") or {}).get("label"), "outcome": worst["label"].split("; "),
+        "at_stake": {"impact": briefs.signed(-lead["shortfall"], cur), "tone": _tone(-lead["shortfall"]),
+                     "share": _share(-lead["share"]) if lead.get("share") is not None else None,
+                     "contribution": briefs.signed(-lead["contribution_loss"], cur) if lead.get("contribution_loss") is not None else None,
+                     "of": (res.get("denominator") or {}).get("label"), "outcome": lead["label"].split("; "),
                      "of_value": briefs.money(res["denominator"]["value"], cur) if res.get("denominator") else None,
                      "baseline": briefs.money(res["baseline_revenue"], cur)},
         "outcomes": outcomes, "extra_columns": [title for _, title in extra], "rests": rests,
@@ -271,10 +284,11 @@ h1.co-name { font-family: var(--serif); font-size: 19.5pt; font-weight: 700; lin
   border-top: 1.25pt solid var(--ink); margin-bottom: 10pt; break-inside: avoid; }
 .kpi { padding: 7.5pt 10pt; border-right: .75pt solid var(--rule-soft); }
 .kpi:last-child { border-right: 0; }
-.kpi-primary { border-top: 2pt solid var(--loss); margin-top: -1.25pt; background: #FFFFFF; }
+.kpi-primary { border-top: 2pt solid var(--ink); margin-top: -1.25pt; background: #FFFFFF; }
+.kpi-primary.lead-loss { border-top-color: var(--loss); } .kpi-primary.lead-gain { border-top-color: var(--gain); }
 .kpi-label { font-size: 6.4pt; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--mute); margin-bottom: 2.5pt; }
 .kpi-val { font-size: 16pt; font-weight: 700; line-height: 1.08; color: var(--ink); font-variant-numeric: tabular-nums lining-nums; letter-spacing: -.02em; }
-.kpi-val.loss { color: var(--loss); }
+.kpi-val.loss { color: var(--loss); } .kpi-val.gain { color: var(--gain); }
 .kpi-sub { font-size: 7.2pt; color: var(--soft); margin-top: 2pt; line-height: 1.25; font-variant-numeric: tabular-nums; }
 .ep-bar { display: flex; height: 5.5pt; width: 100%; background: var(--rule-soft); overflow: hidden; margin: 5.5pt 0 4pt; border-radius: 1pt; }
 .ep-seg.observed { background: #1B7A4D; } .ep-seg.carried { background: #1B365D; } .ep-seg.assumed { background: #C26D2D; }
@@ -303,7 +317,7 @@ table.data-table.compact th, table.data-table.compact td { padding: 3.8pt 5pt; }
 table.kv-table .kv-k { color: var(--soft); font-weight: 500; }
 table.kv-table .kv-split { border-left: .75pt solid var(--rule-soft); padding-left: 9pt; }
 .row-baseline td { background: var(--tint); color: var(--soft); }
-.row-worst td { background: #FFFBFB; }
+.row-lead.lead-loss td { background: #FFFBFB; } .row-lead.lead-gain td { background: #F7FBF8; }
 .row-neutral td { color: var(--mute); }
 .bold { font-weight: 700; color: var(--ink); } .loss { color: var(--loss) !important; } .gain { color: var(--gain) !important; } .mute { color: var(--mute); }
 .sc-title-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3pt 5pt; }
@@ -316,7 +330,8 @@ table.kv-table .kv-split { border-left: .75pt solid var(--rule-soft); padding-le
 .sc-changes { font-size: 7.25pt; color: var(--mute); margin-top: 2pt; line-height: 1.3; }
 th.bar-col { width: 72pt; } td.bar-cell { width: 72pt; vertical-align: middle; }
 .mag-track { height: 6.5pt; width: 100%; background: #EDF2F7; border-radius: 1pt; overflow: hidden; }
-.mag-fill { height: 100%; background: var(--loss); border-radius: 1pt; }
+.mag-fill { height: 100%; background: var(--mute); border-radius: 1pt; }
+.mag-fill.loss { background: var(--loss); } .mag-fill.gain { background: var(--gain); }
 .table-note { font-size: 7.25pt; color: var(--mute); margin-top: 4pt; line-height: 1.35; }
 
 .context-lead { margin-bottom: 8pt; padding-bottom: 7pt; border-bottom: .5pt solid var(--rule-soft); break-inside: avoid; }
@@ -542,9 +557,9 @@ def html(doc, bar=None):
     r = d["rests"]
     n = max(r["figures"], 1)
     add('<div class="kpi-strip">'
-        f'<div class="kpi kpi-primary"><div class="kpi-label">Largest shortfall</div><div class="kpi-val loss">{_e(a["shortfall"])}</div>'
+        f'<div class="kpi kpi-primary lead-{a["tone"]}"><div class="kpi-label">Largest revenue impact</div><div class="kpi-val {a["tone"]}">{_e(a["impact"])}</div>'
         f'<div class="kpi-sub">{_e(a["share"] + " of revenue" if a["share"] else "in the period")}</div></div>'
-        + (f'<div class="kpi"><div class="kpi-label">Contribution lost with it</div><div class="kpi-val">{_e(a["contribution"])}</div>'
+        + (f'<div class="kpi"><div class="kpi-label">Contribution impact with it</div><div class="kpi-val">{_e(a["contribution"])}</div>'
            '<div class="kpi-sub">Revenue less the costs that move with it</div></div>' if a["contribution"] else "")
         + f'<div class="kpi"><div class="kpi-label">Revenue as things stand</div><div class="kpi-val">{_e(a["baseline"])}</div>'
           f'<div class="kpi-sub">{_e(d["period"])}</div></div>'
@@ -556,21 +571,20 @@ def html(doc, bar=None):
 
     # 01 what is at stake
     cols = "".join(f'<th class="num">{_e(t)}</th>' for t in d["extra_columns"])
-    add('<section id="sec-stake"><h2 class="sec-h"><span class="sec-num">01</span> Revenue at stake in each outcome</h2>'
-        f'<table class="data-table"><thead><tr><th style="width:38%">Outcome</th><th class="num">Revenue in the period</th><th class="num">Shortfall</th>'
+    add('<section id="sec-stake"><h2 class="sec-h"><span class="sec-num">01</span> Revenue impact of each outcome</h2>'
+        f'<table class="data-table"><thead><tr><th style="width:38%">Outcome</th><th class="num">Revenue in the period</th><th class="num">Revenue impact</th>'
         f'<th class="num">Share</th>{cols}<th class="bar-col">Against the largest</th></tr></thead><tbody>')
     dash = "".join('<td class="num mute">–</td>' for _ in d["extra_columns"])
     add(f'<tr class="row-baseline"><td><div class="sc-title-row"><span class="sc-title">As things stand</span></div></td>'
         f'<td class="num">{_e(a["baseline"])}</td><td class="num mute">–</td><td class="num mute">–</td>{dash}<td class="bar-cell"><div class="mag-track"></div></td></tr>')
     for w in d["outcomes"]:
         more = "".join(f'<td class="num">{_e(x)}</td>' for x in w["extra"])
-        cls = "row-worst" if w["worst"] and w["moves"] else "" if w["moves"] else "row-neutral"
-        tone = "gain bold" if w["gain"] else "loss bold" if w["moves"] else "mute"
+        cls = f"row-lead lead-{w['tone']}" if w["lead"] else "" if w["tone"] else "row-neutral"   # the row's ground, not its ink
         add(f'<tr class="{cls}"><td>{_scenario(w["outcome"], w["changed"])}</td><td class="num">{_e(w["revenue"])}</td>'
-            f'<td class="num {tone}">{_e(w["shortfall"])}</td><td class="num{" bold" if w["worst"] and w["moves"] else ""}">{_e(w["share"])}</td>{more}'
-            f'<td class="bar-cell"><div class="mag-track"><div class="mag-fill" style="width:{100 * w["against_worst"]:.1f}%"></div></div></td></tr>')
+            f'<td class="num {w["tone"] + " bold" if w["tone"] else "mute"}">{_e(w["impact"])}</td><td class="num{" bold" if w["lead"] else ""}">{_e(w["share"])}</td>{more}'
+            f'<td class="bar-cell"><div class="mag-track"><div class="mag-fill {w["tone"]}" style="width:{100 * w["against_largest"]:.1f}%"></div></div></td></tr>')
     add('</tbody></table><p class="table-note">Each figure is what revenue would be if that outcome happens, and says nothing of how likely it is. '
-        'Shortfall is revenue as things stand less revenue in the outcome, over the period.'
+        'Revenue impact is revenue in the outcome less revenue as things stand, over the period: a loss is negative, a gain positive.'
         + (f' Share is of {_e(a["of"])} ({_e(a["of_value"])}).' if a["of"] else "")
         + ' Under each outcome are the inputs that take another value there.</p></section>')
 

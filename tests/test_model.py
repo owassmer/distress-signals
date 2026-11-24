@@ -786,6 +786,28 @@ class Model(unittest.TestCase):
         with closing(db.connect()) as con:
             return out, briefs.cases(con, [out["case_id"]])[0]
 
+    def test_a_case_whose_outcomes_only_raise_revenue_reads_as_a_gain(self):
+        out = self.save([given({"share_kept": 1.2}, "renewed-in-full")])              # the one outcome that moves revenue raises it
+        self.assertEqual(out["results"]["max_shortfall"], 0)                           # the store's largest shortfall is nothing
+        with closing(db.connect()) as con:
+            c = briefs.cases(con, [out["case_id"]])[0]
+        self.assertEqual((briefs.leading(c["results"])["label"], briefs.leading(c["results"])["shortfall"]), ("Renewed in full", -20))
+        d = memo.document(c)
+        self.assertEqual((d["at_stake"]["impact"], d["at_stake"]["tone"], d["at_stake"]["share"], d["at_stake"]["outcome"]),
+                         ("+$20", "gain", "+20.0%", ["Renewed in full"]))
+        self.assertEqual([(w["impact"], w["tone"], w["lead"]) for w in d["outcomes"]][:2], [("+$20", "gain", True), ("$0", "", False)])
+        page = memo.html(d)
+        self.assertIn('<div class="kpi-val gain">+$20</div>', page)
+        self.assertIn('<td class="num gain bold">+$20</td>', page)
+        shown = watch._case_details([out["case_id"]])[out["case_id"]]
+        self.assertEqual((shown["impact"], shown["impact_share"], shown["impact_label"]), (20, 0.2, "Renewed in full"))
+        self.assertEqual((briefs.signed(-20), briefs.signed(20), briefs.signed(0), briefs.signed(None)), ("−$20", "+$20", "$0", "–"))
+        # where an outcome lowers revenue, the largest loss leads, whatever another outcome adds
+        both = self.save([given({"share_kept": 1.5}, "renewed-in-full"), given({"share_kept": 0.9}, "cut-under-half")], company="Lakeshore Transit")
+        with closing(db.connect()) as con:
+            lead = briefs.leading(briefs.cases(con, [both["case_id"]])[0]["results"])
+        self.assertEqual((lead["label"], lead["shortfall"]), ("Cut by less than half", 10))
+
     def test_the_export_carries_each_record_with_its_date_and_each_saved_query(self):
         out, c = self.memo_case()
         ex = briefs.export(c)
@@ -802,14 +824,15 @@ class Model(unittest.TestCase):
         res = out["results"]
         self.assertEqual((d["company"], d["event"], d["period"], d["revision"]),
                          ("Northfield Transit Services", "The agency renews the program", "July 1, 2027 – June 30, 2028", 1))
-        self.assertEqual((d["at_stake"]["shortfall"], d["at_stake"]["share"], d["at_stake"]["outcome"]),
-                         ("$100", "100.0%", ["Not: The agency renews the program"]))
-        self.assertEqual([(w["outcome"], w["revenue"], w["shortfall"]) for w in d["outcomes"]],               # the largest shortfall first
-                         [(w["label"].split("; "), briefs.money(w["revenue"]), briefs.money(w["shortfall"]))
-                          for w in sorted(res["worlds"], key=lambda w: -w["shortfall"])])
-        self.assertEqual([w["shortfall"] for w in d["outcomes"]], ["$100", "$30", "$0", "$0"])
+        # the revenue impact of an outcome is its revenue less revenue as things stand: a loss negative
+        self.assertEqual((d["at_stake"]["impact"], d["at_stake"]["tone"], d["at_stake"]["share"], d["at_stake"]["outcome"]),
+                         ("−$100", "loss", "−100.0%", ["Not: The agency renews the program"]))
+        self.assertEqual([(w["outcome"], w["revenue"]) for w in d["outcomes"]],                              # the largest loss first
+                         [(w["label"].split("; "), briefs.money(w["revenue"])) for w in sorted(res["worlds"], key=lambda w: -w["shortfall"])])
+        self.assertEqual([(w["impact"], w["tone"], w["share"]) for w in d["outcomes"]],
+                         [("−$100", "loss", "−100.0%"), ("−$30", "loss", "−30.0%"), ("$0", "", "0.0%"), ("$0", "", "0.0%")])
         self.assertEqual(d["outcomes"][1]["changed"], [{"label": "Share of that revenue the company keeps", "value": "0.7"}])
-        self.assertEqual([(w["against_worst"], w["moves"]) for w in d["outcomes"]], [(1.0, True), (0.3, True), (0.0, False), (0.0, False)])
+        self.assertEqual([(w["against_largest"], w["lead"]) for w in d["outcomes"]], [(1.0, True), (0.3, False), (0.0, False), (0.0, False)])
         self.assertEqual([(n["title"], [k["title"] for k in n["children"]]) for n in d["tree"]],      # a way under what it divides
                          [("The agency renews the program", ["Renewed in full", "Cut by less than half", "Cut by half or more"])])
         self.assertEqual(memo._in_words("program_revenue * (1 - share_kept)", d["labels"]),
@@ -820,8 +843,8 @@ class Model(unittest.TestCase):
         self.assertEqual([f["statement"] for f in d["findings"]], ["The board votes in June."])   # the one recorded on this case
         self.assertNotIn("person", d)                                                 # the desk's, not the reader's
         self.assertEqual(len(d["condition"]), 2)                                      # each outcome that moves revenue, on its own
-        self.assertEqual(memo._share(0.0023), "0.23%")                                # a small share is not shown as 0.0%
-        self.assertEqual((memo._share(0.033), memo._share(0)), ("3.3%", "0.0%"))
+        self.assertEqual(memo._share(-0.0023), "−0.23%")                              # a small share is not shown as 0.0%
+        self.assertEqual((memo._share(0.033), memo._share(0)), ("+3.3%", "0.0%"))
         # each input once: its label, its value as things stand, then its value in each outcome that changes it
         self.assertEqual([(f["name"], f["label"], f["value"], f["kind"]) for f in d["figures"]],
                          [("program_revenue", "Revenue under the Regional Transit Program", "$100", "Computed from records, carried over by an assumption"),

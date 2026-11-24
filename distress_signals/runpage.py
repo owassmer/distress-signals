@@ -29,6 +29,8 @@ function money(amount, currency) {
   const value = Math.abs(amount).toLocaleString("en-US", {notation:"compact", maximumFractionDigits:Math.abs(amount) >= 1e9 ? 2 : 1});
   return (amount < 0 ? "−" : "") + (currency && currency !== "USD" ? currency + " " : "$") + value;
 }
+const signedMoney = (x, currency) => x == null ? "" : (x > 0 ? "+" : x < 0 ? "−" : "") + money(Math.abs(x), currency);
+const tone = x => x > 0 ? "gain" : x < 0 ? "loss" : "";
 function leadSources(urls) {
   const links = (urls || []).filter(url => /^https?:\/\//i.test(url)).map(url => {
     try { return `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(new URL(url).hostname.replace(/^www\./, ""))} ↗</a>`; }
@@ -221,7 +223,7 @@ padding:10px 18px;font-weight:600;font-size:13px;line-height:1;cursor:pointer;bo
 
 # One look for every page of the product, laid over the styles above and beside them: the palette, faces and ruled
 # tables of the memo (memo.TOKENS), so that the home, a run, a case and its memo read as one publication. Paper white,
-# ink and two accents: navy for structure and links, oxblood for a shortfall. Square corners; rules, not boxes.
+# ink and two accents: navy for structure and links, oxblood for a loss and green for a gain. Square corners; rules, not boxes.
 PUBLICATION = r"""
 :root{--bg:#FFFFFF;--card:#FFFFFF;--line:#E2E8F0;--line2:#E2E8F0;--ink:#0F172A;--soft:#475569;--mute:#64748B;--faint:#64748B;
 --blue:#1B365D;--bluebg:#EEF3F9;--green:#0F5132;--greenink:#0F5132;--greenbg:#EDF7F2;--greenline:#B8DEC9;--violet:#5B4B8A;
@@ -246,7 +248,8 @@ h1,h2,#overview h1,.casehead h1,.loghead h1,#section-findings h2,#activity h2,.r
 .player{box-shadow:none;border-color:var(--rule)}.pp{border-radius:3px;background:var(--navy)}.pp:hover{background:#264878}
 .fill{background:var(--navy)}.knob{border-color:var(--navy)}
 .stake b,.finding-amount,.rc-cases .rc-stake b,.case .n b,.sc .sv b{font-variant-numeric:tabular-nums lining-nums}
-.stake b{color:var(--red)}
+.stake b.loss,.finding-amount.loss,.rc-cases .rc-stake b.loss,.case .n b.loss{color:var(--red)}
+.stake b.gain,.finding-amount.gain,.rc-cases .rc-stake b.gain,.case .n b.gain,.sc .sv .pos{color:#166534}.sc .sv .pos{font-weight:650}
 .casehead .eyebrow{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--navy)}
 .doc2>h3{color:var(--navy);letter-spacing:.1em;font-weight:700}
 .doc2{border-top:1.5px solid var(--ink)}.doc2>h3:first-of-type,.doc2>h3:first-of-type+div{border-top:0}
@@ -264,7 +267,6 @@ h1,h2,#overview h1,.casehead h1,.loghead h1,#section-findings h2,#activity h2,.r
 .prospect-table thead th{background:var(--tint);color:var(--soft);font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;border-bottom:1px solid var(--rule)}
 .prospect-table .finding-company{font-family:var(--serif);font-weight:700;letter-spacing:-.01em;font-size:18px}
 .prospect-table .stream-link{color:var(--navy)}
-.finding-amount{color:var(--red)}
 .deal-toggle{border-radius:3px;border-color:var(--rule)}
 .deal-toggle:hover,.deal-toggle[aria-expanded=true]{border-color:#C7D7EA;background:#EEF3F9;color:var(--navy)}
 .prospect-table .deal-cell{background:var(--tint)}.deal-body blockquote{border-left-color:#C7D7EA}
@@ -278,7 +280,6 @@ h1,h2,#overview h1,.casehead h1,.loghead h1,#section-findings h2,#activity h2,.r
 .run,.case{border-radius:0;border:0;border-bottom:1px solid var(--line);margin:0;padding:14px 4px;background:none}
 .run:first-child,.case:first-child{border-top:1.5px solid var(--ink)}.run:last-child,.case:last-child{border-bottom:1px solid var(--ink)}
 .run:hover{background:var(--tint)}.run .what b,.case .what a{font-family:var(--serif);font-size:17px;font-weight:700;letter-spacing:-.01em}
-.case .n b{color:var(--red)}
 .top .switch{border-radius:3px;background:#EEF2F6}.top .switch a{border-radius:2px}.top .switch a.on{box-shadow:none;border:1px solid var(--rule)}
 .ttl{font-family:var(--serif);font-size:17px}
 /* the site's home */
@@ -288,7 +289,7 @@ h1,h2,#overview h1,.casehead h1,.loghead h1,#section-findings h2,#activity h2,.r
 .rc-cases{border-top:1.5px solid var(--ink);border-bottom:1px solid var(--ink)}
 .rc-cases th{background:var(--tint);text-transform:uppercase;letter-spacing:.07em;font-size:11px;font-weight:700;color:var(--soft);padding:8px 10px;border-bottom:1px solid var(--rule)}
 .rc-cases td{padding:11px 10px;border-bottom:1px solid var(--line)}
-.rc-cases .who a{font-family:var(--serif);font-size:16.5px;font-weight:700;letter-spacing:-.01em}.rc-cases .rc-stake b{color:var(--red)}
+.rc-cases .who a{font-family:var(--serif);font-size:16.5px;font-weight:700;letter-spacing:-.01em}
 .home .foot{border-top:1px solid var(--rule);padding-top:10px}
 .demo-header{border:0;border-radius:0;padding:0 2px 10px;background:none}
 #section-findings:has(.demo-header) .prospect-sheet{border-radius:0}
@@ -402,8 +403,8 @@ const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;
 const inline = s => s.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "$1");
 const paras = s => esc(s).split(/\n{2,}/).filter(p => p.trim()).map(p => "<p>" + inline(p).replace(/^\s*[-•*] /gm, "• ").replace(/\n/g, "<br>") + "</p>").join("");
 const pct = x => x == null ? "" : x.toLocaleString("en-US", {style:"percent", maximumFractionDigits:1});
-const basis = c => c.share != null && c.of ? `${pct(c.share)} of ${c.of}` : "";
-const shortfallLabel = c => ["Largest modeled shortfall", periodLabel(c)].filter(Boolean).join(" · ");
+const basis = c => c.impact_share != null && c.of ? `${pct(Math.abs(c.impact_share))} of ${c.of}` : "";
+const impactLabel = c => ["Largest modeled revenue impact", periodLabel(c)].filter(Boolean).join(" · ");
 const emptyFindings = () => live() ? "No findings recorded yet." : "No active findings recorded for this run.";
 const day = d => new Date(d + "T12:00:00");
 const longDate = d => d ? day(d).toLocaleDateString("en-US", {month: "long", day: "numeric", year: "numeric"}) : "";
@@ -577,7 +578,7 @@ function scenarios(c) {
     const difference = short == null ? "" : short === 0 ? "At baseline" : `${money(Math.abs(short), cur)} ${short > 0 ? "below" : "above"} baseline`;
     return `<div class="sc ${cls}"><div class="sl"><b>${esc(name)}</b><span>${esc(desc || "")}</span></div>`
       + `<div class="bar" aria-hidden="true"><i style="width:${width(rev)}%"></i>${short > 0 ? `<s style="width:${width(short)}%"></s>` : ""}</div>`
-      + `<div class="sv"><b>${money(rev, cur)}</b><span>Stream revenue</span>${difference ? `<div class="${short > 0 ? "neg" : ""}">${difference}${share != null && c.of ? ` · ${pct(share)}` : ""}</div>` : ""}</div></div>`;
+      + `<div class="sv"><b>${money(rev, cur)}</b><span>Stream revenue</span>${difference ? `<div class="${short > 0 ? "neg" : short < 0 ? "pos" : ""}">${difference}${share != null && c.of ? ` · ${pct(share)}` : ""}</div>` : ""}</div></div>`;
   };
   return (c.of ? `<p>Percentage benchmark · ${esc(c.of)}${c.denominator_value != null ? ` (${money(c.denominator_value, cur)})` : ""}</p>` : "")
     + one("base", "Baseline", b.description, b.revenue, null)
@@ -600,7 +601,7 @@ function caseView() {
     + (prev ? `<a class="btn sm" href="#case/${esc(prev.oid)}">‹ Previous case</a>` : "")
     + (next ? `<a class="btn sm" href="#case/${esc(next.oid)}">Next case ›</a>` : "") + `</div>`
     + `<div class="casehead"><div><div class="eyebrow">${esc(c.company)}</div><h1>${esc(c.stream || "Revenue exposure")}</h1></div>`
-    + (c.stake != null ? `<div class="stake"><b>${esc(money(c.stake, c.currency))}</b><span>${esc(shortfallLabel(c))}</span>${basis(c) ? `<span>${esc(basis(c))}</span>` : ""}</div>` : "") + `</div>`
+    + (c.impact != null ? `<div class="stake"><b class="${tone(c.impact)}">${esc(signedMoney(c.impact, c.currency))}</b><span>${esc(impactLabel(c))}</span>${basis(c) ? `<span>${esc(basis(c))}</span>` : ""}</div>` : "") + `</div>`
     + `<div class="case-actions"><form id="jump"><label for="case-section">Section</label><select id="case-section"></select><button class="btn sm">Go</button></form>`
     + `<a href="#found/${esc(f.oid)}">Research entry · ${clock(f.el)}</a>`
     + (c.deal ? `<a href="${esc(c.deal)}" target="_blank" rel="noopener">Open in HubSpot</a>` : "")
@@ -672,7 +673,7 @@ function stepBody(s, part, beat) {
     + (rest || acts.length ? `<div class="srow">${acts.length ? `<button class="chips" data-acts="${s.i}" aria-expanded="${showActs}">${chipsHTML(acts)}<span class="chev">${showActs ? "Hide" : "Show"}</span></button>` : ""}${rest}</div>` : "")
     + (acts.length && showActs ? `<ul class="al">${acts.map((a, j) => actHTML(a, part && beat.k === "act" && j === acts.length - 1)).join("")}</ul>` : "")
     + finds.map(f => `<a class="found${part && beat.f === f ? " new" : ""}" href="#case/${esc(f.oid)}"><span class="num">${f.n}</span><span>${clock(f.el)} · Case saved · <b>${esc(f.c.company)}</b> · `
-      + `${esc(f.c.stream || "")}${f.c.stake != null ? ` · ${money(f.c.stake, f.c.currency)} modeled shortfall` : ""}</span><span class="go">View case →</span></a>`).join("")
+      + `${esc(f.c.stream || "")}${f.c.impact != null ? ` · ${signedMoney(f.c.impact, f.c.currency)} modeled revenue impact` : ""}</span><span class="go">View case →</span></a>`).join("")
     + `</div>`;
 }
 // Rows keep their DOM identity as playback appends entries. Live updates can amend earlier actions.

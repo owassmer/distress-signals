@@ -613,6 +613,10 @@ retains the reader’s position when moving between sections.
   and `.pdf`), and `export-site RUN_ID ...` writes a site of several: a home (`index.html`) that lists the runs,
   each with what the agent was asked and its cases with what is at stake and their memos, and each run's guide in
   a folder of its own. The folder holds everything its pages link to, so any static host serves it.
+- **Revenue impact.** What a reader meets on the pages and in the typeset memo is an outcome's revenue impact:
+  its revenue less revenue as things stand, a loss negative and in oxblood, a gain positive and in green. A
+  case's headline is the largest loss where any outcome lowers revenue, and otherwise the largest gain
+  (`briefs.leading`). The store and the analyst still state the same quantity as a shortfall, the sign turned.
 - **One look.** The memo, the run page, a case, the lists and the site's home share a palette, faces and ruled
   tables (`memo.TOKENS`, `runpage.PUBLICATION`): paper white, ink, navy for structure and links, oxblood for a
   shortfall, serif titles over sans text, square corners.

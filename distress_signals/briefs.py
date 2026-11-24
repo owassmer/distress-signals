@@ -20,6 +20,22 @@ def pct(x):
     return "–" if x is None else f"{x:.1%}"
 
 
+def signed(x, cur="USD"):
+    """A revenue impact as a reader meets it: a loss with a minus, a gain with a plus, none as it is."""
+    if x is None:
+        return "–"
+    return ("−" if x < -1e-9 else "+" if x > 1e-9 else "") + money(abs(x), cur)
+
+
+def leading(res):
+    """The world a case's headline is read from: where any outcome lowers revenue, the one that lowers it most;
+    otherwise the one that raises it most. Its revenue impact is its revenue less revenue as things stand, the
+    shortfall with its sign turned."""
+    worst = max(res["worlds"], key=lambda w: w["shortfall"])
+    best = min(res["worlds"], key=lambda w: w["shortfall"])
+    return worst if worst["shortfall"] > 1e-9 or best["shortfall"] > -1e-9 else best
+
+
 def cases(con, ids=None):
     """Saved cases as they stand now; all of them, or those with the given IDs."""
     out, saved = [], db.propositions(con)

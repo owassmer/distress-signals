@@ -118,10 +118,9 @@ function memoLinks(c) {
 }
 
 function exposureCell(c) {
-  const worst = (c.scenarios || []).filter(s => s.shortfall != null).reduce(
-    (max, next) => !max || next.shortfall > max.shortfall ? next : max, null);
-  const scenario = worst?.summary || worst?.description || worst?.label;
-  const measure = c.stake == null ? "" : `<span class="finding-measure"><b class="finding-amount">${esc(money(c.stake,c.currency))}</b><span class="mobile-label">Largest modeled shortfall</span><span class="finding-period">${esc(periodLabel(c))}</span></span>
+  const lead = (c.scenarios || []).find(s => s.label === c.impact_label);
+  const scenario = c.impact ? (lead?.summary || lead?.description || lead?.label) : "";
+  const measure = c.impact == null ? "" : `<span class="finding-measure"><b class="finding-amount ${tone(c.impact)}">${esc(signedMoney(c.impact,c.currency))}</b><span class="mobile-label">Largest modeled revenue impact</span><span class="finding-period">${esc(periodLabel(c))}</span></span>
     ${scenario ? `<span class="finding-condition">${esc(scenario)}</span>` : ""}`;
   return `<td class="finding-stake">${measure}</td>`;
 }
@@ -188,7 +187,7 @@ function findings() {
   const cases = M.found.map(f => f.c);
   const dealIds = DATA?.example_deal ? new Map(cases.map((c, i) => [c.oid, i ? "hubspot-" + c.oid : "hubspot"])) : null;
   const headers = dealIds ? ["Company and event", "Revenue stream", "Suggested contact", "HubSpot"]
-                          : ["Company and event", "Revenue stream", "Largest modeled shortfall", "Suggested contact"];
+                          : ["Company and event", "Revenue stream", "Largest modeled revenue impact", "Suggested contact"];
   $("#cards").innerHTML = cases.length ? `<div class="prospect-sheet"><table class="prospect-table${dealIds ? " prospect-queue" : ""}" aria-labelledby="findings-title">
     <colgroup><col><col><col><col></colgroup>
     <thead><tr>${headers.map(header => `<th scope="col">${header}</th>`).join("")}</tr></thead>

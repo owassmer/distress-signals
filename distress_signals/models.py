@@ -343,10 +343,9 @@ Draft = create_model("Draft", __base__=Strict, __doc__="A draft of a case's mode
 # ---------- findings: what the research established apart from a case's figures ----------
 
 class Finding(Strict):
-    kind: Literal["fact", "inference", "conclusion", "question", "dropped"] = Field(
+    kind: Literal["fact", "inference", "conclusion"] = Field(
         description="fact: what a record states. inference: what follows from records, by reasoning the statement "
-                    "gives. conclusion: what the research established about its subject. question: what the records "
-                    "reached did not settle. dropped: a company, dependency or event examined and set aside")
+                    "gives. conclusion: what the research established about its subject")
     statement: str = Field(min_length=10, description="The finding, with its reasons")
     company: Company | str | None = Field(None, description="The company it concerns, in full or by saved ID")
     proposition: str | None = Field(None, description="The key of the proposition it concerns")

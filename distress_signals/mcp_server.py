@@ -122,8 +122,7 @@ One given in full takes the place of the saved one with the same key, its ways w
 
 
 @server.tool(description="""Keep something the research established apart from a case's own figures: a fact a record
-states, an inference or a conclusion with the passages and saved results it rests on, a question the records reached
-did not settle, or a company, dependency or event examined and set aside, with the reason. A finding can concern a
+states, or an inference or a conclusion with the passages and saved results it rests on. A finding can concern a
 company, a proposition or a case, and looking up any of those returns it; one that concerns none of them is returned
 by its own ID.
 

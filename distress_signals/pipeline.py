@@ -108,6 +108,20 @@ def research(seed_kind="mandate", seed=None, brief=None, question=None, case_id=
         con.close()
 
 
+def ask(question, role=None, model=None):
+    """One plain question put to the analyst as its system prompt makes it, with no tools: for trying a role.
+    Returns {role, answer, file}, and keeps the answer and the session's events under out/asks/."""
+    role = role or os.environ.get("AGENT_ROLE") or agent.ROLE
+    name = now_iso().replace(":", "") + "_" + "-".join(role.split())
+    events = OUT / "asks" / f"{name}.jsonl"
+    events.parent.mkdir(parents=True, exist_ok=True)
+    schema = {"type": "object", "required": ["answer"], "properties": {"answer": {"type": "string"}}}
+    out, _ = llm.ask(agent.system(role), question, schema, events, model=model, timeout=900, env=claude_env())
+    page = events.with_suffix(".md")
+    page.write_text(f"# You are {role}.\n\n**{question}**\n\n{out['answer']}\n")
+    return {"role": role, "answer": out["answer"], "file": str(page)}
+
+
 def research_many(jobs, workers=3, **kw):
     """Independent runs in parallel: jobs [(seed_kind, seed)]."""
     results = []

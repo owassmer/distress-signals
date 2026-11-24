@@ -94,6 +94,7 @@ def main():
     sub.add_parser("serve")
     sub.add_parser("install-worker")
     sub.add_parser("uninstall-worker")
+    s = sub.add_parser("ask"); s.add_argument("question"); s.add_argument("--role"); s.add_argument("--model")
     s = sub.add_parser("feed"); s.add_argument("run_id"); s.add_argument("object", choices=["companies", "deals"]); s.add_argument("record_id")
     s.add_argument("--from-now", action="store_true", help="don't post what happened before attaching")
     sub.add_parser("watch")
@@ -120,6 +121,9 @@ def main():
         else:
             r = pipeline.research("mandate", **kw)
         report(r)
+    elif a.cmd == "ask":
+        r = pipeline.ask(a.question, role=a.role, model=a.model)
+        print(f"\n== You are {r['role']}.\n\n{r['answer']}\n\n   kept in {r['file']}", flush=True)
     elif a.cmd == "refresh":
         report(pipeline.research("refresh", a.case_id, case_id=a.case_id, question=a.question,
                                  model=a.model, timeout=a.timeout * 60))

@@ -309,7 +309,7 @@ class Model(unittest.TestCase):
                            propositions=[route])
         self.assertEqual(len(second["results"]["worlds"]), 3)
         route["ways"] = ways + [claim("split-in-two", "The route is split between two operators")]
-        out = tools.record_finding({"kind": "question", "statement": "Could the route be split between operators?",
+        out = tools.record_finding({"kind": "inference", "statement": "The rebid's terms allow the route to be split between operators.",
                                     "proposition": "route-rebid"}, [route])
         self.assertEqual(out["also_revised"], [second["case_id"]])
         seen = tools.lookup(second["case_id"])
@@ -574,7 +574,7 @@ class Model(unittest.TestCase):
         self.assertEqual(tools.lookup(cid)["status"], "withdrawn")
         self.assertEqual(len(tools.lookup("program-renewal")["findings"]), 1)
         with self.assertRaises(tools.ToolError):
-            tools.record_finding({"kind": "question", "statement": "Is the grant renewed as well?", "proposition": "grant-renewal"})
+            tools.record_finding({"kind": "conclusion", "statement": "The grant is renewed with the program.", "proposition": "grant-renewal"})
 
 
 if __name__ == "__main__":

@@ -30,8 +30,7 @@ REPO = "https://github.com/owassmer/distress-signals"
 ICON = {"WebSearch": "search", "WebFetch": "web", "search_records": "search", "read_record": "read", "compute": "calc",
         "lookup": "lookup", "calculate_exposure": "calc", "record_finding": "finding", "save_case": "save",
         "StructuredOutput": "answer"}
-FINDING = {"dropped": "Proposed lead exclusion", "fact": "Source finding", "inference": "Research inference",
-           "conclusion": "Research conclusion", "question": "Open research question"}
+FINDING = {"fact": "Source finding", "inference": "Research inference", "conclusion": "Research conclusion"}
 ACRONYMS = {"us", "usa", "uk", "eu", "va", "dod", "hhs", "cms", "fda", "sba", "nasa", "faa", "fcc", "ftc", "doe", "epa",
             "irs", "dhs", "usda", "snap", "nfip", "aca", "ira", "pjm", "ercot", "mde", "thc", "cbd", "ai", "ev", "fy",
             "mlb", "nfl", "nba", "nhl", "lng", "ip", "saas", "b2b", "rd", "sec", "cr", "bpa", "idiq"}
@@ -104,7 +103,7 @@ def describe(name, i):
     if name == "record_finding":
         f = i.get("finding") or {}
         return {"label": "Case withdrawal request" if f.get("withdraw_case") else FINDING.get(f.get("kind"), "Recorded a finding"),
-                "text": f.get("statement"), "finding": f.get("kind")}
+                "text": f.get("statement"), "finding": f.get("kind"), "no_case": not f.get("case_id")}
     if name == "save_case":
         o = i.get("case") or {}
         return {"label": f"Case submission for {_company_name(o.get('company'))}", "text": title_label(o.get("stream_key"))}
@@ -160,8 +159,6 @@ def outcome(name, i, text, is_error):
         finding = i.get("finding") or {}
         if finding.get("withdraw_case"):
             return {"status": "ok", "label": "Case withdrawn"}
-        if finding.get("kind") == "dropped":
-            return {"status": "ok", "label": "Lead set aside"}
     if name == "compute":
         n = out.get("row_count", len(out.get("rows") or []))
         return {"status": "ok", "meta": f"{n} row{'s' if n != 1 else ''}"}
@@ -425,8 +422,8 @@ def public_cases(run_id, ids):
 
 
 def public_leads(run_id, items):
-    aside = [item["text"] for item in items if item.get("tool") == "record_finding" and item.get("finding") == "dropped"
-             and item.get("status") == "ok" and item.get("text")]
+    aside = [item["text"] for item in items if item.get("tool") == "record_finding" and item.get("finding") == "conclusion"
+             and item.get("no_case") and item.get("status") == "ok" and item.get("text")]
     leads = [lead for item in items if item["k"] == "final" for lead in item.get("leads") or []]
     return example_review.reviewed_leads(run_id, aside, leads)
 

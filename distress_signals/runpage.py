@@ -7,7 +7,7 @@ their own addresses rather than one long scroll:
   #case/ID       one finding in full: the event, the outcomes, the figures behind them with their provenance,
                  the evidence, who to call and the opening message
   #research      a continuous, time-stamped transcript with replay and links to saved findings
-  #also          follow-up and set-aside leads on the overview
+  #also          follow-up leads, and conclusions that concern no case, on the overview
   #found/ID      the step where a finding was saved; #step/N a step by number; #play replays from the start
 """
 
@@ -355,7 +355,7 @@ function build() {
     else if (it.k === "act") { if (!cur) step("", it.el); cur.events.push({k: "act", j: cur.acts.length, el: it.el}); cur.acts.push(it);
       if (it.case) { base[it.case.oid] = {...(base[it.case.oid] || {}), ...it.case};
         if (!seen.has(it.case.oid)) { seen.add(it.case.oid); const f = {oid: it.case.oid, step: cur.i, el: it.el ?? cur.el}; cur.finds.push(f); finds.push(f); cur.events.push({k: "find", f, el: f.el}); } }
-      if (it.tool === "record_finding" && it.finding === "dropped" && it.status === "ok" && it.text) aside.push(it.text); }
+      if (it.tool === "record_finding" && it.finding === "conclusion" && it.no_case && it.status === "ok" && it.text) aside.push(it.text); }
     else if (it.k === "final") leads.push(...(it.leads || []));
   }
   const caseOf = oid => ({...(base[oid] || {}), ...(details[oid] || {}), oid});
@@ -554,7 +554,7 @@ function otherLeads() {
     }).join("");
     return `<section class="lead-group"><h3>${title}</h3><ul>${rows}</ul></section>`;
   }
-  list.innerHTML = group("For follow-up", M.leads, "follow") + group("Set aside", M.aside, "aside");
+  list.innerHTML = group("For follow-up", M.leads, "follow") + group(DATA?.lead_review ? "Set aside" : "Concluded, with no case", M.aside, "aside");
 }
 
 // ---- the research, and its replay ----

@@ -200,9 +200,9 @@ def _cite(con, cite, where, cited_ids):
     Returns {observation_id, passage, checked}."""
     passage = cite["passage"]
     if not has_text(passage):
-        raise ToolError(f"{where}: {passage[:80]!r} doesn't show what it states. Quote the relevant section of the "
-                        "source word for word, never the number alone: the sentence that states the figure, or its "
-                        "line item with the table's heading. '...' marks an omission.")
+        raise ToolError(f"{where}: the quotation {passage[:80]!r} has fewer than three words, and the store takes one "
+                        "of three or more: a figure comes with the words around it, as its sentence or as its row "
+                        "with the row's heading.")
     if cite.get("url"):
         url = cite["url"].strip()
         oid = db.make_id("obs_", "page", url)
@@ -351,7 +351,7 @@ def _resolve_company(con, c, warnings):
     data["domain"] = domain
     reason = _excluded([data["name"], *data["aliases"]])
     if reason:
-        raise ToolError(f"company: {data['name']} is excluded by campaign preference ({reason}).")
+        raise ToolError(f"company: {data['name']} is excluded by the operator ({reason}).")
     listed = lambda rows: "; ".join(f"{r['name']} ({r['domain'] or 'no domain'}, {r['id']})" for r in rows)
     if given:
         row = db.get_company(con, given)
@@ -400,8 +400,8 @@ def _principal_check(company):
         return
     own = [company["name"], *company.get("aliases", [])]
     if not any(names.matches(n, principal) or names.matches(principal, n) for n in own):
-        raise ToolError(f"This run's assignment is {principal}; its cases are for that company. Record what you found "
-                        f"about {company['name']} with record_finding, and name it in follow_on_leads.")
+        raise ToolError(f"This session's assignment is {principal}, and its cases are for that company. A finding can "
+                        f"concern {company['name']}, and a follow-on lead can name it.")
 
 
 # ---------- propositions ----------

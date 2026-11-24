@@ -175,9 +175,9 @@ they stood then.
 
 ### Findings
 
-A finding is a `fact` (with the passage that states it), an `inference` or `conclusion` (with the
-passages or workspace results it rests on), a `question`, or something `dropped` (a company, dependency
-or lead set aside). It can concern a company, a proposition or a case, and can replace an earlier finding.
+A finding is a `fact` (with the passage that states it), or an `inference` or `conclusion` (with the
+passages or workspace results it rests on). It can concern a company, a proposition or a case, and can replace an
+earlier finding. Looking up what it concerns returns it.
 
 ### Tables
 
@@ -300,7 +300,7 @@ mid-run too. Each revision is stamped with its run.
 | `search_records(series, query, filters, limit, cursor)` | Searches one [series of public records](#6-sources) and returns each record's fields, address and `record_id`, a `cursor` where the search has not reached its end, and a `result_set` ID for every record the search matches. Nothing is stored until it is read |
 | `read_record(id_or_url, find, offset, fresh)` | Reads a record by its `record_id`, every record of a `result_set` (up to 25,000), a web page or a PDF. Stores what it read, fills the series' table, and returns the text in 12,000-character segments with the document's links. `find` returns passages around a term. `fresh` reads the source again and updates the same observation |
 | `compute(sql, save_as, note)` | Runs one read-only SQL query over the records this run has read (each series' table, and the views of dates, names and amounts across series) and the findings and results it has recorded; returns up to 200 rows; `save_as` keeps up to 2,000 under an ID that inputs and findings cite |
-| `record_finding(finding, propositions)` | Records a fact, inference, conclusion, question or dropped lead, about a company, a proposition or a case; can withdraw a case, which updates its deal in HubSpot at once |
+| `record_finding(finding, propositions)` | Records a fact, an inference or a conclusion, about a company, a proposition or a case; can withdraw a case, which updates its deal in HubSpot at once |
 | `lookup(id_or_query)` | Returns a saved case (editable form, status, company, the propositions it reads, condition, worlds and figures, cited passages with their sources, findings, recent revisions, and its deal's stage and conversation outcome), finding or workspace result by ID; a company by ID, name, alias or domain, with its deals in HubSpot (the operator's own included), their stages and conversation outcomes; a proposition by key or title, in full with its ways and links, what its level fields say, and each case that reads it: the case's period, formula, baseline, given values and worlds |
 | `calculate_exposure(case, propositions)` | Calculates each world's figures from a draft of a case's model without saving: the events, the formula, the inputs and the given values |
 | `save_case(case, propositions)` | Saves a case: saves the propositions given in full with it, checks each basis, computes its worlds and their figures, saves the company and the case, writes a revision when the content changed, and delivers the case to HubSpot at once, with each other case a restated proposition moved; refuses an excluded company, or another company in a company run |
@@ -309,8 +309,8 @@ WebSearch searches the web and WebFetch reads a page without storing it. A passa
 from a record read with `read_record`; a page that can't be read that way may be cited by address with its
 passage, stored and marked unchecked.
 
-The run's final answer lists the cases saved or revised, a summary (who is worth contacting, what revenue
-depends on the outcome, why the conversation is timely, and what was set aside), and follow-on leads. The
+The run's final answer lists the cases saved or revised, a summary of what the session established and what
+that rests on, and follow-on leads: companies or events outside the assignment. The
 launcher stores the leads, and a lead that names a company becomes that company in HubSpot, proposed.
 
 ## 6. Sources
@@ -551,7 +551,7 @@ retains the reader’s position when moving between sections.
 - `#found/<id>` opens the saved finding in the log. `#step/<n>` opens an individual entry.
   Play resumes at the linked timestamp. Earlier `#research/<chapter>/<page>` bookmarks open
   the first entry that the bookmarked page displayed.
-- **Other leads** (`#also`) distinguishes prospects for follow-up from those set aside. Expand a named lead to inspect the reason and available sources.
+- **Other leads** (`#also`) shows the follow-on leads, and the conclusions that concern no case. Expand a named lead to inspect the reason and available sources.
 - During a live run the log polls for new entries and updates pending actions in place. Readers can
   follow new entries or scroll back and select **Latest entry** to return. The replay becomes available
   when the run ends.
@@ -600,6 +600,7 @@ python -m distress_signals feed RUN_ID companies|deals RECORD_ID [--from-now]
 python -m distress_signals watch
 python -m distress_signals export-run RUN_ID [--public] [--out FILE]
 python -m distress_signals export-guide RUN_ID [--out FOLDER]
+python -m distress_signals ask QUESTION [--role ROLE] [--model MODEL]
 python -m distress_signals research
 python -m distress_signals research --company NAME [--company NAME ...] [--workers N]
 python -m distress_signals research --event TEXT | --source URL | --lead LEAD_ID | --brief FILE
@@ -629,6 +630,7 @@ python -m distress_signals ledgers [--verify]
 | Clay delivery (company, opportunity and update tables, and its email lookup) | Clay was available only on a trial. HubSpot holds companies, deals and contacts; the operator adds the person's email |
 | The operator's offering in the analyst's system prompt | The offering is for writing an opening to the company, which is done after the analysis |
 | The opening, the next action, the priority and the reasons to reach out, as fields of a case the analyst states; the mandate that asked for them | The analyst's work is the exposure. A slot for an opening or a next action let a question a record could settle stand as finished work. An opening is written after the analysis, from the saved case. Cases are ordered by their figures |
+| Findings of the kinds `question` and `dropped` | A finding is something established. A place for an open question or for a lead set aside let unfinished work stand as recorded work; what a company's revenue does not depend on is a conclusion |
 | A basis of exactly one kind for each figure (`source`, `result` or `assumption`) | A figure read from a record and carried to the case by an assumption has both parts, and the store reads it from its cell |
 
 ## 12. File map

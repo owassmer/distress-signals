@@ -609,6 +609,13 @@ retains the reader’s position when moving between sections.
   when the run ends.
 - `/` lists the runs. The page reads only the run's event stream and the store.
 - `export-run RUN_ID [--public]` writes one run's page as a single self-contained file.
+- `export-guide RUN_ID` writes one run's public page with each of its cases' memos beside it (`memos/<name>.html`
+  and `.pdf`), and `export-site RUN_ID ...` writes a site of several: a home (`index.html`) that lists the runs,
+  each with what the agent was asked and its cases with what is at stake and their memos, and each run's guide in
+  a folder of its own. The folder holds everything its pages link to, so any static host serves it.
+- **One look.** The memo, the run page, a case, the lists and the site's home share a palette, faces and ruled
+  tables (`memo.TOKENS`, `runpage.PUBLICATION`): paper white, ink, navy for structure and links, oxblood for a
+  shortfall, serif titles over sans text, square corners.
   `--public` leaves out links into HubSpot and keeps the public sources.
 - `export-guide RUN_ID` writes the self-contained public run to `index.html`, including an example
   HubSpot deal. `run.html` forwards existing links and their fragments to the same page. GitHub Pages
@@ -650,6 +657,7 @@ python -m distress_signals install-worker | uninstall-worker
 python -m distress_signals serve
 python -m distress_signals feed RUN_ID companies|deals RECORD_ID [--from-now]
 python -m distress_signals watch
+python -m distress_signals export-site RUN_ID [RUN_ID ...] [--out FOLDER]
 python -m distress_signals export-run RUN_ID [--public] [--out FILE]
 python -m distress_signals export-guide RUN_ID [--out FOLDER]
 python -m distress_signals ask QUESTION [--role ROLE] [--model MODEL]

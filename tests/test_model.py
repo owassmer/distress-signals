@@ -9,7 +9,7 @@ from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
-from distress_signals import agent, briefs, db, tools, worlds
+from distress_signals import agent, briefs, db, forms, memo, tools, worlds
 
 # Two pages as the reader stores them: a line is one block of the page (data.blocks).
 REPORT = ("The Company's largest program is the Regional Transit Program.\nIn fiscal 2026 the Company recognized $100 of "
@@ -37,6 +37,7 @@ SUBCONTRACT = claim("subcontract-won", "Subcontract won",
                     "The contractor holds at least half of its program work as a subcontractor within a year of a non-renewal.",
                     kind="hitting", window_end="2028-06-30", implies_not=["program-renewal"])
 A = {"note": "Stated for the test, with nothing behind it."}
+LABEL = "A figure of the test"
 
 
 def given(values, *true, not_=()):
@@ -56,11 +57,12 @@ def case(given_values=None, company="Northfield Transit Services", events=("prog
             "dependency": "The program is funded year to year by the agency.", "timing": "From the next fiscal year.",
             "period": {"start": "2027-07-01", "end": "2028-06-30"}, "currency": "USD",
             "revenue": "program_revenue * share_kept",
-            "inputs": {"program_revenue": {"unit": "USD", "value": 100,
+            "inputs": {"program_revenue": {"label": "Revenue under the Regional Transit Program", "unit": "USD", "value": 100,
                                            "source": {"observation_id": "obs_report", "passage": "recognized $100 of revenue under the"},
                                            "assumption": {"note": "Fiscal 2026 is the last year reported, and the program's terms "
                                                                   "are unchanged, so its revenue is carried into the period."}},
-                       "share_kept": {"unit": "share of this year's funding", "value": 1, "assumption": dict(A)}},
+                       "share_kept": {"label": "Share of that revenue the company keeps", "unit": "share of this year's funding",
+                                      "value": 1, "assumption": dict(A)}},
             "given_values": copy.deepcopy(given_values if given_values is not None else ILLUSTRATION),
             "denominator": {"label": "program revenue", "formula": "program_revenue"},
             "person": {"role": "Runs the company's finances"}, "change_note": "First save", **more}
@@ -161,11 +163,11 @@ class Model(unittest.TestCase):
                                      "url": "https://example.org/table", "data": {"blocks": True},
                                      "text": "Revenue by program\n| Transit | 100 | 96 | 4.2%\n| Paratransit | 20 | 19 | 5.3%"})
         row = {"observation_id": "obs_table", "passage": "| Transit | 100 | 96 | 4.2%"}
-        out = self.save(inputs=case()["inputs"] | {"program_revenue": {"unit": "USD", "value": 100, "source": row}})
+        out = self.save(inputs=case()["inputs"] | {"program_revenue": {"label": LABEL, "unit": "USD", "value": 100, "source": row}})
         self.assertEqual(tools.lookup(out["case_id"])["case"]["inputs"]["program_revenue"]["source"]["passage"],
                          "| Transit | 100 | 96 | 4.2%")
         self.refused("inputs.program_revenue.source", "figures with no word",
-                     inputs=case()["inputs"] | {"program_revenue": {"unit": "USD", "value": 100,
+                     inputs=case()["inputs"] | {"program_revenue": {"label": LABEL, "unit": "USD", "value": 100,
                                                                     "source": row | {"passage": "100 | 96 | 4.2%"}}})
 
     def test_03_and_04_an_outcome_stays_whole_until_this_case_names_a_way_of_it(self):
@@ -179,7 +181,7 @@ class Model(unittest.TestCase):
     def test_05_a_value_given_an_outcome_holds_in_its_ways(self):
         out = self.save([given({"late_fee": 2}, "program-renewal"), given({"share_kept": 0.4}, "cut-half-or-more")],
                         revenue="program_revenue * share_kept - late_fee",
-                        inputs=case()["inputs"] | {"late_fee": {"unit": "USD", "value": 0, "assumption": dict(A)}})
+                        inputs=case()["inputs"] | {"late_fee": {"label": LABEL, "unit": "USD", "value": 0, "assumption": dict(A)}})
         self.assertEqual(self.worlds(out), [("Renewed in full", 98, 2), ("Cut by less than half", 98, 2),
                                             ("Cut by half or more", 38, 62), ("Not: The agency renews the program", 100, 0)])
         self.assertEqual(out["results"]["worlds"][2]["values"], {"share_kept": 0.4, "late_fee": 2})
@@ -201,7 +203,7 @@ class Model(unittest.TestCase):
     def test_09_two_events_on_one_stream_are_read_together(self):
         a = claim("carrier-a-leaves", "Carrier A leaves", ways=[claim("a-leaves-early", "A leaves early"), claim("a-leaves-late", "A leaves late")])
         b = claim("carrier-b-leaves", "Carrier B leaves", ways=[claim("b-leaves-early", "B leaves early"), claim("b-leaves-late", "B leaves late")])
-        inputs = {k: {"unit": "USD", "value": v, "assumption": dict(A)} for k, v in (("r", 100), ("a", 0), ("b", 0))}
+        inputs = {k: {"label": LABEL, "unit": "USD", "value": v, "assumption": dict(A)} for k, v in (("r", 100), ("a", 0), ("b", 0))}
         out = self.save([given({"a": 5}, "a-leaves-late"), given({"a": 20}, "a-leaves-early"), given({"b": 3}, "b-leaves-late"),
                          given({"b": 30}, "b-leaves-early")], events=["carrier-b-leaves", "carrier-a-leaves"], revenue="r - a - b",
                         inputs=inputs, denominator=None, propositions=[a, b])
@@ -223,7 +225,7 @@ class Model(unittest.TestCase):
 
     def test_11_the_store_reads_an_observed_value_from_its_result(self):
         cell = {"result_id": "wk_programs", "column": "revenue", "row": {"company": "Northfield", "program": "transit"}}
-        inputs = case()["inputs"] | {"program_revenue": {"unit": "USD", "result": cell}}
+        inputs = case()["inputs"] | {"program_revenue": {"label": LABEL, "unit": "USD", "result": cell}}
         out = self.save(inputs=inputs)
         self.assertEqual(out["results"]["baseline_revenue"], 100)                      # no number was typed
         self.assertEqual(tools.lookup(out["case_id"])["case"]["inputs"]["program_revenue"]["value"], 100)
@@ -231,8 +233,8 @@ class Model(unittest.TestCase):
         for row, said in (({"company": "Northfield"}, "picks out 2 of the 3 rows"), ({"company": "Nowhere"}, "picks out 0 of"),
                           ({"region": "east"}, "no column 'region'")):
             with self.subTest(row=row):
-                self.refused(said, inputs=inputs | {"program_revenue": {"unit": "USD", "result": {**cell, "row": row}}})
-        self.refused("holds 100", inputs=inputs | {"program_revenue": {"unit": "USD", "value": 120, "result": cell}})
+                self.refused(said, inputs=inputs | {"program_revenue": {"label": LABEL, "unit": "USD", "result": {**cell, "row": row}}})
+        self.refused("holds 100", inputs=inputs | {"program_revenue": {"label": LABEL, "unit": "USD", "value": 120, "result": cell}})
 
     def test_12_a_link_is_followed_through_a_proposition_the_case_does_not_read(self):
         deep = claim("deep-cut", "The agency cuts to a skeleton program", implies=["cut-half-or-more"])
@@ -489,7 +491,7 @@ class Model(unittest.TestCase):
         cell = {"result_id": "wk_programs", "column": "revenue", "row": {"company": "Northfield", "program": "transit"}}
         carried = {"note": "The result holds fiscal 2026; the program's terms are unchanged, so the figure is carried into the period.",
                    "evidence": [{"observation_id": "obs_report", "passage": "largest program is the Regional Transit Program"}]}
-        inputs = case()["inputs"] | {"program_revenue": {"unit": "USD", "result": cell, "assumption": carried}}
+        inputs = case()["inputs"] | {"program_revenue": {"label": LABEL, "unit": "USD", "result": cell, "assumption": carried}}
         out = self.save(inputs=inputs)
         self.assertEqual(out["results"]["baseline_revenue"], 100)                      # read by the store, not typed
         seen = tools.lookup(out["case_id"])
@@ -503,12 +505,12 @@ class Model(unittest.TestCase):
         again = tools.save_case(seen["case"] | {"change_note": "As it was"}, [])        # the case as lookup returns it
         self.assertEqual((again["revision"], again["changed"]), (1, False))
         # a figure worked out from the cell's is another figure: the store says so
-        self.refused("the value given is 103", "holds 100", inputs=inputs | {"program_revenue": {"unit": "USD", "value": 103, "result": cell, "assumption": carried}})
+        self.refused("the value given is 103", "holds 100", inputs=inputs | {"program_revenue": {"label": LABEL, "unit": "USD", "value": 103, "result": cell, "assumption": carried}})
         # a figure is read in one place, and has a basis
-        both = {"unit": "USD", "value": 100, "result": cell, "source": {"observation_id": "obs_report", "passage": "recognized $100 of revenue under the"}}
+        both = {"label": LABEL, "unit": "USD", "value": 100, "result": cell, "source": {"observation_id": "obs_report", "passage": "recognized $100 of revenue under the"}}
         self.refused("a figure is read in one place", inputs=inputs | {"program_revenue": both})
-        self.refused("give the basis", inputs=inputs | {"program_revenue": {"unit": "USD", "value": 100}})
-        self.refused("passage not found word for word", inputs=inputs | {"program_revenue": {"unit": "USD", "result": cell, "assumption": {
+        self.refused("give the basis", inputs=inputs | {"program_revenue": {"label": LABEL, "unit": "USD", "value": 100}})
+        self.refused("passage not found word for word", inputs=inputs | {"program_revenue": {"label": LABEL, "unit": "USD", "result": cell, "assumption": {
             **carried, "evidence": [{"observation_id": "obs_report", "passage": "largest program is the Regional Rail Program"}]}}})
 
     def test_a_given_value_has_the_same_basis_as_an_input(self):
@@ -538,7 +540,7 @@ class Model(unittest.TestCase):
         self.refused("give the basis", given_values=values, propositions=[program()])
 
     def test_an_observed_value_is_the_passage_that_states_it_for_the_period(self):
-        stated = {"unit": "USD", "value": 100, "source": {"observation_id": "obs_report", "passage": "fee for the program year beginning July 1, 2027"}}
+        stated = {"label": LABEL, "unit": "USD", "value": 100, "source": {"observation_id": "obs_report", "passage": "fee for the program year beginning July 1, 2027"}}
         out = self.save(inputs=case()["inputs"] | {"program_revenue": stated})
         seen = tools.lookup(out["case_id"])
         self.assertEqual(seen["case"]["inputs"]["program_revenue"]["source"]["passage"],
@@ -582,7 +584,7 @@ class Model(unittest.TestCase):
         P = lambda key, title, **more: claim(key, title, **more)  # noqa: E731
         event = P("event-e", "E", ways=[P("way-a", "A"), P("way-b", "B")])
         follows = P("claim-r", "R", kind="hitting", window_end="2028-06-30", implies=["way-b"])
-        plain = lambda v, unit: {"unit": unit, "value": v, "assumption": dict(A)}  # noqa: E731
+        plain = lambda v, unit: {"label": LABEL, "unit": unit, "value": v, "assumption": dict(A)}  # noqa: E731
         out = tools.calculate_exposure({
             "events": ["event-e"], "revenue": "volume * price * (1 - lost * (1 - regained))", "denominator": None,
             "inputs": {"volume": plain(100, "units"), "price": plain(2, "USD"), "lost": plain(0, "share"), "regained": plain(0.5, "share")},
@@ -606,8 +608,8 @@ class Model(unittest.TestCase):
                                  ("given_values[1].values.lost", 1, 0.1, 10, "B; Not: R")])
 
     def test_each_figure_comes_back_with_its_basis_and_what_it_moves(self):
-        fee = {"unit": "USD", "value": 0, "assumption": dict(A)}                       # an input that is nothing anywhere
-        size = {"unit": "USD", "value": 400, "assumption": dict(A)}                    # an input only the denominator uses
+        fee = {"label": LABEL, "unit": "USD", "value": 0, "assumption": dict(A)}                       # an input that is nothing anywhere
+        size = {"label": LABEL, "unit": "USD", "value": 400, "assumption": dict(A)}                    # an input only the denominator uses
         out = self.save(inputs=case()["inputs"] | {"late_fee": fee, "company_revenue": size}, revenue="program_revenue * share_kept - late_fee",
                         denominator={"label": "company revenue", "formula": "company_revenue"})
         table = {r["figure"]: r for r in out["results"]["sensitivity"]}
@@ -649,13 +651,13 @@ class Model(unittest.TestCase):
 
     def test_an_input_changed_moves_the_baseline_and_every_world(self):
         cid = self.save()["case_id"]
-        larger = {"unit": "USD", "value": 120, "assumption": {"note": "The 2027 contract raises the fee by a fifth over fiscal 2026."}}
+        larger = {"label": LABEL, "unit": "USD", "value": 120, "assumption": {"note": "The 2027 contract raises the fee by a fifth over fiscal 2026."}}
         out = self.revise(cid, inputs={"program_revenue": larger})
         self.assertEqual(out["before_and_after"]["baseline_revenue"], [100, 120])
         self.assertEqual(self.figures(out)["Cut by less than half"], ([70, 84], [30, 36]))
         self.assertEqual(out["before_and_after"]["revenue_at_stake"], [100, 120])
         # a formula and the input it needs, in one change
-        fee = {"unit": "USD", "value": 5, "assumption": dict(A)}
+        fee = {"label": LABEL, "unit": "USD", "value": 5, "assumption": dict(A)}
         out = self.revise(cid, revenue="program_revenue * share_kept - late_fee", inputs={"late_fee": fee})
         self.assertEqual(out["before_and_after"]["baseline_revenue"], [120, 115])
         self.refused_change(cid, "unknown input 'late_fee'", inputs={"late_fee": None})   # the formula still uses it
@@ -734,6 +736,120 @@ class Model(unittest.TestCase):
         self.assertEqual(len(tools.lookup("program-renewal")["findings"]), 1)
         with self.assertRaises(tools.ToolError):
             tools.record_finding({"kind": "conclusion", "statement": "The grant is renewed with the program.", "proposition": "grant-renewal"})
+
+    # ---------- an input's label, the export, and the typeset memo ----------
+
+    def test_an_input_has_a_label_and_one_saved_before_labels_reads_by_what_it_states(self):
+        bare = case()
+        del bare["inputs"]["share_kept"]["label"]
+        with self.assertRaises(tools.ToolError) as e:
+            tools.save_case(bare, [program(), SUBCONTRACT])
+        self.assertIn("inputs.share_kept.label", str(e.exception))
+        cid = self.save()["case_id"]
+        self.assertEqual(tools.lookup(cid)["case"]["inputs"]["share_kept"]["label"], "Share of that revenue the company keeps")
+        with closing(db.connect()) as con, db.write(con):                # the case as one saved before inputs had labels
+            snap = db.latest_revision(con, cid)["snapshot"]
+            for inp in snap["case"]["inputs"].values():
+                del inp["label"]
+            con.execute("UPDATE cases SET case_json=? WHERE id=?", (db.dumps(snap["case"]), cid))
+            con.execute("UPDATE revisions SET snapshot=? WHERE case_id=?", (db.dumps(snap), cid))
+        seen = tools.lookup(cid)["case"]["inputs"]
+        self.assertEqual((seen["program_revenue"]["label"], seen["share_kept"]["label"]),
+                         ("Program revenue", "Share of this year's funding"))        # its name; its unit, which says more
+        cell = {"unit": "USD", "result": {"result_id": "wk_programs", "column": "revenue", "row": {"company": "Northfield", "program": "transit"}}}
+        self.assertEqual(forms.label("r", cell, "USD"), "Revenue")                   # the column it is read from
+        out = tools.revise_case(cid, {"timing": "From the fiscal year that begins July 1, 2027.", "change_note": "The timing, restated"})
+        self.assertEqual(out["revision"], 2)                                         # it still revises, and now carries the labels
+        with closing(db.connect()) as con:
+            self.assertEqual(db.get_case(con, cid)["case_json"]["inputs"]["program_revenue"]["label"], "Program revenue")
+
+    def memo_case(self):
+        """A case with a figure read from a saved query, a figure stated in a record with a date of its own, a
+        passage behind an assumption, and a finding that quotes a record the case does not."""
+        with closing(db.connect()) as con, db.write(con):
+            db.put_observation(con, {"id": "obs_report", "kind": "page", "source": "example.org", "retrieved_at": "2026-11-23",
+                                     "published": "2026-09-30", "url": "https://example.org/annual-report", "text": REPORT,
+                                     "data": {"title": "Annual report <2026>", "blocks": True}})
+        inputs = case()["inputs"]
+        inputs["program_revenue"] = {"label": "Revenue under the Regional Transit Program", "unit": "USD", "assumption": {
+            "note": "Fiscal 2026 is the last year reported & the terms are unchanged.", "results": ["wk_rates"]},
+            "result": {"result_id": "wk_programs", "column": "revenue", "row": {"company": "Northfield", "program": "transit"}}}
+        kept = given({"share_kept": {"value": 0.7, "assumption": {"note": "The agency's proposed budget sets the level.", "evidence": [
+            {"observation_id": "obs_report", "passage": "would fund the program at 70% of its current level"}]}}}, "cut-under-half")
+        out = self.save([given({"share_kept": 0}, not_=["program-renewal"]), kept], inputs=inputs,
+                        evidence=[{"observation_id": "obs_report", "passage": "largest program is the Regional Transit Program",
+                                   "supports": "The program is the company's largest."}])
+        tools.record_finding({"kind": "fact", "statement": "The board votes in June.", "case_id": out["case_id"],
+                              "evidence": [{"observation_id": "obs_minutes", "passage": "will vote on the program in June"}]})
+        with closing(db.connect()) as con:
+            return out, briefs.cases(con, [out["case_id"]])[0]
+
+    def test_the_export_carries_each_record_with_its_date_and_each_saved_query(self):
+        out, c = self.memo_case()
+        ex = briefs.export(c)
+        by = {x["observation_id"]: x for x in ex["sources"]}
+        self.assertEqual((by["obs_report"]["published"], by["obs_report"]["title"]), ("2026-09-30", "Annual report <2026>"))
+        self.assertIn("obs_minutes", by)                                              # the record its finding quotes
+        self.assertEqual([(k["result_id"], k["name"], k["sql"], k["rows"][0]) for k in ex["computations"]],
+                         [("wk_programs", "program_revenue_by_company", "SELECT 1", ["Northfield", "transit", 100.0]),
+                          ("wk_rates", "share_kept_after_past_cuts", "SELECT 1", ["cut under half", 0.65])])
+
+    def test_the_memo_is_the_case_and_nothing_else(self):
+        out, c = self.memo_case()
+        d = memo.document(c)
+        res = out["results"]
+        self.assertEqual((d["company"], d["event"], d["period"], d["revision"]),
+                         ("Northfield Transit Services", "The agency renews the program", "July 1, 2027 – June 30, 2028", 1))
+        self.assertEqual((d["at_stake"]["shortfall"], d["at_stake"]["share"], d["at_stake"]["outcome"]),
+                         ("$100", "100.0%", ["Not: The agency renews the program"]))
+        self.assertEqual([(w["outcome"], w["revenue"], w["shortfall"]) for w in d["outcomes"]],
+                         [(w["label"].split("; "), briefs.money(w["revenue"]), briefs.money(w["shortfall"])) for w in res["worlds"]])
+        self.assertEqual(d["extra_columns"], [])                                      # a column no outcome fills is not drawn
+        # each input once: its label, its value as things stand, then its value in each outcome that changes it
+        self.assertEqual([(f["name"], f["label"], f["value"], f["kind"]) for f in d["figures"]],
+                         [("program_revenue", "Revenue under the Regional Transit Program", "$100", "Computed from records, carried over by an assumption"),
+                          ("share_kept", "Share of that revenue the company keeps", "1", "Assumed")])
+        self.assertEqual([f["name"] for f in d["changing"]], ["share_kept"])
+        self.assertEqual([(x["when"], x["value"]) for x in d["changing"][0]["outcomes"]],
+                         [("not: The agency renews the program", "0"), ("Cut by less than half", "0.7")])
+        # a record is one note, with its date and address and the passages quoted from it; a saved query is a computation
+        report = next(n for n in d["notes"] if n["title"] == "Annual report <2026>")
+        self.assertEqual((report["published"], report["read"], report["url"]),
+                         ("September 30, 2026", "November 23, 2026", "https://example.org/annual-report"))
+        quoted = {q["text"] for n in d["notes"] for q in n["passages"]}
+        self.assertEqual(quoted, {"The Company's largest program is the Regional Transit Program.",
+                                  "The agency's proposed budget would fund the program at 70% of its current level.",
+                                  "The board will vote on the program in June."})
+        self.assertEqual([(k["n"], k["id"]) for k in d["computations"]], [(1, "wk_programs"), (2, "wk_rates")])
+        self.assertEqual(d["figures"][0]["computations"], [1, 2])
+        self.assertEqual(d["figures"][0]["read"], "Read from computation C1: column revenue, row company Northfield, program transit")
+        # the page: self-contained, the case's text escaped, each mark pointing at its note
+        page = memo.html(d)
+        self.assertNotIn("<script", page)
+        self.assertNotIn(' src="', page)
+        self.assertIn("Annual report &lt;2026&gt;", page)
+        self.assertIn("last year reported &amp; the terms are unchanged.", page)
+        for n in d["notes"]:
+            self.assertIn(f'id="note-{n["n"]}"', page)
+        self.assertIn(f'<a href="#note-{report["n"]}">{report["n"]}a</a>', page)      # quoted more than once: lettered
+        self.assertIn('<a href="#comp-1">C1</a>', page)
+        self.assertEqual(memo.filename(c), "northfield-transit-services--program-renewal")
+
+    def test_the_memo_prints_to_a_pdf(self):
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as pw:
+                pw.chromium.launch(headless=True).close()
+        except Exception as e:                                                        # no headless Chromium on this machine
+            self.skipTest(f"headless Chromium is not installed: {type(e).__name__}")
+        import pypdf
+        _, c = self.memo_case()
+        d = memo.document(c)
+        path = memo.pdf(memo.html(d), Path(self.folder.name) / "memo.pdf", running="Northfield")
+        pages = pypdf.PdfReader(str(path)).pages
+        self.assertGreaterEqual(len(pages), 2)                                        # the notes begin a page of their own
+        self.assertIn("Northfield Transit Services", pages[0].extract_text())
+        self.assertIn("Revenue under the Regional Transit Program", "".join(p.extract_text() for p in pages))
 
 
 if __name__ == "__main__":

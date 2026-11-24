@@ -11,6 +11,9 @@
   transcript RUN_ID         render a run's transcript (reasoning summaries, tool calls, results) to
                             out/runs/RUN_ID.md; works while the run is going
   export CASE_ID            print one case whole, as JSON
+  memo CASE_ID [--out FILE] [--html]
+                            the case as a typeset memo: a PDF in out/memos/, with the page it is printed from
+                            beside it; --html writes the page alone
   ledgers [--verify]        list payment ledgers; --verify re-tests mapped invoice dates on live data
   hubspot-setup             create the "Distress signals" deal and contact properties in HubSpot
   push-hubspot [CASE_ID ...] [--dry-run]
@@ -34,7 +37,7 @@ import argparse
 import json
 from pathlib import Path
 
-from . import briefs, db, feed, hubspot, pipeline, showcase, tools, transcript, watch, worker
+from . import briefs, db, feed, hubspot, memo, pipeline, showcase, tools, transcript, watch, worker
 from .util import OUT
 from .sources import ledgers as L
 from .util import load_env
@@ -87,6 +90,7 @@ def main():
     s = sub.add_parser("show"); s.add_argument("id_or_query")
     s = sub.add_parser("transcript"); s.add_argument("run_id")
     s = sub.add_parser("export"); s.add_argument("case_id")
+    s = sub.add_parser("memo"); s.add_argument("case_id"); s.add_argument("--out"); s.add_argument("--html", action="store_true")
     s = sub.add_parser("ledgers"); s.add_argument("--verify", action="store_true")
     sub.add_parser("hubspot-setup")
     s = sub.add_parser("push-hubspot"); s.add_argument("case_ids", nargs="*"); s.add_argument("--dry-run", action="store_true")
@@ -143,6 +147,18 @@ def main():
         if not found:
             raise SystemExit(f"no saved case {a.case_id}")
         print(json.dumps(briefs.export(found[0]), indent=1, ensure_ascii=False, default=str))
+    elif a.cmd == "memo":
+        found = briefs.cases(db.connect(), [a.case_id])
+        if not found:
+            raise SystemExit(f"no saved case {a.case_id}")
+        doc = memo.document(found[0])
+        out = Path(a.out) if a.out else OUT / "memos" / f"{memo.filename(found[0])}.{'html' if a.html else 'pdf'}"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        page = out.with_suffix(".html")
+        page.write_text(memo.html(doc), encoding="utf-8")
+        print(page)
+        if out.suffix != ".html":
+            print(memo.pdf(page.read_text(encoding="utf-8"), out, running=f"{doc['company']} · {doc['event']} · as of {doc['as_of']}"))
     elif a.cmd == "ledgers":
         cmd_ledgers(a)
     elif a.cmd == "hubspot-setup":

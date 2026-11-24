@@ -461,8 +461,24 @@ current form (`briefs.py`). The memo covers:
 - the person responsible;
 - the findings and the sources.
 
-Locally, `export CASE_ID` prints a case whole: status, company, propositions, case, results, sources,
-findings and revisions. Each run's transcript stays under `out/runs/`.
+Locally, `export CASE_ID` prints a case whole: status, company, propositions, case, results, sources (each
+record with its own date and the date the store read it), computations (each saved query a figure is read
+from, with its SQL and rows), findings and revisions. Each run's transcript stays under `out/runs/`.
+
+`memo CASE_ID` writes the case as a typeset memo: a Letter PDF under `out/memos/`, with the self-contained
+page it is printed from beside it (`memo.py`). It is written to be handed to the company's own finance
+officer, who holds the books and can check every figure. Nothing in it is written anew: each sentence is the
+analyst's as the case holds it or fixed wording, and each figure is the store's. In reading order it gives:
+- the revenue at stake: the largest shortfall, its share, and revenue and shortfall in every outcome;
+- the event and the other propositions the case reads, each with when it is decided and the record that shows it;
+- how the event reaches the revenue, when, and the passages that establish it;
+- how the estimate is built: the formulas, then each input once by its label, with its value as things stand
+  and in each outcome that changes it, and for each value its basis and the reasoning;
+- notes, one to a record with its title, dates, address and the passages quoted from it; computations, one to
+  a saved query with its SQL and rows; the sensitivity table; the findings; and the condition.
+
+An input saved before inputs had labels reads by the nearest thing it states (`forms.label`): its unit where
+that says more than the currency, else the column of the result it is read from, else its name.
 
 ## 9. HubSpot
 
@@ -629,6 +645,7 @@ python -m distress_signals refresh CASE_ID
 python -m distress_signals push-hubspot [CASE_ID ...] [--dry-run]
 python -m distress_signals pull-outcomes
 python -m distress_signals export CASE_ID
+python -m distress_signals memo CASE_ID [--out FILE] [--html]
 python -m distress_signals leads
 python -m distress_signals show ID_OR_QUERY
 python -m distress_signals transcript RUN_ID
@@ -678,7 +695,8 @@ python -m distress_signals ledgers [--verify]
 | `distress_signals/agent.py` | The system prompt and each run's assignment |
 | `distress_signals/pipeline.py` | Runs |
 | `distress_signals/transcript.py` | Readable transcripts |
-| `distress_signals/briefs.py` | Case views: the memo and the export |
+| `distress_signals/briefs.py` | Case views: the memo in plain text, which the deal carries, and the export |
+| `distress_signals/memo.py` | The memo typeset: the case laid out as a document, its page, and the PDF |
 | `distress_signals/hubspot.py` | HubSpot: records, delivery, the researcher's view, requests, run status, leads, outcomes |
 | `distress_signals/worker.py` | The worker and its launchd service |
 | `distress_signals/feed.py` | The live feed of a run into HubSpot |

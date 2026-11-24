@@ -481,14 +481,18 @@ def _page(run_id, data=None, home="/"):
         share_meta = (f'<meta name="description" content="{description}">'
                       f'<meta property="og:title" content="{html.escape(title, quote=True)} · Distress Signals">'
                       f'<meta property="og:description" content="{description}"><meta property="og:type" content="website">')
-    index_link = ""
+    # The mark leads to the list of runs wherever the page has one: the live page's, or a site's home. A page
+    # exported to stand alone has none, and its mark leads to its own overview.
+    index_link, brand, brand_label = "", "#overview", "Distress Signals overview"
     if data is None or home not in ("/", REPO, "#findings"):
         index_link = f'<a class="project-link operator-home" href="{html.escape(home, quote=True)}">All runs</a>'
+        brand, brand_label = html.escape(home, quote=True), "Distress Signals, all runs"
     page = (PAGE.replace("__STYLE__", STYLE + SHELL_STYLE + findingsview.STYLE + activityview.STYLE + PUBLICATION)
             .replace("__FINDINGSHTML__", findingsview.HTML).replace("__FINDINGSJS__", findingsview.JS)
             .replace("__LEADSHTML__", LEADS_HTML).replace("__ACTIVITYHTML__", activityview.HTML.strip()).replace("__ACTIVITYJS__", activityview.JS)
             .replace("__RESULTSHEADER__", results_header).replace("__SHAREMETA__", share_meta)
             .replace("__RUNINDEX__", index_link).replace("__CREDIT__", project_credit)
+            .replace("__BRANDHREF__", brand).replace("__BRANDLABEL__", brand_label)
             .replace("__FOUNDJS__", FOUND_JS).replace("__CHARTJS__", CHART_JS)
             .replace("__ICONS__", json.dumps(ICONS)).replace("__PAGESTEPS__", str(PAGE_STEPS)).replace("__PACE__", json.dumps(PACE))
             .replace("__RUN__", run_id).replace("__FAVICON__", FAVICON).replace("__REPO__", REPO)

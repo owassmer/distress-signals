@@ -938,6 +938,13 @@ class Model(unittest.TestCase):
             with db.write(con):
                 con.execute("UPDATE revisions SET run_id='run_abc' WHERE case_id=?", (cid,))
         self.assertIn(f'<a class="tb-back" href="/runs/run_abc#case/{cid}">← Case</a>', get(f"/cases/{cid}/memo").read().decode())
+        # the mark at the top of a run leads to the list of runs: the live page's, or a site's home; a page
+        # exported to stand alone has no list, and its mark leads to its own overview
+        self.assertIn('<a class="brand" href="/" aria-label="Distress Signals, all runs">', get("/runs/run_abc").read().decode())
+        self.assertIn('<a class="brand" href="../index.html" aria-label="Distress Signals, all runs">',
+                      watch._page("run_abc", {"items": []}, home="../index.html"))
+        self.assertIn('<a class="brand" href="#overview" aria-label="Distress Signals overview">',
+                      watch._page("run_abc", {"items": []}, home=watch.REPO))
         for missing in ("/cases/case_nope/memo", "/cases/case_nope/memo.pdf", f"/cases/{cid}/other"):
             with self.assertRaises(urllib.error.HTTPError) as e:
                 get(missing)

@@ -612,7 +612,9 @@ retains the reader’s position when moving between sections.
 - `export-guide RUN_ID` writes one run's public page with each of its cases' memos beside it (`memos/<name>.html`
   and `.pdf`), and `export-site RUN_ID ...` writes a site of several: a home (`index.html`) that lists the runs,
   each with what the agent was asked and its cases with what is at stake and their memos, and each run's guide in
-  a folder of its own. The folder holds everything its pages link to, so any static host serves it.
+  a folder of its own. The folder holds everything its pages link to, so any static host serves it. The
+  mark at the top of a run's page leads to the list of runs: the site's home, or `/` on the live page. On a
+  page exported to stand alone it leads to the page's own overview.
 - **Revenue impact.** What a reader meets on the pages and in the typeset memo is an outcome's revenue impact:
   its revenue less revenue as things stand, a loss negative and in oxblood, a gain positive and in green. A
   case's headline is the largest loss where any outcome lowers revenue, and otherwise the largest gain

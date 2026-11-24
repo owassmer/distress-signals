@@ -1,6 +1,6 @@
 # Distress Signals
 
-Distress Signals is an autonomous prospecting agent for brokers and advisers who help businesses hedge against revenue losses. It finds companies where a significant share of sales depends on a specific outcome outside their control. The agent traces that exposure through public records, estimates the potential shortfall, and creates a proposed deal in HubSpot with the evidence, a suggested contact, and a draft message.
+Distress Signals is an autonomous prospecting agent for brokers and advisers who help businesses hedge against revenue losses. It finds companies where a significant share of sales depends on a specific outcome outside their control. The agent traces that exposure through public records, estimates the potential shortfall, and creates a proposed deal in HubSpot with the evidence and a suggested contact.
 
 [Explore the interactive demo](https://owassmer.github.io/distress-signals/)
 

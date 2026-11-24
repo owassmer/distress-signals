@@ -373,7 +373,7 @@ LEADS_HTML = """<section id="also" aria-labelledby="leads-title" hidden>
 
 PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>__TITLE__ · Distress Signals</title>__SHAREMETA__<link rel="icon" href="__FAVICON__"><style>__STYLE__</style></head><body>
-<header class="top run-nav"><div class="in"><a class="brand" href="#overview" aria-label="Distress Signals overview"><img src="__FAVICON__" alt=""><span>Distress Signals</span></a>
+<header class="top run-nav"><div class="in"><a class="brand" href="__BRANDHREF__" aria-label="__BRANDLABEL__"><img src="__FAVICON__" alt=""><span>Distress Signals</span></a>
   <nav class="tabs" id="tabs" aria-label="Run navigation">
     <a href="#overview">Overview</a><a href="#research">Research log</a>
   </nav><span class="pill" id="pill" hidden></span>

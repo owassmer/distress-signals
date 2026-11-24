@@ -557,6 +557,105 @@ class Model(unittest.TestCase):
             self.assertEqual(said.pop(world.strip()), figures, line)
         self.assertEqual(said, {})                                                    # each of its worlds is in the text
         self.assertIn("baseline 200", text)
+        # the sensitivity of the shortfall, worked by hand on the same case: a tenth of each input's largest value
+        moves = [(r["figure"], r["value"], round(r["moved_by"], 2), round(r["shortfall_moves_by"], 2), r["in_world"]) for r in out["sensitivity"]]
+        self.assertEqual(moves, [("inputs.regained", 0.5, 0.08, 16, "B; Not: R"), ("given_values[2].values.regained", 0.8, 0.08, 16, "B; R"),
+                                 ("inputs.volume", 100, 10, 10, "B; Not: R"), ("inputs.price", 2, 0.2, 10, "B; Not: R"),
+                                 ("inputs.lost", 0, 0.1, 10, "A"), ("given_values[0].values.lost", 0.2, 0.1, 10, "A"),
+                                 ("given_values[1].values.lost", 1, 0.1, 10, "B; Not: R")])
+
+    def test_each_figure_comes_back_with_its_basis_and_what_it_moves(self):
+        fee = {"unit": "USD", "value": 0, "assumption": dict(A)}                       # an input that is nothing anywhere
+        size = {"unit": "USD", "value": 400, "assumption": dict(A)}                    # an input only the denominator uses
+        out = self.save(inputs=case()["inputs"] | {"late_fee": fee, "company_revenue": size}, revenue="program_revenue * share_kept - late_fee",
+                        denominator={"label": "company revenue", "formula": "company_revenue"})
+        table = {r["figure"]: r for r in out["results"]["sensitivity"]}
+        self.assertNotIn("inputs.late_fee", table)
+        self.assertEqual((table["inputs.company_revenue"]["shortfall_moves_by"], table["inputs.company_revenue"]["in_world"]), (0, None))
+        self.assertEqual(table["inputs.program_revenue"]["basis"], "read, carried by an assumption")
+        self.assertEqual(table["inputs.share_kept"]["basis"], "assumed")
+        top = out["results"]["sensitivity"][0]                                        # with no program revenue kept, all of it is the shortfall
+        self.assertEqual((top["figure"], round(top["shortfall_moves_by"], 6), top["in_world"]),
+                         ("inputs.program_revenue", 10, "Not: The agency renews the program; Not: Subcontract won"))
+        self.assertEqual(out["propositions_without_evidence"], out["results"]["reads"])   # the fixture's claims cite nothing
+        with closing(db.connect()) as con:
+            memo = briefs.memo(briefs.cases(con, [out["case_id"]])[0])
+        self.assertIn("| `program_revenue` | $100 | read, carried by an assumption | $10 | $10 | Not: The agency renews the program; Not: Subcontract won |", memo)
+        self.assertIn("| `share_kept`, given Cut by less than half | 0.7 share of this year's funding | assumed | 0.1 share of this year's funding | $10 | Cut by less than half |", memo)
+
+    # ---------- changing part of a saved case ----------
+
+    def revise(self, cid, propositions=(), note="A change", **changes):
+        return tools.revise_case(cid, changes | {"change_note": note}, copy.deepcopy(list(propositions)))
+
+    def figures(self, out):
+        b = out["before_and_after"]
+        return {w["world"]: (w["revenue"], w["shortfall"]) for w in b["worlds"]}
+
+    def test_one_value_changed_returns_each_figure_before_and_after(self):
+        cid = self.save()["case_id"]
+        out = self.revise(cid, note="The agency's draft budget keeps 60%", given_values=[given({"share_kept": 0.6}, "cut-under-half")])
+        self.assertEqual((out["case_id"], out["revision"], out["changed"]), (cid, 2, True))
+        self.assertEqual(self.figures(out)["Cut by less than half"], ([70, 60], [30, 40]))
+        self.assertEqual(self.figures(out)["Cut by half or more"], ([40, 40], [60, 60]))
+        self.assertEqual((out["before_and_after"]["baseline_revenue"], out["before_and_after"]["revenue_at_stake"]), ([100, 100], [100, 100]))
+        seen = tools.lookup(cid)
+        self.assertEqual(seen["revisions"][-1]["change_note"], "The agency's draft budget keeps 60%")
+        self.assertEqual(len(seen["case"]["given_values"]), 4)                          # the other given values stand
+        self.assertEqual(seen["case"]["person"]["role"], "Runs the company's finances")
+        same = self.revise(cid, given_values=[given({"share_kept": 0.6}, "cut-under-half")])
+        self.assertEqual((same["revision"], same["changed"]), (2, False))                 # nothing changed, nothing written
+
+    def test_an_input_changed_moves_the_baseline_and_every_world(self):
+        cid = self.save()["case_id"]
+        larger = {"unit": "USD", "value": 120, "assumption": {"note": "The 2027 contract raises the fee by a fifth over fiscal 2026."}}
+        out = self.revise(cid, inputs={"program_revenue": larger})
+        self.assertEqual(out["before_and_after"]["baseline_revenue"], [100, 120])
+        self.assertEqual(self.figures(out)["Cut by less than half"], ([70, 84], [30, 36]))
+        self.assertEqual(out["before_and_after"]["revenue_at_stake"], [100, 120])
+        # a formula and the input it needs, in one change
+        fee = {"unit": "USD", "value": 5, "assumption": dict(A)}
+        out = self.revise(cid, revenue="program_revenue * share_kept - late_fee", inputs={"late_fee": fee})
+        self.assertEqual(out["before_and_after"]["baseline_revenue"], [120, 115])
+        self.refused_change(cid, "unknown input 'late_fee'", inputs={"late_fee": None})   # the formula still uses it
+        self.assertEqual(tools.lookup(cid)["revision"], 3)
+
+    def refused_change(self, cid, *said, **changes):
+        with self.assertRaises(tools.ToolError) as e:
+            self.revise(cid, **changes)
+        for part in said:
+            self.assertIn(part, str(e.exception))
+
+    def test_a_given_value_added_or_removed_changes_the_worlds(self):
+        cid = self.save(ILLUSTRATION[:3])["case_id"]                                    # the case without the subcontract
+        out = self.revise(cid, given_values=[given({"share_kept": 0.5}, "subcontract-won")])
+        got = self.figures(out)
+        self.assertEqual(got["Not: The agency renews the program; Subcontract won"], ([None, 50], [None, 50]))
+        self.assertEqual(got["Not: The agency renews the program; Not: Subcontract won"], ([None, 0], [None, 100]))
+        self.assertEqual(out["before_and_after"]["worlds_removed"], ["Not: The agency renews the program"])
+        out = self.revise(cid, given_values=[{"given": ["cut-under-half"], "values": {"share_kept": None}}])
+        self.assertEqual(self.figures(out)["Cut by less than half"], ([70, 100], [30, 0]))  # with no given value it stands at the baseline
+        self.assertEqual(len(tools.lookup(cid)["case"]["given_values"]), 3)
+        # what cannot hold is refused, and the saved case stands
+        self.refused_change(cid, 'In the world "Cut by half or more"', "strictly within",
+                            given_values=[given({"share_kept": 0.3}, "program-renewal", "cut-half-or-more")])
+        self.refused_change("case_000000000000", "no saved case", timing="Sooner.")
+        gone = [{"given": g["given"], "given_not": g["given_not"], "values": {"share_kept": None}} for g in tools.lookup(cid)["case"]["given_values"]]
+        self.refused_change(cid, "given_values", given_values=gone)                       # a case has a given value
+        self.assertEqual(tools.lookup(cid)["revision"], 3)
+
+    def test_a_change_can_restate_a_proposition_and_returns_a_withdrawn_case(self):
+        first = self.save()["case_id"]
+        other = self.save([given({"share_kept": 0}, not_=["program-renewal"])], company="Lakeshore Transit", propositions=())["case_id"]
+        reworded = program()
+        reworded["text"] = "The agency's board votes to renew the program by June 30, 2027."
+        out = self.revise(first, propositions=[reworded], timing="From the first month of the fiscal year.")
+        self.assertEqual((out["revision"], out["also_revised"]), (2, [other]))
+        tools.record_finding({"kind": "conclusion", "statement": "The agency has funded the program for two years.",
+                              "case_id": first, "withdraw_case": True})
+        back = self.revise(first, timing="From July 2027.")
+        self.assertEqual(tools.lookup(first)["status"], "active")
+        self.assertIn("was withdrawn; saving it returns it to the active queue", " ".join(back["warnings"]))
 
     def test_figures_read_in_plain_digits(self):
         for (v, unit), said in (((120174241.0, "USD per year"), "$120.2M per year"), ((2496000.0, "USD"), "$2.5M"),

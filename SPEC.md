@@ -37,7 +37,7 @@ is for setup and maintenance.
 flowchart LR
     H["HubSpot: a run requested on a company or a case's deal"] --> W["Worker (launchd)"]
     W --> R["Researcher (claude -p)"]
-    R <--> T["Seven tools (MCP)"]
+    R <--> T["Eight tools (MCP)"]
     R <--> X["WebSearch / WebFetch"]
     T <--> S[("distress.db: records, workspace, findings, propositions, cases")]
     T -->|"each save or withdrawal"| D["HubSpot: company, deal, contact"]
@@ -254,11 +254,14 @@ follow. So the prompt states the work in a sentence and then the things particul
 |---|---|
 | Opening | The role. The work, in one sentence, and that the store keeps cases and computes their figures. Today's date, and that what the analyst remembers of events stops at its training cutoff: a fact about the model that no role carries |
 | A case | Propositions, and that they are shared; ways, and a proposition that implies an outcome; the model; the period, set apart from a proposition's window; worlds and how an input takes its value in each; the figures; an illustration with placeholders, which a test computes; a figure's basis in two parts |
-| The store and the tools | What a save that goes through means, and what it returns; what WebSearch and WebFetch return, and that quotations are checked against what `read_record` stored |
+| The store and the tools | What a save that goes through means, and what it returns, the sensitivity of the shortfall to each figure included; that `revise_case` changes part of a saved case and returns each figure before and after; what WebSearch and WebFetch return, and that quotations are checked against what `read_record` stored |
 
 Each of these is stated as what it is or what it does. Where a run goes wrong in a way the analyst's own
 understanding would have prevented, the cause is in its environment (what a tool makes cheap, what the store
-accepts or returns), and the repair is made there, not in a sentence.
+accepts or returns), and the repair is made there, not in a sentence. Two repairs of that kind are built. A
+save returns what code can compute about the case's substance: which figures the shortfall turns on, and
+whether each is read or assumed. And a revision costs what it changes: `revise_case` takes the parts that
+change, where restating a case whole made one save and done the cheap route.
 
 It names no company, event or series of records: the catalog in the `search_records` description is the whole of
 what the analyst is told about the series ([section 6](#6-sources)), and excluded companies are enforced where a
@@ -283,7 +286,7 @@ the analyst reads.
   run ID, log, the HubSpot key as the launcher has it, and for a company run the company the cases are limited
   to), because Claude passes stdio
   servers only a minimal environment. `--strict-mcp-config` keeps other servers out.
-- `--tools WebSearch,WebFetch`, and `--allowedTools` listing those and the seven tools.
+- `--tools WebSearch,WebFetch`, and `--allowedTools` listing those and the eight tools.
 - The model from `AGENT_MODEL` (default `opus`) and its reasoning effort from `AGENT_EFFORT` (default `xhigh`),
   passed as `--effort`, as the event-risk and scenario-ledger analysts set it. Runs left at the CLI's default
   effort reasoned little and stopped short. The model thinks adaptively. `--timeout` in minutes: 180 for
@@ -296,7 +299,7 @@ the analyst reads.
 ### Transcripts
 
 Each run keeps, under `out/runs/`, `<run_id>.assignment.md` (the system prompt and prompt as given, also
-stored on the run), `<run_id>.jsonl` (every event as it arrives), `<run_id>.log` (each call to the seven
+stored on the run), `<run_id>.jsonl` (every event as it arrives), `<run_id>.log` (each call to the eight
 tools, with timing and outcome) and `<run_id>.md` (readable: the assignment, then each step's reasoning
 summary, text, tool calls and shortened results). `transcript RUN_ID` renders the readable page again,
 mid-run too. Each revision is stamped with its run.
@@ -309,9 +312,10 @@ mid-run too. Each revision is stamped with its run.
 | `read_record(id_or_url, find, offset, fresh)` | Reads a record by its `record_id`, every record of a `result_set` (up to 25,000), a web page or a PDF. Stores what it read, fills the series' table, and returns the text in 12,000-character segments with the document's links. `find` returns passages around a term. `fresh` reads the source again and updates the same observation |
 | `compute(sql, save_as, note)` | Runs one read-only SQL query over the records this run has read (each series' table, and the views of dates, names and amounts across series) and the findings and results it has recorded; returns up to 200 rows; `save_as` keeps up to 2,000 under an ID that inputs and findings cite |
 | `record_finding(finding, propositions)` | Records a fact, an inference or a conclusion, about a company, a proposition or a case; can withdraw a case, which updates its deal in HubSpot at once |
-| `lookup(id_or_query)` | Returns a saved case (editable form, status, company, the propositions it reads, condition, worlds and figures, cited passages with their sources, findings, recent revisions, and its deal's stage and conversation outcome), finding or workspace result by ID; a company by ID, name, alias or domain, with its deals in HubSpot (the operator's own included), their stages and conversation outcomes; a proposition by key or title, in full with its ways and links, what its level fields say, and each case that reads it: the case's period, formula, baseline, given values and worlds |
-| `calculate_exposure(case, propositions)` | Calculates each world's figures from a draft of a case's model without saving: the events, the formula, the inputs and the given values |
-| `save_case(case, propositions)` | Saves a case: saves the propositions given in full with it, checks each basis, computes its worlds and their figures, saves the company and the case, writes a revision when the content changed, and delivers the case to HubSpot at once, with each other case a restated proposition moved; refuses an excluded company, or another company in a company run |
+| `lookup(id_or_query)` | Returns what is saved under an ID, a key or a name: a case (in the form `save_case` takes, with its status, company, the propositions it reads, condition, worlds and figures, cited passages with their sources, findings, revisions, and the conversation outcome where one is recorded), a finding or a workspace result by ID; a company by ID, name, alias or domain, with its cases and findings; a proposition by key or exact title, in full with its ways and links, what its level fields say, and each case that reads it |
+| `calculate_exposure(case, propositions)` | Calculates a draft of a case's model without saving: each world's figures, the sensitivity of the shortfall to each figure, and the propositions the case reads that carry no evidence |
+| `save_case(case, propositions)` | Saves a case: saves the propositions given in full with it, checks each basis, computes its worlds and their figures, saves the company and the case, writes a revision when the content changed, and delivers the case to HubSpot at once, with each other case a restated proposition moved; returns what `calculate_exposure` returns; refuses an excluded company, or another company in a company run |
+| `revise_case(case_id, changes, propositions)` | Changes part of a saved case and leaves the rest as saved: a field given replaces the saved one; an input named is added or replaced, or removed where it is null; a given value with the same `given` and `given_not` as a saved one changes that one for the inputs it names. Checks, computes, saves and delivers as `save_case` does, and returns each figure before and after: the baseline, the revenue at stake, and each world's revenue and shortfall |
 
 WebSearch returns links under a summary the search tool writes, and WebFetch a small model's answer about a
 page. A passage is quoted from a record read with `read_record`, by its observation or by the address it was
@@ -431,6 +435,7 @@ the revenue formula at the inputs' values. A world's figures are the formulas at
 | `lost` | The shortfall less the deferral: given only where the deferral is given, because otherwise later recovery is unknown |
 | `contribution_loss` | Baseline contribution less this world's, where the case gives its formula |
 | `cash_delayed` | Cash collected later than it otherwise would be, where the case gives its formula; a timing effect, not lost revenue |
+| `sensitivity` | For each stated figure, largest first: its value, which parts of a basis it has (read, read and carried by an assumption, or assumed), the amount it was moved by (a tenth of the largest value its input takes in the case), the largest change in any world's shortfall, and that world |
 | `worst`, `max_shortfall`, `max_share` | The world with the largest shortfall, and that shortfall and share |
 
 Where the evidence establishes a shortfall within the period but leaves later recovery unknown, the case
@@ -444,7 +449,7 @@ current form (`briefs.py`). The memo covers:
 - what has to happen (the condition), the propositions the case reads, how the event reaches the revenue,
   and when;
 - how much of the business is exposed: the baseline, each world's revenue, shortfall and share, the formulas,
-  every input with its basis, and every given value with what it rests on;
+  every input with its basis, every given value with what it rests on, and the sensitivity of the shortfall to each figure;
 - the person responsible;
 - the findings and the sources.
 
@@ -656,7 +661,7 @@ python -m distress_signals ledgers [--verify]
 | `distress_signals/worlds.py` | Propositions held flat; what the level fields say; the propositions a case reads, its worlds, and each input's value in each world |
 | `distress_signals/db.py` | Schema, migrations, records, workspace tables, findings, revisions, runs, leads |
 | `distress_signals/forms.py` | A saved case as it reads now: its figures computed again on the propositions as they stand |
-| `distress_signals/tools.py` | The seven tools' functions |
+| `distress_signals/tools.py` | The eight tools' functions |
 | `distress_signals/mcp_server.py` | The tools over MCP, with their descriptions and the tool-call log |
 | `distress_signals/exposure.py` | The calculation |
 | `distress_signals/sources/` | The registry of series and the adapters that declare them (section 6) |
@@ -689,9 +694,9 @@ python -m distress_signals ledgers [--verify]
    the worker as a background service. Built.
 7. **Docs.** The README and `docs/hubspot.md`: using it from HubSpot.
 8. **The model.** `docs/model.md` section 10 lists its parts in order. Propositions in one shape with their
-   links, a case's events, model and given values, its worlds and their figures: built. Then, in order: the
-   document that crosses to event-risk; changing one value of a saved case, with each figure before and after.
-   The whole is then tried on runs on new, unrelated subjects.
+   links, a case's events, model and given values, its worlds and their figures, the sensitivity of the
+   shortfall to each figure, and changing part of a saved case with each figure before and after: built. Next,
+   the document that crosses to event-risk. The whole is tried on runs on new, unrelated subjects.
 
 ## 14. Assignments and briefs
 

@@ -26,7 +26,7 @@ import unicodedata
 from pydantic import ValidationError
 
 from . import db, exposure, forms, names, worlds
-from .models import Case, Draft, Finding, Proposition, check_propositions
+from .models import Case, Changes, Draft, Finding, Proposition, check_propositions
 from . import sources
 from .sources import web
 from .util import SourceError, exclusions, now_iso
@@ -555,6 +555,11 @@ def _events(props, case):
                             f"own; name {worlds.root(props, k)!r}, and give values for the way.")
 
 
+def _bare(props, results):
+    """The propositions a case reads that carry no evidence of their own."""
+    return [k for k in results["reads"] if not props[k].get("evidence")]
+
+
 def calculate_exposure(case: dict, propositions: list | None = None) -> dict:
     """Run the calculation save_case runs, on a draft."""
     c = _validate(Draft, case)
@@ -570,7 +575,7 @@ def calculate_exposure(case: dict, propositions: list | None = None) -> dict:
     finally:
         con.close()
     results, warnings = _derive(draft, props)
-    return {"results": results, "warnings": warnings}
+    return {"results": results, "warnings": warnings, "propositions_without_evidence": _bare(props, results)}
 
 
 # ---------- save ----------
@@ -589,6 +594,74 @@ def save_case(case: dict, propositions: list | None = None) -> dict:
     for cid in [out["case_id"], *out["also_revised"]]:
         _deliver(cid)
     return out
+
+
+def _changed(case, changes):
+    """A saved case with the parts that change laid over it. A field given replaces the saved one. An input
+    named is added or replaced, and removed where it is null. A given value with the same given and given_not as
+    a saved one changes that one for the inputs it names, and any other is added; one left with no input goes."""
+    for field, value in changes.items():
+        if field == "inputs":
+            for name, inp in (value or {}).items():
+                if inp is None:
+                    case["inputs"].pop(name, None)
+                else:
+                    case["inputs"][name] = inp
+        elif field == "given_values":
+            for g in value or []:
+                true, false = g.get("given") or [], g.get("given_not") or []
+                same = lambda x: set(x["given"]) == set(true) and set(x["given_not"]) == set(false)  # noqa: E731
+                saved = next((x for x in case["given_values"] if same(x)), None)
+                if saved is None:
+                    saved = {"given": true, "given_not": false, "values": {}}
+                    case["given_values"].append(saved)
+                for name, v in g["values"].items():
+                    if v is None:
+                        saved["values"].pop(name, None)
+                    else:
+                        saved["values"][name] = v
+            case["given_values"] = [x for x in case["given_values"] if x["values"]]
+        elif field != "change_note":
+            case[field] = value
+    return case
+
+
+def _before_and_after(before, after):
+    """Each figure of a case before a change and after it: the baseline, the revenue at stake, and each world's
+    revenue and shortfall. A world the change brings has no figure before; one it removes is listed apart."""
+    was = {w["label"]: w for w in before["worlds"]}
+    now = {w["label"] for w in after["worlds"]}
+    pair = lambda k, a, b: {k: [a, b]}  # noqa: E731
+    return {**pair("baseline_revenue", before["baseline_revenue"], after["baseline_revenue"]),
+            **pair("revenue_at_stake", before["max_shortfall"], after["max_shortfall"]),
+            "worlds": [{"world": w["label"],
+                        **pair("revenue", (was.get(w["label"]) or {}).get("revenue"), w["revenue"]),
+                        **pair("shortfall", (was.get(w["label"]) or {}).get("shortfall"), w["shortfall"])}
+                       for w in after["worlds"]],
+            "worlds_removed": [label for label in was if label not in now]}
+
+
+def revise_case(case_id: str, changes: dict, propositions: list | None = None) -> dict:
+    """Change part of a saved case: lay the changes over it, then check, compute and save it as save_case does.
+    Returns what save_case returns, with each figure before and after."""
+    ch = _validate(Changes, changes).model_dump(mode="json", exclude_unset=True)
+    given = _stated(propositions)
+    con = db.connect()
+    try:
+        row = db.get_case(con, case_id)
+        if not row:
+            raise ToolError(f"case_id: no saved case {case_id!r}")
+        last = db.latest_revision(con, case_id)["snapshot"]
+        before = forms.read(row, last, db.propositions(con))["results"]
+        saved = _editable(case_id, {"case": last["case"], "company": {"id": row["company_id"]}})
+        c = _validate(Case, _changed(saved, ch) | {"change_note": ch["change_note"]})
+        with db.write(con):
+            out = _save(con, c, given)
+    finally:
+        con.close()
+    for cid in [out["case_id"], *out["also_revised"]]:
+        _deliver(cid)
+    return out | {"before_and_after": _before_and_after(before, out["results"])}
 
 
 def _deliver(case_id):
@@ -714,7 +787,7 @@ def _save(con, c: Case, given):
     return {"case_id": cid, "company_id": company_id, "revision": revision, "changed": changed,
             "condition": results["condition"], "results": results, "warnings": warnings,
             "workspace_results_used": sorted(set(results_used)),
-            "propositions_saved": stated, "also_revised": also}
+            "propositions_without_evidence": _bare(props, results), "propositions_saved": stated, "also_revised": also}
 
 
 # ---------- findings ----------

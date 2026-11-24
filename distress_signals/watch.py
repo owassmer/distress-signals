@@ -28,7 +28,7 @@ from .util import OUT, load_env
 PORT = int(os.environ.get("DISTRESS_WATCH_PORT", "8790"))
 REPO = "https://github.com/owassmer/distress-signals"
 ICON = {"WebSearch": "search", "WebFetch": "web", "search_records": "search", "read_record": "read", "compute": "calc",
-        "lookup": "lookup", "calculate_exposure": "calc", "record_finding": "finding", "save_case": "save",
+        "lookup": "lookup", "calculate_exposure": "calc", "record_finding": "finding", "save_case": "save", "revise_case": "save",
         "StructuredOutput": "answer"}
 FINDING = {"fact": "Source finding", "inference": "Research inference", "conclusion": "Research conclusion"}
 ACRONYMS = {"us", "usa", "uk", "eu", "va", "dod", "hhs", "cms", "fda", "sba", "nasa", "faa", "fcc", "ftc", "doe", "epa",
@@ -107,6 +107,8 @@ def describe(name, i):
     if name == "save_case":
         o = i.get("case") or {}
         return {"label": f"Case submission for {_company_name(o.get('company'))}", "text": title_label(o.get("stream_key"))}
+    if name == "revise_case":
+        return {"label": f"Case revision for {i.get('case_id')}", "text": (i.get("changes") or {}).get("change_note")}
     if name == "StructuredOutput":
         return {"label": "Run summary and follow-up leads"}
     return {"label": name}
@@ -185,6 +187,13 @@ def outcome(name, i, text, is_error):
             "detail": o.get("stream"), "revision": out.get("revision"), "stake": res.get("max_shortfall"),
             "share": res.get("max_share"), "of": (res.get("denominator") or {}).get("label"),
             "currency": o.get("currency"), "deal": _deal_url(out.get("case_id"))}}
+    if name == "revise_case":
+        res = out.get("results") or {}
+        company = _company_name(out.get("company_id"))
+        marker = {"oid": out.get("case_id"), "company": company, "company_id": out.get("company_id"),
+                  "revision": out.get("revision"), "stake": res.get("max_shortfall"), "share": res.get("max_share"),
+                  "of": (res.get("denominator") or {}).get("label"), "deal": _deal_url(out.get("case_id"))}
+        return {"status": "ok", "label": f"Revised case for {company}", "case": {k: v for k, v in marker.items() if v is not None}}
     return {"status": "ok"}
 
 

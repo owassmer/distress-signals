@@ -333,6 +333,29 @@ def _consistent(m):
     return m
 
 
+class GivenChange(Strict):
+    """A given value to add, or a change to the saved one with the same given and given_not."""
+    given: list[str] = Field(default=[], description="Keys of the propositions that are true")
+    given_not: list[str] = Field(default=[], description="Keys of the propositions that are false")
+    values: dict[str, Value | None] = Field(min_length=1, description="The inputs whose value there is added or "
+                                                                      "replaced, by name, each in full; null removes one")
+
+    @model_validator(mode="after")
+    def _condition(self):
+        return Given._condition(self)
+
+
+KEPT_OR_CHANGED = ("stream", "dependency", "timing", "period", "currency", *FORMULAS, "denominator", "person", "evidence")
+Changes = create_model(
+    "Changes", __base__=Strict, __doc__="The parts of a saved case that change. A part left out stays as saved.",
+    **{k: (Case.model_fields[k].annotation | None, Field(None, description=Case.model_fields[k].description))
+       for k in KEPT_OR_CHANGED},
+    inputs=(dict[str, Input | None] | None, Field(None, description="Inputs to add or replace, by name, each in full; "
+                                                                    "null removes one")),
+    given_values=(list[GivenChange] | None, Field(None, description="Given values to add or change")),
+    change_note=(str, Field(min_length=3, description="What this changes")))
+
+
 MODEL_FIELDS = ("events", *FORMULAS, "inputs", "given_values", "denominator")
 Draft = create_model("Draft", __base__=Strict, __doc__="A draft of a case's model, for calculate_exposure.",
                      __validators__={"_consistent": model_validator(mode="after")(_consistent)},

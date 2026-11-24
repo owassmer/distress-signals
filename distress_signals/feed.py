@@ -67,6 +67,8 @@ def describe(use):
         from .watch import _company_name, title_label
         o = i.get("case") or {}
         return f"Saving the case for {_company_name(o.get('company'))}: {title_label(o.get('stream_key'))}"
+    if name == "revise_case":
+        return f"Revising case {i.get('case_id')}: {((i.get('changes') or {}).get('change_note') or '')[:300]}"
     if name == "StructuredOutput":
         return "Writing the final answer"
     return name
@@ -134,7 +136,7 @@ class Feed:
                         continue
                     if isinstance(result, dict) and (result.get("source_errors") or result.get("errors")):
                         self.items.append(("Search", _esc(_search_result(result))))
-                elif name == "save_case":
+                elif name in ("save_case", "revise_case"):
                     self._saved(use, text)
                 elif name == "record_finding" and ((use.get("input") or {}).get("finding") or {}).get("withdraw_case"):
                     oid = use["input"]["finding"].get("case_id")

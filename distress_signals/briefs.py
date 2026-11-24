@@ -124,6 +124,17 @@ def _given_lines(c):
     return out
 
 
+def _sensitivity_line(c, r):
+    case, cur = c["case"], c["case"]["currency"]
+    place, name = r["figure"].rsplit(".", 1)
+    where = ""
+    if place.startswith("given_values"):
+        where = ", given " + given_condition(c, case["given_values"][int(place[place.index("[") + 1:place.index("]")])])
+    unit = case["inputs"][name]["unit"]
+    return (f"| `{name}`{where} | {_shown(r['value'], unit, cur)} | {r['basis']} | {_shown(r['moved_by'], unit, cur)} | "
+            f"{money(r['shortfall_moves_by'], cur)} | {r['in_world']} |")
+
+
 def memo(c):
     co, case, res, props = c["company"], c["case"], c["results"], c["props"]
     cur, person = case["currency"], case["person"]
@@ -157,6 +168,9 @@ def memo(c):
     out += ["", "**Inputs, at their values as things stand.**", "", "| Input | Value | Basis | |", "|---|---|---|---|"]
     out += [_input_line(k, v, cur, c["cited"]) for k, v in case["inputs"].items()]
     out += ["", "**Given values.**", ""] + _given_lines(c)
+    out += ["", "**Sensitivity.** Each figure moved by a tenth of the largest value its input takes, one at a time.", "",
+            "| Figure | Value | Basis | Moved by | Shortfall moves by | In the world |", "|---|---|---|---|---|---|"]
+    out += [_sensitivity_line(c, r) for r in res.get("sensitivity") or [] if r["shortfall_moves_by"]]
     out += ["", "## The person responsible", "",
             f"{person.get('name') or 'Not named'}{', ' + person['title'] if person.get('title') else ''}: {person['role']}.", ""]
     if c["findings"]:

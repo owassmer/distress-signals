@@ -130,6 +130,12 @@ world `w`. The baseline is `B = f(x)`. The revenue in `w` is `R_w = f(x_w)`, and
 `B − R_w`. A world no given value holds in stands at the baseline. The condition is the worlds where
 `R_w` differs from `B`. The revenue at stake is the largest shortfall, with its world.
 
+**Sensitivity.** The store reports how far the shortfall moves with each stated figure, one figure at a
+time. Each input's own value and each given value is moved up and down by a tenth of the largest value its
+input takes anywhere in the case, the worlds' shortfalls are computed again, and the largest change in any
+world is kept, with that world. Each figure comes back with which parts of a basis it has: read, read and
+carried by an assumption, or assumed. An input that is zero everywhere has no row.
+
 **Timing within the period.** Revenue is what the company recognizes within the period, work or sales made
 up within it included. Revenue recognized after the period, the contribution, and cash collected late each
 have their own formula over the same inputs, evaluated in each world the same way.
@@ -198,8 +204,10 @@ beside it, its ways and its links included. The same call with nothing saved cal
 |---|---|
 | States a case | Each world, with the propositions true and false in it, the inputs that take another value there, the revenue and the shortfall; the baseline; the condition; the result of each basis check; the propositions the call saved; and each other active case the call's propositions moved, which gets a revision of its own |
 | Calculates a draft | The same worlds and figures, with nothing saved |
+| Either | The sensitivity of the shortfall to each figure, and the propositions the case reads that carry no evidence |
 | Looks up a proposition | It in full with its ways and links, what code reads from its level fields, and each case that reads it: the case's formula, given values and worlds |
 | Looks up a case | The case as it now stands, with the propositions it reads and its revisions |
+| Changes part of a saved case | The case as computed after the change, and each figure before and after: the baseline, the revenue at stake, and each world's revenue and shortfall |
 
 **A statement that cannot hold is refused**, with the reason, and the store stays as it was:
 
@@ -273,6 +281,10 @@ say otherwise.
 | 12 | A given value named for a proposition that implies `cut-half-or-more`, while no given value names a way of `program-renewal` | Three worlds: renewed with that proposition true; renewed with it false; not renewed. The first lies within the Yes side through the link |
 | 13 | `cut-half-or-more` has two ways of its own, by whether a quarter of the funding remains. One given value, for the lower of them | Five worlds: `renewed-in-full`, `cut-under-half`, the two ways of `cut-half-or-more`, and not renewed. Four stand at the baseline |
 | 14 | Given `cut-under-half`: 0.7. Given `program-renewal` and `cut-under-half`: 0.6 | Refused: the two hold in the same world and neither's worlds lie strictly within the other's |
+| 15 | The system prompt's illustration, with a tenth of each input's largest value | Its seven figures, by how far each moves a shortfall: 16 for the two values of `regained`, 10 for the rest, each with its world |
+| 16 | One given value of a saved case changed | That world's revenue and shortfall before and after; the other worlds as they were; one revision; the rest of the case as saved |
+| 17 | A given value added for a proposition the case did not read; then one removed | The worlds the change brings, with no figure before, and those it removes; a world left with no given value stands at the baseline |
+| 18 | A change that leaves two given values unordered in a world, removes an input the formula uses, or leaves no given value | Refused, and the saved case stands |
 
 ## 10. Build
 
@@ -283,8 +295,7 @@ say otherwise.
 | The three bases, with a result cell read by the store (section 5) | Built |
 | A case and its propositions stated in one call; what each call returns and refuses (section 6) | Built |
 | Estimates, written for a case and for each other case a restated proposition moves (section 7) | Built |
-| The document that crosses to event-risk (section 8) | 1 |
-| Changing one value of a saved case, with each figure before and after | 2 |
+| The sensitivity of the shortfall to each figure; changing part of a saved case, with each figure before and after (sections 4 and 6) | Built |
+| The document that crosses to event-risk (section 8) | Next |
 
-Parts 1 and 2 are built in that order. The whole is then tried on runs on new subjects, unrelated to one
-another and to anything it was built against.
+The whole is tried on runs on new subjects, unrelated to one another and to anything it was built against.

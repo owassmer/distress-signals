@@ -56,6 +56,44 @@ def evaluate(formula, values):
     return ev(tree)
 
 
+def basis_kind(figure):
+    """Which parts of a basis a figure has: read from a record, read and carried by an assumption, or assumed."""
+    read = bool(figure.get("source") or figure.get("result"))
+    return ("read, carried by an assumption" if figure.get("assumption") else "read") if read else "assumed"
+
+
+def sensitivity(case, every, labels, inputs, given, shortfalls):
+    """How far the shortfall moves with each stated figure, one figure at a time: each input's own value and each
+    given value is moved up and down by a tenth of the largest value its input takes anywhere in the case, the
+    worlds' shortfalls are computed again, and the largest change in any world is kept, with that world. The
+    figures come back largest change first: [{figure, value, basis, moved_by, shortfall_moves_by, in_world}]."""
+    largest = {k: max([abs(v)] + [abs(g["values"][k]) for g in given if k in g["values"]]) for k, v in inputs.items()}
+    figures = [(f"inputs.{k}", None, k, case["inputs"][k]) for k in inputs]
+    figures += [(f"given_values[{i}].values.{k}", i, k, case["given_values"][i]["values"][k])
+                for i, g in enumerate(given) for k in g["values"]]
+    out = []
+    for at, i, k, stated in figures:
+        step, value = 0.1 * largest[k], inputs[k] if i is None else given[i]["values"][k]
+        if not step:
+            continue
+        change, where = 0.0, None
+        for moved in (value + step, value - step):
+            ins = inputs | {k: moved} if i is None else inputs
+            giv = given if i is None else [g if j != i else g | {"values": g["values"] | {k: moved}} for j, g in enumerate(given)]
+            try:
+                base = evaluate(case["revenue"], ins)
+                again = [base - evaluate(case["revenue"], at_w) for at_w in worlds.values(every, ins, giv, labels)]
+            except (FormulaError, worlds.Unstated):
+                continue
+            for n, (was, now) in enumerate(zip(shortfalls, again)):
+                if abs(now - was) > change + 1e-9 * max(1.0, abs(was)):      # the first world, among those it moves alike
+                    change, where = abs(now - was), n
+        out.append({"figure": at, "value": value, "basis": basis_kind(stated), "moved_by": step,
+                    "shortfall_moves_by": change, "in_world": labels[where] if where is not None else None})
+    top = max((r["shortfall_moves_by"] for r in out), default=0) or 1.0
+    return sorted(out, key=lambda r: -round(r["shortfall_moves_by"] / top, 9))   # figures that move it alike keep their order
+
+
 def compute(case, props):
     """case: events, the formulas, inputs {name: {value, ...}}, given_values, denominator. props: the saved
     propositions, flat (worlds.flatten). Returns (results, warnings); raises FormulaError for a formula that
@@ -92,10 +130,12 @@ def compute(case, props):
         if deferred is not None and deferred > shortfall + 1e-6:
             warnings.append(f"{label}: revenue deferred past the period ({deferred:,.0f}) is more than the shortfall "
                             f"within it ({shortfall:,.0f}); the deferral is part of that shortfall.")
+    labels = [label for _, label, _ in told]
+    moves = sensitivity(case, every, labels, inputs, given, [r["shortfall"] for r in rows])
     worst = max(rows, key=lambda r: r["shortfall"])
     known = [r["lost"] for r in rows if r["lost"] is not None]
     return {"reads": read, "baseline_revenue": base_rev, "baseline_contribution": base_con,
             "denominator": {"label": case["denominator"]["label"], "value": den} if case.get("denominator") else None,
             "worlds": rows, "worst": worst["label"], "max_shortfall": worst["shortfall"], "max_share": worst["share"],
-            "max_lost": max(known) if known else None,
+            "max_lost": max(known) if known else None, "sensitivity": moves,
             "condition": " Or: ".join(r["text"] for r in rows if abs(r["shortfall"]) > 1e-9)}, warnings

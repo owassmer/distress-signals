@@ -36,6 +36,6 @@ The value given E holds in A and in B, and in B the value given B replaces it, b
 
 ## The store and the tools
 
-A save that goes through means the formula evaluates, each quotation was found word for word in its stored record, and the links between propositions hold together. It returns the case as computed: each world with the inputs that change there, its revenue and its shortfall, and the condition. `calculate_exposure` computes the same for a draft. A saved case is in use once saved, and each save that changes it is kept as a revision. Revising a proposition recomputes the other cases that read it.
+A save that goes through means the formula evaluates, each quotation was found word for word in its stored record, and the links between propositions hold together. It returns the case as computed: each world with the inputs that change there, its revenue and its shortfall; the condition; and the sensitivity of the shortfall to each figure, with the figure's basis. `calculate_exposure` computes the same for a draft. A saved case is in use once saved. `revise_case` changes part of it and returns each figure before and after, and each change is kept as a revision. Revising a proposition recomputes the other cases that read it.
 
 WebSearch returns links under a summary that the search tool writes, and WebFetch returns a small model's answer about a page. `read_record` reads the record itself and stores it, and quotations are checked against what it stored.

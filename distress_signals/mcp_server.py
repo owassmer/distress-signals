@@ -15,7 +15,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from . import db, sources, tools
-from .models import Case, Draft, Finding, Proposition
+from .models import Case, Changes, Draft, Finding, Proposition
 from .util import load_env
 
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
@@ -160,8 +160,12 @@ figure read from a result cell is read by the store. Quotations are checked when
 It returns the propositions the draft reads, the baseline, the condition, and each world with the propositions true
 and false in it, the inputs that take another value there, the revenue within the period, the shortfall and its share
 of the denominator, revenue deferred past the period and the revenue lost (both where the deferral's formula is
-given), the contribution loss (where the contribution formula is given) and cash delayed. It refuses what save_case
-refuses of a model, with the reason.
+given), the contribution loss (where the contribution formula is given) and cash delayed.
+
+It also returns the sensitivity of the shortfall to each figure, largest first. Each input's own value and each given
+value is moved up and down, one at a time, by a tenth of the largest value its input takes in the case; the figure
+comes back with its basis (read, read and carried by an assumption, or assumed), the largest change in any world's
+shortfall, and that world. And it returns the propositions the case reads that carry no evidence.
 
 """ + PROPOSITIONS + " A draft uses them for the calculation alone.")
 def calculate_exposure(case: Draft, propositions: list[Proposition] = []) -> dict:
@@ -180,9 +184,9 @@ word; a result cell picks out one row, and the store reads the figure from it), 
 figures, saves the company and the case, and writes a revision where the case changed. Each other active case that
 reads a proposition the call revises is computed again and gets a revision of its own.
 
-It returns the case as computed: its ID and revision, the propositions it reads, the baseline, the condition, each
-world with the propositions true and false in it, the inputs that take another value there, its revenue, its
-shortfall and the other figures calculate_exposure returns, any warnings, and the other cases the call moved.
+It returns the case as computed: its ID and revision, and what calculate_exposure returns (the worlds and their
+figures, the sensitivity of the shortfall to each figure, the propositions that carry no evidence), with any
+warnings and the other cases the call moved.
 
 A call the store refuses says why, and saves nothing. A proposition given in full keeps every proposition an active
 case reads and every one another proposition is linked to. Some companies are excluded, and a session assigned one
@@ -194,6 +198,21 @@ and any other combination is a new case.
 """ + PROPOSITIONS)
 def save_case(case: Case, propositions: list[Proposition] = []) -> dict:
     return _call("save_case", tools.save_case, case.model_dump(mode="json"),
+                 [p.model_dump(mode="json", exclude_none=True) for p in propositions])
+
+
+@server.tool(description="""Change part of a saved case, and leave the rest as saved. changes holds the parts that
+change. A field given replaces the saved one. inputs adds or replaces the inputs it names, and null removes one. A
+given value with the same given and given_not as a saved one changes that one for the inputs it names (null removes
+an input from it), and any other is added.
+
+The store checks and computes the changed case as save_case does and writes a revision. It returns what save_case
+returns, and each figure before and after: the baseline, the revenue at stake, and each world's revenue and
+shortfall.
+
+""" + PROPOSITIONS)
+def revise_case(case_id: str, changes: Changes, propositions: list[Proposition] = []) -> dict:
+    return _call("revise_case", tools.revise_case, case_id, changes.model_dump(mode="json", exclude_unset=True),
                  [p.model_dump(mode="json", exclude_none=True) for p in propositions])
 
 

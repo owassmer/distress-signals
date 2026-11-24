@@ -10,7 +10,7 @@ import os
 from .util import CONFIG, today
 
 TOOL_NAMES = ("search_records", "read_record", "compute", "record_finding", "lookup", "calculate_exposure",
-              "save_case")
+              "save_case", "revise_case")
 TOOLS = ["WebSearch", "WebFetch", *(f"mcp__ds__{n}" for n in TOOL_NAMES)]
 
 # The practitioners the system prompt's first sentence names, in the order the work runs: how an event reaches a

@@ -77,8 +77,8 @@ HOME_STYLE = """
 .rc-cases th{text-align:left;font-size:12px;font-weight:600;color:var(--mute);padding:9px 22px;background:#fafbfc;border-bottom:1px solid var(--line)}
 .rc-cases td{padding:12px 22px;border-bottom:1px solid var(--line2);vertical-align:top}.rc-cases tr:last-child td{border-bottom:0}
 .rc-cases .who a{color:var(--ink);font-weight:650}.rc-cases .who span{display:block;color:var(--mute);font-size:13px}
-.rc-cases .stake{white-space:nowrap;font-variant-numeric:tabular-nums}.rc-cases .stake b{font-size:15.5px}
-.rc-cases .stake span{display:block;color:var(--mute);font-size:12.5px}
+.rc-cases .rc-stake{white-space:nowrap;font-variant-numeric:tabular-nums}.rc-cases .rc-stake b{display:block;font-size:16px}
+.rc-cases .rc-stake span{display:block;color:var(--mute);font-size:12.5px}
 .rc-cases .get{white-space:nowrap;text-align:right}.rc-cases .get a{font-weight:600;font-size:13px;margin-left:14px}
 .rc-cases th.r,.rc-cases td.r{text-align:right}
 .home .foot{color:var(--mute);font-size:13px;margin-top:26px}
@@ -119,7 +119,7 @@ def home(runs):
             rows.append(
                 f'<tr><td class="who"><a href="{r["slug"]}/index.html#case/{c["id"]}">{e(c["company"]["name"])}</a>'
                 f'<span>{e(d["event"])}</span></td>'
-                f'<td class="stake r"><b>{e(d["at_stake"]["shortfall"])}</b><span>{e(share + d["period"])}</span></td>'
+                f'<td class="rc-stake r"><b>{e(d["at_stake"]["shortfall"])}</b><span>{e(share + d["period"])}</span></td>'
                 f'<td class="get"><a href="{r["slug"]}/memos/{name}.html">Memo</a>'
                 f'<a href="{r["slug"]}/memos/{name}.pdf" download="{name}.pdf">PDF</a></td></tr>')
         table = ('<table class="rc-cases"><thead><tr><th>Company and event</th><th class="r">Largest modeled shortfall</th><th></th></tr></thead>'
@@ -134,7 +134,7 @@ def home(runs):
         f'<title>{e(watch.GUIDE_TITLE)} · Distress Signals</title><meta name="description" content="{description}">'
         f'<meta property="og:title" content="{e(watch.GUIDE_TITLE, quote=True)} · Distress Signals">'
         f'<meta property="og:description" content="{description}"><meta property="og:type" content="website">'
-        f'<link rel="icon" href="{watch.FAVICON}"><style>{watch.STYLE}{watch.SHELL_STYLE}{HOME_STYLE}</style></head><body>'
+        f'<link rel="icon" href="{watch.FAVICON}"><style>{watch.STYLE}{watch.SHELL_STYLE}{HOME_STYLE}{watch.PUBLICATION}</style></head><body>'
         f'<header class="top run-nav"><div class="in"><a class="brand" href="index.html" aria-label="Distress Signals">'
         f'<img src="{watch.FAVICON}" alt=""><span>Distress Signals</span></a>'
         f'<a class="project-credit" href="https://github.com/owassmer">Built by <strong>Owen Wassmer</strong></a>'

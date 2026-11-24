@@ -25,7 +25,7 @@ from urllib.parse import parse_qs, urlparse
 
 from . import activityview, briefs, db, example_review, findingsview, forms, hubspot, memo, sources
 from .feed import _result_text, _search_label, _search_result
-from .runpage import CHART_JS, FAVICON, FOUND_JS, ICONS, LEADS_HTML, PACE, PAGE, PAGE_STEPS, SHELL_STYLE, STYLE
+from .runpage import CHART_JS, FAVICON, FOUND_JS, ICONS, LEADS_HTML, PACE, PAGE, PAGE_STEPS, PUBLICATION, SHELL_STYLE, STYLE
 from .util import OUT, load_env
 
 PORT = int(os.environ.get("DISTRESS_WATCH_PORT", "8790"))
@@ -480,7 +480,7 @@ def _page(run_id, data=None, home="/"):
     index_link = ""
     if data is None or home not in ("/", REPO, "#findings"):
         index_link = f'<a class="project-link operator-home" href="{html.escape(home, quote=True)}">All runs</a>'
-    page = (PAGE.replace("__STYLE__", STYLE + SHELL_STYLE + findingsview.STYLE + activityview.STYLE)
+    page = (PAGE.replace("__STYLE__", STYLE + SHELL_STYLE + findingsview.STYLE + activityview.STYLE + PUBLICATION)
             .replace("__FINDINGSHTML__", findingsview.HTML).replace("__FINDINGSJS__", findingsview.JS)
             .replace("__LEADSHTML__", LEADS_HTML).replace("__ACTIVITYHTML__", activityview.HTML.strip()).replace("__ACTIVITYJS__", activityview.JS)
             .replace("__RESULTSHEADER__", results_header).replace("__SHAREMETA__", share_meta)
@@ -564,7 +564,7 @@ def _listing(title, sub, body, on):
     switch = "".join(f"<a href='{href}'{' class=on' if key == on else ''}>{label}</a>"
                      for key, href, label in (("runs", "/", "Runs"), ("cases", "/cases", "Cases")))
     return (f"<!doctype html><html lang='en'><head><meta charset='utf-8'><title>{title} · distress-signals</title>"
-            f"<link rel='icon' href=\"{FAVICON}\"><style>{STYLE}{LIST_STYLE}</style></head><body><div class='top'><div class='in'>"
+            f"<link rel='icon' href=\"{FAVICON}\"><style>{STYLE}{LIST_STYLE}{PUBLICATION}</style></head><body><div class='top'><div class='in'>"
             f"<a class='brand' href='/'><img src=\"{FAVICON}\" alt=''>distress-signals</a><div class='divider'></div>"
             f"<div><div class='ttl'>{title}</div><div class='sub'>{sub}</div></div><div class='switch'>{switch}</div>"
             f"</div></div><div class='runs'>{body}</div></body></html>")

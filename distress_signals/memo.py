@@ -557,7 +557,7 @@ def html(doc, bar=None):
     # 01 what is at stake
     cols = "".join(f'<th class="num">{_e(t)}</th>' for t in d["extra_columns"])
     add('<section id="sec-stake"><h2 class="sec-h"><span class="sec-num">01</span> Revenue at stake in each outcome</h2>'
-        f'<table class="data-table"><thead><tr><th>Outcome</th><th class="num">Revenue in the period</th><th class="num">Shortfall</th>'
+        f'<table class="data-table"><thead><tr><th style="width:38%">Outcome</th><th class="num">Revenue in the period</th><th class="num">Shortfall</th>'
         f'<th class="num">Share</th>{cols}<th class="bar-col">Against the largest</th></tr></thead><tbody>')
     dash = "".join('<td class="num mute">–</td>' for _ in d["extra_columns"])
     add(f'<tr class="row-baseline"><td><div class="sc-title-row"><span class="sc-title">As things stand</span></div></td>'

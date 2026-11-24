@@ -63,12 +63,12 @@ CHART_JS = r"""function drawChart(svg, bins, flags, upto, H, visibleBins) {
   for (let m = 0; m < N; m += every) { const x = LEFT + m * BW; if (m && x > W - 40) break; s += `<line x1="${x}" x2="${x}" y1="${TOP - 6}" y2="${BASE}" stroke="#eef0f3"/>`
     + `<text x="${x + 3}" y="${H - 6}" font-size="12" fill="#52647a">${m} min</text>`; }
   (visibleBins || bins).forEach((b, i) => { if (i * 60 > upto) return; const f = visibleBins ? 1 : Math.min(1, (upto - i * 60) / 60), x = LEFT + i * BW + BW * .14, w = Math.max(1, BW * .72);
-    let h0 = 0; [["search", "#2563eb"], ["read", "#94a3b8"], ["calc", "#7c3aed"]].forEach(([k, col]) => { const h = y(b[k]) * f; if (h > 0)
+    let h0 = 0; [["search", "#1B365D"], ["read", "#94a3b8"], ["calc", "#5B4B8A"]].forEach(([k, col]) => { const h = y(b[k]) * f; if (h > 0)
       s += `<rect x="${x.toFixed(1)}" y="${(BASE - h0 - h).toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${col}"/>`; h0 += h; }); });
   let lastCx = -99;
   flags.forEach(fl => { if (fl.t > upto) return; const x = Math.min(W - 9, Math.max(9, LEFT + fl.t / 60 * BW)), cx = fl.n == null ? x : Math.min(W - 9, Math.max(x, lastCx + 19)), cy = TOP - 10; lastCx = cx;
-    s += `<g>${fl.label ? "<title>" + esc(fl.label) + "</title>" : ""}<line x1="${x}" x2="${x}" y1="${TOP - 2}" y2="${BASE}" stroke="#16a34a" stroke-width="2" stroke-dasharray="3 3"/>`
-      + `<circle cx="${cx}" cy="${cy}" r="${fl.n == null ? 4.5 : 8.5}" fill="#15803d" stroke="#fff" stroke-width="1.5"/>`
+    s += `<g>${fl.label ? "<title>" + esc(fl.label) + "</title>" : ""}<line x1="${x}" x2="${x}" y1="${TOP - 2}" y2="${BASE}" stroke="#0F5132" stroke-width="2" stroke-dasharray="3 3"/>`
+      + `<circle cx="${cx}" cy="${cy}" r="${fl.n == null ? 4.5 : 8.5}" fill="#0F5132" stroke="#fff" stroke-width="1.5"/>`
       + (fl.n == null ? "" : `<text x="${cx}" y="${cy + 3.5}" font-size="10" fill="#fff" text-anchor="middle" font-weight="700">${fl.n}</text>`) + "</g>"; });
   s += `<line x1="${LEFT}" x2="${W}" y1="${BASE}" y2="${BASE}" stroke="#e2e8f0"/>`;
   svg.innerHTML = s;
@@ -217,6 +217,83 @@ padding:10px 18px;font-weight:600;font-size:13px;line-height:1;cursor:pointer;bo
 .found{flex-wrap:wrap}.found .go{margin-left:0}.found>span:nth-child(2){flex:1;min-width:0}
 .step{grid-template-columns:1fr;gap:2px;padding:14px 16px}.player{flex-wrap:wrap;gap:10px}.scrub{order:3;flex-basis:100%}.pmeta{flex:1;min-width:0}.doc2>h3{scroll-margin-top:10px}}
 @media(prefers-reduced-motion:reduce){.view,.step,.act,.found,.pulse{animation:none!important}}
+"""
+
+# One look for every page of the product, laid over the styles above and beside them: the palette, faces and ruled
+# tables of the memo (memo.TOKENS), so that the home, a run, a case and its memo read as one publication. Paper white,
+# ink and two accents: navy for structure and links, oxblood for a shortfall. Square corners; rules, not boxes.
+PUBLICATION = r"""
+:root{--bg:#FFFFFF;--card:#FFFFFF;--line:#E2E8F0;--line2:#E2E8F0;--ink:#0F172A;--soft:#475569;--mute:#64748B;--faint:#64748B;
+--blue:#1B365D;--bluebg:#EEF3F9;--green:#0F5132;--greenink:#0F5132;--greenbg:#EDF7F2;--greenline:#B8DEC9;--violet:#5B4B8A;
+--amber:#8A3A12;--amberbg:#FEF7EC;--red:#991B1B;--navy:#1B365D;--rule:#CBD5E1;--tint:#F8FAFC;
+--serif:"Iowan Old Style","Charter","Palatino Linotype",Georgia,serif;
+--sans:-apple-system,BlinkMacSystemFont,"Helvetica Neue","Inter",system-ui,sans-serif}
+html,body{background:var(--bg);color:#1E293B;font-family:var(--sans)}
+a{color:var(--navy)}
+.top,.run-nav{background:#FFFFFF;backdrop-filter:none;border-top:3px solid var(--navy);border-bottom:1px solid var(--rule)}
+.brand{letter-spacing:.01em}
+h1,h2,#overview h1,.casehead h1,.loghead h1,#section-findings h2,#activity h2,.rc-head h3,.home h1,.home h2{font-family:var(--serif);font-weight:700;letter-spacing:-.015em}
+#overview h1,.home h1{font-size:clamp(28px,3.2vw,40px);line-height:1.12}
+.lede,#overview .lede{color:var(--soft)}
+.btn{border-radius:3px;border-color:var(--rule)}.btn:hover{border-color:var(--navy)}
+.btn.dark{background:var(--navy);border-color:var(--navy);color:#FFFFFF}.btn.dark:hover{background:#264878}
+.tabs a{border-radius:0}.tabs a:hover{background:none}
+.pill{border-radius:2px;letter-spacing:.07em;text-transform:uppercase;font-size:10.5px;font-weight:700;padding:3px 8px}
+.pill.running{background:#EEF3F9;color:#1B365D}.pill.failed{background:#FEF2F2;color:#991B1B}.pill.finished{background:#EDF7F2;color:#0F5132}
+.pulse{background:#1B365D}
+.steps,.player,.alist div,.empty,.say,.chips,.found,#activity,.quote,blockquote.opening,.det pre,.case-actions select,.loghead select,
+.deal-toggle,#latest,.activity-toggle,#activity-speeds,#activity-speeds button,.speed,.speed button,.bar,.rail,.act,.track{border-radius:2px}
+.player{box-shadow:none;border-color:var(--rule)}.pp{border-radius:3px;background:var(--navy)}.pp:hover{background:#264878}
+.fill{background:var(--navy)}.knob{border-color:var(--navy)}
+.stake b,.finding-amount,.rc-cases .rc-stake b,.case .n b,.sc .sv b{font-variant-numeric:tabular-nums lining-nums}
+.stake b{color:var(--red)}
+.casehead .eyebrow{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--navy)}
+.doc2>h3{color:var(--navy);letter-spacing:.1em;font-weight:700}
+.doc2{border-top:1.5px solid var(--ink)}.doc2>h3:first-of-type,.doc2>h3:first-of-type+div{border-top:0}
+.badge{border-radius:2px;border:1px solid transparent;letter-spacing:.06em}
+.badge.reported{background:#EDF7F2;color:#0F5132;border-color:#B8DEC9}.badge.derived{background:#EEF3F9;color:#1B365D;border-color:#C7D7EA}
+.badge.assumed{background:#FEF7EC;color:#8A3A12;border-color:#EBD2A9}
+.bar{background:#EDF2F7}.bar i{background:#94A3B8}.bar s{background:#991B1B}.sc.base .bar i{background:#1B365D}.sc .sv .neg{color:var(--red)}
+.quote{background:var(--tint);border-left:2px solid var(--rule)}blockquote.opening{border-left-color:var(--navy)}
+.step.cur{background:var(--tint)}.step.cur:before{background:var(--navy)}
+.found{background:#EDF7F2;border-color:#B8DEC9}.found:hover{border-color:#0F5132}
+.act.new{background:linear-gradient(90deg,#EEF3F9,rgba(238,243,249,0))}
+.case-actions .memo-actions .btn{border-radius:3px}
+/* ruled tables in place of boxes */
+#section-findings .prospect-sheet{border:0;border-radius:0;border-top:1.5px solid var(--ink);border-bottom:1px solid var(--ink)}
+.prospect-table thead th{background:var(--tint);color:var(--soft);font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;border-bottom:1px solid var(--rule)}
+.prospect-table .finding-company{font-family:var(--serif);font-weight:700;letter-spacing:-.01em;font-size:18px}
+.prospect-table .stream-link{color:var(--navy)}
+.finding-amount{color:var(--red)}
+.deal-toggle{border-radius:3px;border-color:var(--rule)}
+.deal-toggle:hover,.deal-toggle[aria-expanded=true]{border-color:#C7D7EA;background:#EEF3F9;color:var(--navy)}
+.prospect-table .deal-cell{background:var(--tint)}.deal-body blockquote{border-left-color:#C7D7EA}
+#activity{border-radius:0;border:0;border-top:1.5px solid var(--ink);border-bottom:1px solid var(--line);padding-left:2px;padding-right:2px}
+.activity-toggle{border-radius:3px;background:var(--navy)}.activity-toggle:hover{background:#264878}
+#activity-seek{accent-color:var(--navy)}.activity-marker svg{border-radius:2px}
+.steps{border-radius:0;border:0;border-top:1.5px solid var(--ink);border-bottom:1px solid var(--ink)}
+.alist div{border-radius:0;border:0;border-bottom:1px solid var(--line);padding:12px 2px}.alist{gap:0;border-top:1.5px solid var(--ink)}
+/* the lists of runs and of cases */
+.runs{padding-top:34px}
+.run,.case{border-radius:0;border:0;border-bottom:1px solid var(--line);margin:0;padding:14px 4px;background:none}
+.run:first-child,.case:first-child{border-top:1.5px solid var(--ink)}.run:last-child,.case:last-child{border-bottom:1px solid var(--ink)}
+.run:hover{background:var(--tint)}.run .what b,.case .what a{font-family:var(--serif);font-size:17px;font-weight:700;letter-spacing:-.01em}
+.case .n b{color:var(--red)}
+.top .switch{border-radius:3px;background:#EEF2F6}.top .switch a{border-radius:2px}.top .switch a.on{box-shadow:none;border:1px solid var(--rule)}
+.ttl{font-family:var(--serif);font-size:17px}
+/* the site's home */
+.runcard{border-radius:0;border:0;border-top:2.5px solid var(--navy);margin-bottom:30px;overflow:visible}
+.rc-head{padding:13px 2px 13px}.rc-head small{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--navy)}
+.rc-head h3{font-size:23px}
+.rc-cases{border-top:1.5px solid var(--ink);border-bottom:1px solid var(--ink)}
+.rc-cases th{background:var(--tint);text-transform:uppercase;letter-spacing:.07em;font-size:11px;font-weight:700;color:var(--soft);padding:8px 10px;border-bottom:1px solid var(--rule)}
+.rc-cases td{padding:11px 10px;border-bottom:1px solid var(--line)}
+.rc-cases .who a{font-family:var(--serif);font-size:16.5px;font-weight:700;letter-spacing:-.01em}.rc-cases .rc-stake b{color:var(--red)}
+.home .foot{border-top:1px solid var(--rule);padding-top:10px}
+.demo-header{border:0;border-radius:0;padding:0 2px 10px;background:none}
+#section-findings:has(.demo-header) .prospect-sheet{border-radius:0}
+#section-findings .demo-header h2{font-size:22px;letter-spacing:-.015em}
+.demo-play{border-radius:3px;background:var(--navy)}.demo-play:hover{background:#264878}
 """
 
 SHELL_STYLE = r"""

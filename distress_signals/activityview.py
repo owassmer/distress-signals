@@ -45,9 +45,9 @@ HTML = r"""
   <p class="empty" id="activity-empty" hidden></p>
   <figure class="activity-panel" id="activity-figure">
     <div class="activity-legend">
-      <span><i style="background:#2563eb"></i>Searches <b id="activity-search">0</b></span>
+      <span><i style="background:#1B365D"></i>Searches <b id="activity-search">0</b></span>
       <span><i style="background:#94a3b8"></i>Source reads <b id="activity-read">0</b></span>
-      <span><i style="background:#7c3aed"></i>Queries &amp; calculations <b id="activity-calc">0</b></span>
+      <span><i style="background:#5B4B8A"></i>Queries &amp; calculations <b id="activity-calc">0</b></span>
       <span id="activity-cases-key" hidden><i></i>Case saved</span>
     </div>
     <div class="activity-unit">Actions per minute</div>

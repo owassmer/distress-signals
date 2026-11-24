@@ -808,7 +808,12 @@ class Model(unittest.TestCase):
                          [(w["label"].split("; "), briefs.money(w["revenue"]), briefs.money(w["shortfall"]))
                           for w in sorted(res["worlds"], key=lambda w: -w["shortfall"])])
         self.assertEqual([w["shortfall"] for w in d["outcomes"]], ["$100", "$30", "$0", "$0"])
-        self.assertEqual(d["outcomes"][1]["changed"], [{"label": "Share of that revenue the company keeps", "value": "0.7 share of this year's funding"}])
+        self.assertEqual(d["outcomes"][1]["changed"], [{"label": "Share of that revenue the company keeps", "value": "0.7"}])
+        self.assertEqual([(w["against_worst"], w["moves"]) for w in d["outcomes"]], [(1.0, True), (0.3, True), (0.0, False), (0.0, False)])
+        self.assertEqual([(n["title"], [k["title"] for k in n["children"]]) for n in d["tree"]],      # a way under what it divides
+                         [("The agency renews the program", ["Renewed in full", "Cut by less than half", "Cut by half or more"])])
+        self.assertEqual(memo._in_words("program_revenue * (1 - share_kept)", d["labels"]),
+                         "<em>Revenue under the Regional Transit Program</em> &times; (1 &minus; <em>Share of that revenue the company keeps</em>)")
         self.assertEqual(d["extra_columns"], [])                                      # a column no outcome fills is not drawn
         self.assertEqual(d["rests"], {"figures": 4, "read": 0, "carried": 1, "assumed": 3})
         self.assertEqual((d["decided"], d["dates"]), ("June 30, 2027", {"as_of": d["dates"]["as_of"], "period": ["2027-07-01", "2028-06-30"]}))
@@ -837,8 +842,8 @@ class Model(unittest.TestCase):
         self.assertEqual(d["figures"][0]["read"], "Read from computation C1: column revenue, row company Northfield, program transit")
         # the page: self-contained, the case's text escaped, each mark pointing at its note
         page = memo.html(d)
-        self.assertIn('<svg class="dates"', page)
-        self.assertIn("Period revenue is counted over: July 1, 2027 – June 30, 2028", page)
+        self.assertIn('<svg class="timeline-svg"', page)
+        self.assertIn("Period revenue is counted over · July 1, 2027 – June 30, 2028", page)
         self.assertNotIn("Sensitivity", page)
         self.assertNotIn("<script", page)
         self.assertNotIn(' src="', page)
@@ -846,8 +851,8 @@ class Model(unittest.TestCase):
         self.assertIn("last year reported &amp; the terms are unchanged.", page)
         for n in d["notes"]:
             self.assertIn(f'id="note-{n["n"]}"', page)
-        self.assertIn(f'<a href="#note-{report["n"]}">{report["n"]}a</a>', page)      # quoted more than once: lettered
-        self.assertIn('<a href="#comp-1">C1</a>', page)
+        self.assertIn(f'<a class="fn-ref" href="#note-{report["n"]}">[{report["n"]}a]</a>', page)   # quoted more than once: lettered
+        self.assertIn('<a class="fn-ref q-ref" href="#comp-1">[C1]</a>', page)
         self.assertEqual(memo.filename(c), "northfield-transit-services--program-renewal")
         # a record's title: what the writing program left is dropped, and a record with none is named by publisher and file
         self.assertEqual(memo._title({"data": {"title": "Microsoft Word - 2025 Exhibit E"}}, "obs_x"), "2025 Exhibit E")
@@ -902,15 +907,14 @@ class Model(unittest.TestCase):
         self.assertIn("<a href='/cases' class=on>Cases</a>", listing)
         self.assertIn("<a href='/cases'>Cases</a>", get("/").read().decode())           # the runs list leads to it
         page = get(f"/cases/{cid}/memo").read().decode()
-        self.assertIn('<nav class="bar">', page)
-        self.assertIn('<a class="back" href="/cases">‹ Cases</a>', page)               # no run of this store saved it
+        self.assertIn('<a class="tb-back" href="/cases">← Cases</a>', page)            # no run of this store saved it
         self.assertIn(f'href="/cases/{cid}/memo.pdf" download="northfield-transit-services--program-renewal.pdf"', page)
-        self.assertNotIn('<nav class="bar">', memo.html(memo.document(c)))             # the page that is printed has no bar
+        self.assertNotIn('class="tb-back"', memo.html(memo.document(c)))               # the page that is printed leads nowhere
         with closing(db.connect()) as con:                                             # a run that saved it: the way back is the case
             db.start_run(con, "run_abc", "company", "Northfield", None, "model", "log", None, "system", "prompt")
             with db.write(con):
                 con.execute("UPDATE revisions SET run_id='run_abc' WHERE case_id=?", (cid,))
-        self.assertIn(f'<a class="back" href="/runs/run_abc#case/{cid}">‹ Case</a>', get(f"/cases/{cid}/memo").read().decode())
+        self.assertIn(f'<a class="tb-back" href="/runs/run_abc#case/{cid}">← Case</a>', get(f"/cases/{cid}/memo").read().decode())
         for missing in ("/cases/case_nope/memo", "/cases/case_nope/memo.pdf", f"/cases/{cid}/other"):
             with self.assertRaises(urllib.error.HTTPError) as e:
                 get(missing)
@@ -925,7 +929,7 @@ class Model(unittest.TestCase):
         folder = Path(self.folder.name) / "guide"
         self.assertEqual(showcase.write_memos(folder, [c]), [name])
         beside = (folder / "memos" / f"{name}.html").read_text()
-        self.assertIn(f'<a class="back" href="../index.html#case/{cid}">‹ Case</a>', beside)
+        self.assertIn(f'<a class="tb-back" href="../index.html#case/{cid}">← Case</a>', beside)
         self.assertIn(f'href="{name}.pdf" download="{name}.pdf"', beside)
         self.assertTrue((folder / "memos" / f"{name}.pdf").read_bytes().startswith(b"%PDF"))
         got = get(f"/cases/{cid}/memo.pdf")

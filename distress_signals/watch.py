@@ -40,6 +40,12 @@ ACRONYMS = {"us", "usa", "uk", "eu", "va", "dod", "hhs", "cms", "fda", "sba", "n
 SMALL = {"and", "or", "of", "for", "the", "to", "in", "on", "from", "by", "at", "a", "an", "with"}
 
 
+GUIDE_TITLE = "An AI agent for sales prospecting"
+GUIDE_PURPOSE = ("Distress Signals helps brokers and advisers find businesses that may need to hedge against revenue losses. "
+                 "It searches public records for companies where a single decision or disruption outside their control could cost them a significant share of sales. "
+                 "Each proposed deal in HubSpot shows how much is at stake and whom to contact.")
+
+
 def url(run_id=None):
     return f"http://localhost:{PORT}/" + (f"runs/{run_id}" if run_id else "")
 
@@ -462,10 +468,7 @@ def _page(run_id, data=None, home="/"):
     project_credit = ""
     if data and data.get("example_deal"):
         project_credit = '<a class="project-credit" href="https://github.com/owassmer">Built by <strong>Owen Wassmer</strong></a>'
-        title = "An AI agent for sales prospecting"
-        purpose = ("Distress Signals helps brokers and advisers find businesses that may need to hedge against revenue losses. "
-                   "It searches public records for companies where a single decision or disruption outside their control could cost them a significant share of sales. "
-                   "Each proposed deal in HubSpot shows how much is at stake and whom to contact.")
+        title, purpose = GUIDE_TITLE, GUIDE_PURPOSE
         replay = ('<button type="button" id="demo-replay" class="demo-play" aria-controls="activity" hidden>'
                   '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11L13 8z"/></svg>'
                   '<span>Replay search · <span id="demo-replay-duration"></span></span></button>')

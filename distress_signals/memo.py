@@ -122,19 +122,21 @@ def document(c):
              if any(w.get(k) is not None for w in res["worlds"])]
     def changed(w):
         """The inputs that take another value in an outcome, each by its label."""
-        return [{"label": forms.label(k, case["inputs"][k], cur), "value": " ".join(x for x in shown(v, k) if x)}
-                for k, v in w["values"].items()]
+        return [{"label": forms.label(k, case["inputs"][k], cur), "value": shown(v, k)[0]} for k, v in w["values"].items()]
 
     ranked = sorted(res["worlds"], key=lambda w: -w["shortfall"])                  # the largest shortfall first
+    top = worst["shortfall"] if worst["shortfall"] > 0 else None
     outcomes = [{"outcome": w["label"].split("; "), "revenue": briefs.money(w["revenue"], cur),
                  "shortfall": briefs.money(w["shortfall"], cur), "share": _share(w["share"]) or "–",
-                 "extra": [briefs.money(w.get(k), cur) for k, _ in extra], "worst": w is worst, "changed": changed(w)}
+                 "extra": [briefs.money(w.get(k), cur) for k, _ in extra], "worst": w is worst, "changed": changed(w),
+                 "moves": abs(w["shortfall"]) > 1e-9, "gain": w["shortfall"] < -1e-9,
+                 "against_worst": max(0.0, min(1.0, w["shortfall"] / top)) if top else 0.0}       # drawn as a bar
                 for w in ranked]
 
     # ---- the event, and the other propositions the case reads
     def proposition(p):
         about = " ".join(x for x in (p.get("description"), p.get("timing")) if x)
-        return {"title": p["title"], "text": p["text"], "about": about or None,
+        return {"title": p["title"], "text": p["text"], "about": about or None, "kind": p.get("kind"),
                 "only_if": [props[k]["title"] for k in p.get("implies") or [] if k in props],
                 "only_if_not": [props[k]["title"] for k in p.get("implies_not") or [] if k in props],
                 "start": str(p.get("window_start") or "")[:10] or None, "end": str(p["window_end"])[:10],
@@ -145,6 +147,22 @@ def document(c):
     events = [proposition(e) for e in c["events"]]
     others = [proposition(props[k]) | {"within": props[props[k]["parent"]]["title"] if props[k].get("parent") else None}
               for k in res["reads"] if k not in event_keys]
+
+    # the same propositions as a tree: a way under what it divides, and one that is true only with another under it
+    read = [*event_keys, *(k for k in res["reads"] if k not in event_keys)]
+    under = {}
+    for k in read:
+        p = props[k]
+        above = p.get("parent") if p.get("parent") in read else next((x for x in p.get("implies") or [] if x in read), None)
+        if above and k not in event_keys:
+            how = ("A way it can turn out" if p.get("side") != "no" else "A way it can fail to") if p.get("parent") == above else "True only with it"
+            under.setdefault(above, []).append((k, how))
+
+    def node(k, how=None):
+        return proposition(props[k]) | {"relation": how, "children": [node(x, h) for x, h in under.get(k, [])]}
+
+    placed = {x for kids in under.values() for x, _ in kids}
+    tree = [node(k) for k in read if k not in placed]
 
     # ---- how it reaches the revenue
     establishes = [{"claim": e["supports"], "note": note(e)} for e in case["evidence"]]
@@ -162,7 +180,7 @@ def document(c):
                         "outcomes": by_input[name]})
     formulas = [{"name": NAMES[k], "formula": case[k]} for k in FORMULAS if case.get(k)]
     if case.get("denominator"):
-        formulas.append({"name": case["denominator"]["label"], "formula": case["denominator"]["formula"]})
+        formulas.append({"name": "What the share is of", "formula": case["denominator"]["formula"]})
 
     stated = [*case["inputs"].values(), *(v for g in case["given_values"] for v in g["values"].values())]
     read = [bool(f.get("source") or f.get("result")) for f in stated]
@@ -183,9 +201,11 @@ def document(c):
         "at_stake": {"shortfall": briefs.money(worst["shortfall"], cur), "share": _share(worst.get("share")),
                      "contribution": briefs.money(worst["contribution_loss"], cur) if worst.get("contribution_loss") is not None else None,
                      "of": (res.get("denominator") or {}).get("label"), "outcome": worst["label"].split("; "),
+                     "of_value": briefs.money(res["denominator"]["value"], cur) if res.get("denominator") else None,
                      "baseline": briefs.money(res["baseline_revenue"], cur)},
         "outcomes": outcomes, "extra_columns": [title for _, title in extra], "rests": rests,
-        "events": events, "others": others,
+        "events": events, "others": others, "tree": tree,
+        "labels": {name: forms.label(name, inp, cur) for name, inp in case["inputs"].items()},
         "business": co.get("description"), "relationships": co.get("relationships"),
         "dependency": case["dependency"], "timing": case["timing"], "establishes": establishes,
         "formulas": formulas,
@@ -198,96 +218,193 @@ def document(c):
 
 # ---------- the page ----------
 
-CSS = """
-@page { size: Letter; margin: 0.9in 0.95in 0.95in 0.95in; }
+# The palette and the faces every page of the product shares (the memo here; the run pages through runpage.PUBLICATION).
+TOKENS = """
+  --ink: #0F172A; --body: #1E293B; --soft: #475569; --mute: #64748B;
+  --navy: #1B365D; --navy-tint: #EEF3F9; --navy-line: #C7D7EA;
+  --loss: #991B1B; --loss-tint: #FEF2F2; --gain: #166534;
+  --obs-ink: #0F5132; --obs-bg: #EDF7F2; --obs-line: #B8DEC9;
+  --asm-ink: #8A3A12; --asm-bg: #FEF7EC; --asm-line: #EBD2A9;
+  --rule: #CBD5E1; --rule-soft: #E2E8F0; --tint: #F8FAFC; --paper: #FFFFFF; --desk-bg: #E8ECF1;
+  --serif: "Iowan Old Style", "Charter", "Palatino Linotype", Georgia, serif;
+  --sans: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Inter", system-ui, sans-serif;
+  --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+"""
+
+CSS = ":root {" + TOKENS + "}" + """
 * { box-sizing: border-box; }
-html { font-size: 10.4pt; }
-body { margin: 0; color: #1b1b1b; font-family: Charter, "Bitstream Charter", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
-       line-height: 1.42; -webkit-font-smoothing: antialiased; }
-main { max-width: 6.6in; margin: 0 auto; }
-@media screen { body { background: #f3f2ef; } main { background: #fff; margin: 28px auto; padding: 0.9in 0.95in; max-width: 8.5in;
-                box-shadow: 0 1px 6px rgba(0,0,0,.12); } }
-.sans, table, .kicker, .meta, h2, .key, .tag, .where, figcaption, .notes, .small { font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif; }
-.kicker { font-size: 7.6pt; letter-spacing: .14em; text-transform: uppercase; color: #1f3a5f; font-weight: 600; margin: 0 0 6pt; }
-h1 { font-size: 19pt; line-height: 1.15; margin: 0 0 3pt; font-weight: 600; letter-spacing: -.005em; }
-.event { font-size: 12.5pt; margin: 0 0 9pt; color: #333; }
-.meta { font-size: 8pt; color: #555; border-top: 1px solid #1b1b1b; border-bottom: 1px solid #cfcfcf; padding: 5pt 0; margin: 0 0 14pt;
-        display: flex; flex-wrap: wrap; gap: 2pt 16pt; }
-.meta b { color: #1b1b1b; font-weight: 600; }
-.withdrawn { font-family: -apple-system, Helvetica, Arial, sans-serif; font-size: 8.5pt; border: 1px solid #8a1c1c; color: #8a1c1c; padding: 4pt 7pt; margin: 0 0 10pt; }
-h2 { font-size: 8.6pt; letter-spacing: .1em; text-transform: uppercase; color: #1f3a5f; font-weight: 600; margin: 17pt 0 6pt;
-     padding-bottom: 3pt; border-bottom: 1px solid #cfcfcf; break-after: avoid; }
-h3 { font-size: 10.6pt; margin: 10pt 0 2pt; font-weight: 600; break-after: avoid; }
-p { margin: 0 0 6.5pt; orphans: 3; widows: 3; }
-.key { display: flex; gap: 22pt; margin: 2pt 0 9pt; break-inside: avoid; }
-.key div { min-width: 1.1in; }
-.key .n { font-size: 20pt; font-weight: 600; line-height: 1.1; color: #1f3a5f; letter-spacing: -.01em; }
-.key .l { font-size: 7.6pt; color: #555; text-transform: uppercase; letter-spacing: .07em; margin-top: 2pt; }
-.key .t { font-size: 8.8pt; line-height: 1.35; color: #1b1b1b; }
-table { width: 100%; border-collapse: collapse; font-size: 8.6pt; line-height: 1.32; margin: 4pt 0 8pt; font-variant-numeric: tabular-nums; }
-th { text-align: left; font-weight: 600; color: #555; font-size: 7.4pt; text-transform: uppercase; letter-spacing: .06em;
-     border-bottom: 1px solid #1b1b1b; padding: 3pt 6pt 3pt 0; vertical-align: bottom; }
-td { border-bottom: 1px solid #e2e2e2; padding: 4pt 6pt 4pt 0; vertical-align: top; }
-td.num, th.num { text-align: right; padding-right: 0; padding-left: 8pt; white-space: nowrap; }
-table.where { table-layout: fixed; } table.where td, table.where th { overflow-wrap: anywhere; }
-table.where td.num, table.where th.num { white-space: normal; }
-table.where td:last-child, table.where th:last-child { padding-left: 12pt; }
-.unit { color: #555; font-weight: 400; }
-.moves { font-size: 7.6pt; color: #555; font-weight: 400; margin-top: 1.5pt; }
-svg.dates { width: 100%; height: auto; margin: 2pt 0 4pt; break-inside: avoid; font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif; }
-svg.dates .lbl { font-size: 9.6px; fill: #1b1b1b; } svg.dates .tick { font-size: 8.6px; fill: #666; }
-svg.dates .win { fill: #9aa3ad; } svg.dates .per { fill: #1f3a5f; }
-svg.dates .axis { stroke: #9a9a9a; stroke-width: .7; } svg.dates .asof { stroke: #8a4b00; stroke-width: .9; stroke-dasharray: 2.5 2; }
-ol.cond { margin: 2pt 0 7pt; padding-left: 15pt; font-size: 9.4pt; } ol.cond li { margin-bottom: 4pt; }
-.key .n { white-space: nowrap; }
-.bar { display: none; }
-@media screen {
-  .bar { display: block; position: sticky; top: 0; z-index: 5; background: rgba(247,248,250,.94); backdrop-filter: saturate(1.6) blur(12px);
-         border-bottom: 1px solid #e3e5e9; font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 13px; }
-  .bar .in { max-width: 8.5in; margin: 0 auto; padding: 0 20px; height: 52px; display: flex; align-items: center; gap: 14px; }
-  .bar a { text-decoration: none; white-space: nowrap; }
-  .bar .back { color: #1f3a5f; font-weight: 600; }
-  .bar .what { flex: 1; min-width: 0; color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .bar .open { color: #444; font-weight: 600; }
-  .bar .get { background: #111827; color: #fff; font-weight: 600; padding: 8px 14px; border-radius: 99px; line-height: 1; }
-  .bar a.back:hover, .bar a.open:hover { text-decoration: underline; }
-  @media (max-width: 640px) { .bar .what, .bar .open { display: none; } .bar .in { justify-content: space-between; } }
-}
-tr { break-inside: avoid; }
-tr.worst td { font-weight: 600; }
-tr.asis td { color: #555; }
-.not { color: #555; font-style: italic; }
-.small { font-size: 7.8pt; color: #555; margin: 0 0 7pt; }
-.formula { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 8.2pt; background: #f6f6f4; border-left: 2px solid #1f3a5f;
-           padding: 5pt 8pt; margin: 3pt 0 6pt; white-space: pre-wrap; word-break: break-word; break-inside: avoid; }
-.formula b { font-family: -apple-system, Helvetica, Arial, sans-serif; font-weight: 600; }
-code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 8pt; color: #333; }
-.fig { margin: 0 0 9pt; break-inside: avoid-page; }
-.fig .head { display: flex; justify-content: space-between; gap: 10pt; align-items: baseline; border-bottom: 1px solid #e2e2e2; padding-bottom: 1.5pt; margin-bottom: 3pt; }
-.fig .head .name { font-weight: 600; }
-.val { margin: 0 0 4pt 0; padding-left: 9pt; border-left: 2px solid #e2e2e2; break-inside: avoid; }
-.val .line { font-family: -apple-system, Helvetica, Arial, sans-serif; font-size: 8.6pt; display: flex; justify-content: space-between;
-             gap: 10pt; align-items: baseline; }
-.val .small { margin: 1pt 0 0; }
-.val .line b { font-weight: 600; }
-.val p { margin: 1pt 0 0; font-size: 9.6pt; }
-.tag { font-size: 7.2pt; text-transform: uppercase; letter-spacing: .06em; color: #555; white-space: nowrap; }
-.tag.assumed { color: #8a4b00; }
-sup a, a.ref { color: #1f3a5f; text-decoration: none; font-family: -apple-system, Helvetica, Arial, sans-serif; font-size: 7pt; }
-ul.claims { margin: 2pt 0 7pt; padding-left: 13pt; } ul.claims li { margin-bottom: 2.5pt; }
-dl { margin: 2pt 0 7pt; display: grid; grid-template-columns: 0.95in 1fr; gap: 1.5pt 8pt; font-size: 9.4pt; }
-dt { font-family: -apple-system, Helvetica, Arial, sans-serif; font-size: 7.6pt; text-transform: uppercase; letter-spacing: .06em; color: #555; padding-top: 1.5pt; }
-dd { margin: 0; }
+html { background: var(--desk-bg); color: var(--body); -webkit-font-smoothing: antialiased; }
+body { margin: 0; font-family: var(--sans); font-size: 9pt; line-height: 1.47; color: var(--body); }
+a { color: var(--navy); }
+
+/* the strip across the top of the screen: not printed */
+.toolbar { position: sticky; top: 0; z-index: 40; background: rgba(15,23,42,.96); backdrop-filter: blur(8px); color: #E2E8F0;
+  border-bottom: 1px solid #334155; padding: 9px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 12.5px; }
+.tb-left { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.tb-back { color: #FFFFFF; font-weight: 600; text-decoration: none; white-space: nowrap; }
+.tb-brand { font-weight: 700; letter-spacing: .08em; text-transform: uppercase; font-size: 11px; color: #94A3B8; white-space: nowrap; }
+.tb-nav { display: flex; gap: 14px; overflow-x: auto; }
+.tb-nav a { color: #CBD5E1; text-decoration: none; font-weight: 500; white-space: nowrap; }
+.tb-nav a:hover, .tb-back:hover { color: #FFFFFF; text-decoration: underline; }
+.tb-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.tb-right a { color: #CBD5E1; text-decoration: none; font-weight: 600; white-space: nowrap; }
+.tb-right a.get { border: 1px solid #475569; background: var(--navy); color: #FFFFFF; padding: 5px 12px; border-radius: 3px; }
+.tb-right a.get:hover { background: #264878; }
+@media (max-width: 760px) { .tb-nav, .tb-brand { display: none; } }
+
+.sheet { width: 8.5in; max-width: calc(100% - 32px); margin: 24px auto 48px; background: var(--paper); padding: .54in .62in .66in;
+  box-shadow: 0 2px 10px rgba(15,23,42,.08), 0 18px 40px rgba(15,23,42,.08); border: 1px solid #D6DCE4; }
+
+.masthead { border-top: 2.5pt solid var(--navy); padding-top: 8.5pt; margin-bottom: 10pt; }
+.mast-eyebrow { display: flex; justify-content: space-between; align-items: baseline; gap: 12pt; font-size: 7.1pt; font-weight: 700;
+  letter-spacing: .13em; text-transform: uppercase; color: var(--navy); margin-bottom: 4.5pt; }
+.mast-eyebrow .right { color: var(--mute); font-weight: 600; letter-spacing: .07em; font-variant-numeric: tabular-nums; }
+h1.co-name { font-family: var(--serif); font-size: 19.5pt; font-weight: 700; line-height: 1.12; letter-spacing: -.015em; color: var(--ink); margin: 0 0 2.5pt; }
+.subject-line { font-family: var(--serif); font-size: 10.6pt; line-height: 1.3; color: var(--soft); margin: 0 0 8pt; }
+.meta-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6pt 12pt; border-top: .75pt solid var(--rule); border-bottom: .75pt solid var(--rule); padding: 6pt 0; }
+.meta-cell .ml { font-size: 6.4pt; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--mute); margin-bottom: 1pt; }
+.meta-cell .mv { font-size: 8.4pt; font-weight: 600; color: var(--ink); line-height: 1.25; font-variant-numeric: tabular-nums; }
+.meta-cell .ms { font-size: 7.2pt; color: var(--mute); line-height: 1.25; margin-top: 1pt; }
+.withdrawn-banner { background: var(--loss-tint); border: 1pt solid #FCA5A5; border-left: 3pt solid var(--loss); color: var(--loss); padding: 7pt 10pt; font-size: 8.4pt; margin-bottom: 10pt; }
+
+.kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(110pt, 1fr)); background: var(--tint); border: .75pt solid var(--rule-soft);
+  border-top: 1.25pt solid var(--ink); margin-bottom: 10pt; break-inside: avoid; }
+.kpi { padding: 7.5pt 10pt; border-right: .75pt solid var(--rule-soft); }
+.kpi:last-child { border-right: 0; }
+.kpi-primary { border-top: 2pt solid var(--loss); margin-top: -1.25pt; background: #FFFFFF; }
+.kpi-label { font-size: 6.4pt; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--mute); margin-bottom: 2.5pt; }
+.kpi-val { font-size: 16pt; font-weight: 700; line-height: 1.08; color: var(--ink); font-variant-numeric: tabular-nums lining-nums; letter-spacing: -.02em; }
+.kpi-val.loss { color: var(--loss); }
+.kpi-sub { font-size: 7.2pt; color: var(--soft); margin-top: 2pt; line-height: 1.25; font-variant-numeric: tabular-nums; }
+.ep-bar { display: flex; height: 5.5pt; width: 100%; background: var(--rule-soft); overflow: hidden; margin: 5.5pt 0 4pt; border-radius: 1pt; }
+.ep-seg.observed { background: #1B7A4D; } .ep-seg.carried { background: #1B365D; } .ep-seg.assumed { background: #C26D2D; }
+
+.timeline-wrap { border: .75pt solid var(--rule-soft); padding: 5pt 8pt 3.5pt; margin-bottom: 11pt; background: #FFFFFF; break-inside: avoid; }
+.timeline-cap { font-size: 6.5pt; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--mute); margin-bottom: 1.5pt; }
+.timeline-svg { width: 100%; height: auto; display: block; font-family: var(--sans); }
+
+section { margin-bottom: 12pt; }
+h2.sec-h { font-family: var(--serif); font-size: 11.6pt; font-weight: 700; color: var(--ink); border-bottom: 1pt solid var(--navy); padding-bottom: 2.5pt;
+  margin: 12pt 0 7pt; display: flex; align-items: baseline; gap: 7pt; break-after: avoid; }
+.sec-num { font-family: var(--sans); font-size: 7.5pt; font-weight: 700; color: var(--navy); letter-spacing: .06em; font-variant-numeric: tabular-nums; }
+h3.sub-h { font-family: var(--sans); font-size: 7.65pt; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--navy); margin: 8.5pt 0 3.5pt; break-after: avoid; }
+
+table.data-table { width: 100%; border-collapse: collapse; font-size: 8.15pt; line-height: 1.36; border-top: 1.25pt solid var(--ink); border-bottom: 1pt solid var(--ink); }
+table.data-table thead { display: table-header-group; }
+table.data-table th { text-align: left; font-size: 6.65pt; font-weight: 700; letter-spacing: .065em; text-transform: uppercase; color: var(--soft);
+  background: var(--tint); padding: 5pt 6pt; border-bottom: .75pt solid var(--rule); white-space: nowrap; }
+table.data-table th.wrap-th { white-space: normal; line-height: 1.25; }
+table.data-table th.num, table.data-table td.num { text-align: right; font-variant-numeric: tabular-nums lining-nums; white-space: nowrap; }
+table.data-table td { padding: 3.6pt 5.5pt; border-bottom: .5pt solid var(--rule-soft); vertical-align: top; }
+table.data-table tr { break-inside: avoid; }
+table.data-table tbody tr:last-child td { border-bottom: 0; }
+table.data-table.compact { font-size: 7.6pt; }
+table.data-table.compact th, table.data-table.compact td { padding: 3.8pt 5pt; }
+table.kv-table .kv-k { color: var(--soft); font-weight: 500; }
+table.kv-table .kv-split { border-left: .75pt solid var(--rule-soft); padding-left: 9pt; }
+.row-baseline td { background: var(--tint); color: var(--soft); }
+.row-worst td { background: #FFFBFB; }
+.row-neutral td { color: var(--mute); }
+.bold { font-weight: 700; color: var(--ink); } .loss { color: var(--loss) !important; } .gain { color: var(--gain) !important; } .mute { color: var(--mute); }
+.sc-title-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3pt 5pt; }
+.sc-title { font-weight: 600; color: var(--ink); }
+.row-neutral .sc-title { font-weight: 500; color: var(--soft); }
+.sc-sub-tag { font-weight: 500; font-size: 7.3pt; color: var(--mute); }
+.cond-chip { display: inline-block; font-size: 6.7pt; font-weight: 600; padding: .5pt 4pt; border-radius: 2pt; line-height: 1.3; }
+.cond-chip.pos { background: var(--navy-tint); color: var(--navy); border: .5pt solid var(--navy-line); }
+.cond-chip.neg { background: #F1F5F9; color: var(--soft); border: .5pt solid var(--rule); }
+.sc-changes { font-size: 7.25pt; color: var(--mute); margin-top: 2pt; line-height: 1.3; }
+th.bar-col { width: 72pt; } td.bar-cell { width: 72pt; vertical-align: middle; }
+.mag-track { height: 6.5pt; width: 100%; background: #EDF2F7; border-radius: 1pt; overflow: hidden; }
+.mag-fill { height: 100%; background: var(--loss); border-radius: 1pt; }
+.table-note { font-size: 7.25pt; color: var(--mute); margin-top: 4pt; line-height: 1.35; }
+
+.context-lead { margin-bottom: 8pt; padding-bottom: 7pt; border-bottom: .5pt solid var(--rule-soft); break-inside: avoid; }
+.mech-two-col { display: grid; grid-template-columns: 1.15fr .85fr; gap: 14pt; }
+.prose-block { break-inside: avoid; }
+.prose-kicker { font-size: 6.8pt; font-weight: 700; letter-spacing: .085em; text-transform: uppercase; color: var(--navy); margin-bottom: 2.5pt; }
+.prose-block p { margin: 0 0 3.5pt; font-size: 8.45pt; line-height: 1.46; color: var(--body); }
+.prose-block p:last-child { margin-bottom: 0; }
+.stream-def { color: var(--soft); font-style: italic; font-size: 8.15pt !important; }
+.rel-line { color: var(--soft); font-size: 8.15pt !important; }
+.stream-def strong, .rel-line strong { color: var(--ink); font-weight: 600; font-style: normal; }
+ul.claims { margin: 2pt 0 0; padding-left: 12pt; font-size: 8.3pt; } ul.claims li { margin-bottom: 2pt; }
+
+.prop-node { border: .75pt solid var(--rule-soft); border-left: 2.25pt solid var(--navy); background: #FFFFFF; padding: 7pt 9.5pt; margin-bottom: 7pt; }
+.prop-main { break-inside: avoid; }
+.prop-node.child { border-left: 1.75pt solid #94A3B8; background: var(--tint); margin-top: 5pt; margin-bottom: 0; break-inside: avoid; }
+.prop-children { margin-top: 5.5pt; padding-left: 10pt; border-left: 1pt dotted var(--rule); }
+.prop-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10pt; margin-bottom: 3pt; flex-wrap: wrap; }
+.prop-title { font-family: var(--serif); font-size: 9.8pt; font-weight: 700; color: var(--ink); }
+.prop-meta { font-size: 7.1pt; font-weight: 600; color: var(--mute); font-variant-numeric: tabular-nums; }
+.prop-meta .sep { margin: 0 3pt; color: var(--rule); }
+.prop-text { margin: 0 0 4pt; font-size: 8.5pt; color: var(--ink); line-height: 1.44; }
+.prop-desc { margin: 0 0 3pt; font-size: 8pt; color: var(--soft); line-height: 1.42; }
+.res-source { margin-top: 4.5pt; padding: 4pt 7pt; background: var(--navy-tint); border: .5pt solid var(--navy-line); font-size: 7.7pt; color: var(--navy);
+  display: flex; gap: 8pt; align-items: baseline; }
+.res-kicker { font-size: 6.3pt; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; white-space: nowrap; flex-shrink: 0; }
+
+.formula-box { background: var(--tint); border: .75pt solid var(--rule-soft); border-left: 2.25pt solid var(--navy); padding: 7pt 9.5pt; margin-bottom: 8pt; break-inside: avoid; }
+.formula-row { margin-bottom: 5pt; } .formula-row:last-child { margin-bottom: 0; }
+.formula-lbl { font-size: 6.6pt; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--navy); }
+.formula-readable { font-family: var(--serif); font-size: 8.65pt; color: var(--ink); margin: 1pt 0; }
+.formula-code { font-family: var(--mono); font-size: 7.15pt; color: var(--mute); overflow-wrap: anywhere; }
+
+table.drivers { table-layout: fixed; } table.drivers td, table.drivers th { overflow-wrap: anywhere; }
+table.drivers th.c-in { width: 20%; } table.drivers th.c-out { width: 19%; } table.drivers th.c-val { width: 11%; } table.drivers th.c-basis { width: 15%; }
+table.drivers td.num { white-space: normal; }
+.drv-sym { font-family: var(--mono); font-size: 6.8pt; color: var(--mute); margin-top: 1pt; }
+.drv-cond { color: var(--body); font-size: 7.75pt; }
+.drv-base-row td { background: #FCFDFF; } .drv-base-row .drv-cond { color: var(--mute); font-style: italic; }
+.drv-note { font-size: 7.65pt; color: var(--soft); line-height: 1.34; }
+.cell-src { display: block; font-weight: 600; color: var(--navy); font-size: 7.2pt; margin-bottom: 1pt; }
+.unit { display: block; font-weight: 400; color: var(--mute); font-size: 6.9pt; white-space: normal; line-height: 1.25; }
+.ep-pill { display: inline-block; font-size: 6.3pt; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; padding: 1.5pt 4pt; border-radius: 2pt; white-space: nowrap; }
+.ep-pill.observed { color: var(--obs-ink); background: var(--obs-bg); border: .5pt solid var(--obs-line); }
+.ep-pill.carried { color: var(--navy); background: var(--navy-tint); border: .5pt solid var(--navy-line); }
+.ep-pill.assumed { color: var(--asm-ink); background: var(--asm-bg); border: .5pt solid var(--asm-line); }
+
+.fn-group { margin-left: 2pt; white-space: nowrap; }
+.fn-ref { font-size: 6.7pt; font-weight: 700; color: var(--navy); text-decoration: none; vertical-align: super; line-height: 0; margin-left: 1pt; font-variant-numeric: tabular-nums; }
+.fn-ref.q-ref { color: #6D28D9; } .fn-ref:hover { text-decoration: underline; }
+
 .appendix { break-before: page; }
-.notes { font-size: 8pt; line-height: 1.36; }
-.notes ol { margin: 0; padding-left: 16pt; } .notes li { margin-bottom: 4.5pt; break-inside: avoid; }
-.notes .q { font-family: Charter, "Iowan Old Style", Georgia, serif; font-size: 8.6pt; color: #1b1b1b; display: block; margin-top: 1pt; }
-.notes a { color: #1f3a5f; word-break: break-all; text-decoration: none; }
-.comp { break-inside: avoid; margin-bottom: 9pt; }
-.comp pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 6.9pt; line-height: 1.3; background: #f6f6f4; padding: 5pt 7pt; margin: 3pt 0;
-            white-space: pre-wrap; word-break: break-word; }
-.comp table { font-size: 7.4pt; }
-.end { font-family: -apple-system, Helvetica, Arial, sans-serif; font-size: 7.4pt; color: #555; margin-top: 12pt; border-top: 1px solid #cfcfcf; padding-top: 4pt; }
+.appendix-banner { font-size: 7.1pt; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--mute); border-bottom: .75pt solid var(--rule);
+  padding-bottom: 3.5pt; margin-bottom: 9pt; }
+.finding-card { border: .75pt solid var(--rule-soft); border-left: 2pt solid #475569; padding: 7pt 9.5pt; margin-bottom: 7.5pt; background: var(--tint); break-inside: avoid; }
+.finding-kind { font-size: 6.7pt; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--navy); margin-bottom: 2.5pt; }
+.finding-card p { margin: 0; font-size: 8.2pt; line-height: 1.46; color: var(--body); }
+.src-entry { display: grid; grid-template-columns: 22pt 1fr; gap: 5pt; padding: 5.5pt 0; border-bottom: .5pt solid var(--rule-soft); break-inside: avoid; }
+.src-entry:last-child { border-bottom: 0; }
+.src-num { font-size: 8pt; font-weight: 700; color: var(--navy); font-variant-numeric: tabular-nums; padding-top: .5pt; }
+.src-title { font-weight: 700; font-size: 8.4pt; color: var(--ink); line-height: 1.3; }
+.src-meta { font-size: 7.35pt; color: var(--mute); margin-top: 1pt; }
+.src-url { display: inline-block; font-size: 7pt; color: var(--navy); text-decoration: none; overflow-wrap: anywhere; word-break: break-word; margin-top: 1pt; }
+.quote-list { margin-top: 4pt; display: flex; flex-direction: column; gap: 3.5pt; }
+.quote-item { border-left: 1.5pt solid var(--rule); padding-left: 6.5pt; }
+.quote-sup { display: block; font-size: 7pt; font-weight: 700; color: var(--navy); margin-bottom: .5pt; }
+.quote-item blockquote { margin: 0; font-family: var(--serif); font-size: 7.85pt; font-style: italic; color: var(--body); line-height: 1.4; }
+.comp-card { border: .75pt solid var(--rule-soft); padding: 6pt 8.5pt; margin-bottom: 6pt; background: #FFFFFF; break-inside: avoid; }
+.comp-head { display: flex; align-items: baseline; gap: 6pt; margin-bottom: 3pt; flex-wrap: wrap; }
+.comp-id { font-size: 7.9pt; font-weight: 700; color: #6D28D9; font-variant-numeric: tabular-nums; }
+.comp-title { font-weight: 700; font-size: 8.6pt; color: var(--ink); }
+.comp-note { margin: 0 0 5.5pt; font-size: 7.75pt; color: var(--soft); line-height: 1.38; }
+.comp-table-wrap { margin-bottom: 5.5pt; } .comp-trunc { font-size: 7pt; color: var(--mute); margin-top: 2.5pt; }
+.sql-kicker { font-size: 6.9pt; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--mute); margin-bottom: 2.5pt; }
+pre.sql { margin: 2pt 0 0; padding: 4.5pt 7pt; background: var(--tint); border: .5pt solid var(--rule-soft); font-family: var(--mono); font-size: 6.6pt;
+  line-height: 1.32; color: var(--soft); white-space: pre-wrap; overflow-wrap: anywhere; }
+ul.cond-list { list-style: none; margin: 4pt 0 0; padding: 0; font-size: 7.85pt; color: var(--soft); line-height: 1.44; }
+ul.cond-list li { display: grid; grid-template-columns: 52pt 1fr; gap: 6pt; margin-bottom: 4.5pt; align-items: baseline; }
+.clause-tag { font-size: 6.4pt; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--navy); background: var(--navy-tint);
+  border: .5pt solid var(--navy-line); padding: 1pt 4pt; text-align: center; border-radius: 2pt; }
+.doc-foot { margin-top: 16pt; padding-top: 6pt; border-top: .75pt solid var(--rule); display: flex; justify-content: space-between; gap: 12pt; font-size: 7pt; color: var(--mute); }
+
+@page { size: Letter; margin: .5in .56in .62in; }
+@media print {
+  html { background: #FFFFFF; }
+  .toolbar { display: none !important; }
+  .sheet { width: auto; max-width: none; margin: 0; padding: 0; box-shadow: none; border: 0; }
+}
 """
 
 
@@ -295,70 +412,89 @@ def _e(s):
     return _html.escape(str(s if s is not None else ""), quote=False)
 
 
-def _outcome(parts):
-    """An outcome as the store labels it, one proposition to a line, with those that turn out false set apart."""
-    return "<br>".join(f'<span class="not">{_e(p)}</span>' if p.startswith("Not: ") else _e(p) for p in parts)
+PILL = {"Stated in a record": ("observed", "Read"), "Computed from records": ("observed", "Read"), "Assumed": ("assumed", "Assumed"),
+        "Stated in a record, carried over by an assumption": ("carried", "Read · carried over"),
+        "Computed from records, carried over by an assumption": ("carried", "Read · carried over")}
+
+
+def _pill(kind):
+    cls, word = PILL[kind]
+    return f'<span class="ep-pill {cls}">{_e(word)}</span>'
+
+
+def _scenario(parts, changed=()):
+    """An outcome as the store labels it: its first proposition as the title, the rest as chips, with those that
+    turn out false set apart, and beneath them the inputs that take another value there."""
+    first, rest = parts[0], parts[1:]
+    chips = "".join(f'<span class="cond-chip {"neg" if p.startswith("Not: ") else "pos"}">{_e(p)}</span>' for p in rest)
+    moves = " · ".join(f'{_e(x["label"])}: {_e(x["value"])}' for x in changed)
+    return (f'<div class="sc-title-row"><span class="sc-title">{_e(first)}</span>{chips}</div>'
+            + (f'<div class="sc-changes">{moves}</div>' if moves else ""))
+
+
+def _in_words(formula, labels):
+    """A formula with each input by its label, and the signs a reader expects."""
+    out = []
+    for tok in re.findall(r"[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)?|\S", formula):
+        out.append(f"<em>{_e(labels[tok])}</em>" if tok in labels else {"*": " &times; ", "-": " &minus; ", "+": " + ", "/": " &divide; ",
+                                                                         ",": ", "}.get(tok, _e(tok)))
+    return "".join(out)
 
 
 def _dates(d):
-    """One strip of dates as an inline drawing: the day the memo is as of, the span in which each proposition is
-    decided, and the period revenue is counted over, on one axis. It shows how much of the period lies after
-    each decision."""
+    """One strip of dates as an inline drawing: the day the memo is as of, when each proposition is decided (a
+    span where it has a window, a day where it has one date), and the period revenue is counted over, on one
+    axis marked by quarter. It shows how much of the period lies after each decision."""
     day = dt.date.fromisoformat
     as_of, (p0, p1) = day(d["dates"]["as_of"]), (day(x) for x in d["dates"]["period"])
     rows = [(p["title"], day(p["start"]) if p["start"] else None, day(p["end"])) for p in [*d["events"], *d["others"]]]
     lo = min([as_of, p0] + [a for _, a, _ in rows if a] + [b for _, _, b in rows])
     hi = max([p1] + [b for _, _, b in rows])
-    lo, hi = lo - dt.timedelta(days=10), hi + dt.timedelta(days=10)
-    width, step = 660, 20
-    x = lambda t: round(4 + (width - 8) * (t - lo).days / ((hi - lo).days or 1), 1)  # noqa: E731
-    height = 20 + step * (len(rows) + 1) + 16
-    o = [f'<svg class="dates" viewBox="0 0 {width} {height}" role="img" aria-label="The dates the estimate turns on">']
+    lo, hi = lo - dt.timedelta(days=12), hi + dt.timedelta(days=12)
+    width, step, top = 680, 19, 24
+    x = lambda t: round(6 + (width - 12) * (t - lo).days / ((hi - lo).days or 1), 1)  # noqa: E731
+    base = top + step * (len(rows) + 1) + 3
+    o = [f'<svg class="timeline-svg" viewBox="0 0 {width} {base + 14}" role="img" aria-label="The dates the estimate turns on">']
+    year, long = lo.year, (hi - lo).days > 1100
+    while dt.date(year, 1, 1) <= hi:                                 # the axis: a line at each quarter, named
+        for q, month in enumerate((1, 4, 7, 10), 1):
+            t = dt.date(year, month, 1)
+            if lo <= t <= hi and (month == 1 or not long):
+                anchor = "end" if x(t) > width - 26 else "start" if x(t) < 26 else "middle"
+                o.append(f'<line x1="{x(t)}" x2="{x(t)}" y1="14" y2="{base}" stroke="#E2E8F0" stroke-width="1"/>')
+                name = f"{year}" if long else f"Q{q} ’{year % 100:02d}"
+                o.append(f'<text x="{x(t)}" y="{base + 11}" fill="#64748B" font-size="8.2" text-anchor="{anchor}">{name}</text>')
+        year += 1
 
-    def bar(n, a, b, text, cls):
-        y = 22 + step * n
+    def row(n, a, b, text, period=False):
+        y = top + step * n
         left, right = x(a), x(b)
-        far = left > width * 0.55                                   # a bar near the right edge is labelled leftwards
-        o.append(f'<text x="{right if far else left}" y="{y}" class="lbl" text-anchor="{"end" if far else "start"}">{_e(text)}</text>')
-        if right - left < 2:
-            o.append(f'<path d="M{right} {y + 2.5} l4 4 l-4 4 l-4 -4 z" class="{cls}"/>')        # a day, not a span
-        else:
-            o.append(f'<rect x="{left}" y="{y + 4}" width="{round(right - left, 1)}" height="5" rx="1" class="{cls}"/>')
+        far = left > width * 0.55                                   # a row near the right edge is labelled leftwards
+        ink = "#0F172A" if period else "#475569"
+        o.append(f'<text x="{right if far else left}" y="{y - 2.5}" fill="{ink}" font-size="8.2" font-weight="{700 if period else 600}" '
+                 f'text-anchor="{"end" if far else "start"}">{_e(text)}</text>')
+        if period:
+            o.append(f'<rect x="{left}" y="{y}" width="{round(right - left, 1)}" height="7.5" rx="1.5" fill="#1B365D" fill-opacity=".18" stroke="#1B365D" stroke-width="1.1"/>')
+            return
+        if right - left >= 2:
+            o.append(f'<rect x="{left}" y="{y + .5}" width="{round(right - left, 1)}" height="6.5" rx="1.5" fill="#EEF3F9" stroke="#1B365D" stroke-width="1"/>')
+        else:                                                       # one date: a dotted line from today to the day
+            o.append(f'<line x1="{x(as_of)}" x2="{right}" y1="{y + 3.7}" y2="{y + 3.7}" stroke="#64748B" stroke-width="1" stroke-dasharray="1.5,2.5"/>')
+        o.append(f'<polygon points="{right},{y - .3} {right + 4},{y + 3.7} {right},{y + 7.7} {right - 4},{y + 3.7}" fill="#1B365D"/>')
 
     for n, (title, a, b) in enumerate(rows):
         when = f"{a:%b} {a.day}, {a.year} – {b:%b} {b.day}, {b.year}" if a else f"{b:%b} {b.day}, {b.year}"
-        bar(n, a or b, b, f"{title[:72] + ('…' if len(title) > 72 else '')}: decided {when}", "win")
-    bar(len(rows), p0, p1, f"Period revenue is counted over: {d['period']}", "per")
-    base = 22 + step * (len(rows) + 1) + 2
-    o.append(f'<line x1="4" x2="{width - 4}" y1="{base}" y2="{base}" class="axis"/>')
-    year = lo.year
-    while dt.date(year, 1, 1) <= hi:                                 # the axis: each January named, each quarter marked
-        for month in (1, 4, 7, 10):
-            t = dt.date(year, month, 1)
-            if lo <= t <= hi:
-                o.append(f'<line x1="{x(t)}" x2="{x(t)}" y1="{base}" y2="{base + (5 if month == 1 else 3)}" class="axis"/>')
-                if month == 1 or (hi - lo).days < 500:
-                    anchor = "end" if x(t) > width - 30 else "start" if x(t) < 30 else "middle"     # a tick at an edge stays inside
-                    o.append(f'<text x="{x(t)}" y="{base + 13}" class="tick" text-anchor="{anchor}">{t:%b} {t.year if month == 1 else ""}</text>')
-        year += 1
-    o.append(f'<line x1="{x(as_of)}" x2="{x(as_of)}" y1="10" y2="{base}" class="asof"/>')
-    o.append(f'<text x="{x(as_of) + 3}" y="9" class="tick">As of {as_of:%b} {as_of.day}, {as_of.year}</text></svg>')
+        row(n, a or b, b, f"{title[:70] + ('…' if len(title) > 70 else '')} · decided {when}")
+    row(len(rows), p0, p1, f"Period revenue is counted over · {d['period']}", period=True)
+    o.append(f'<line x1="{x(as_of)}" x2="{x(as_of)}" y1="11" y2="{base}" stroke="#991B1B" stroke-width="1.2" stroke-dasharray="2.5,2.5"/>')
+    o.append(f'<text x="{x(as_of) + 3}" y="9" fill="#991B1B" font-size="7.8" font-weight="600">As of {as_of:%b} {as_of.day}, {as_of.year}</text></svg>')
     return "".join(o)
 
 
-SHORT = {"Stated in a record": "Stated", "Computed from records": "Computed", "Assumed": "Assumed",
-         "Stated in a record, carried over by an assumption": "Stated, carried over",
-         "Computed from records, carried over by an assumption": "Computed, carried over"}
-
-
-def _tag(kind, short=False):
-    return f'<span class="tag{" assumed" if kind == "Assumed" else ""}">{_e(SHORT[kind] if short else kind)}</span>'
-
-
 def html(doc, bar=None):
-    """The document as one self-contained page: no script, no outside resource, print rules for Letter.
-    `bar` is for the page as the watch server shows it: {back, back_label, pdf, name}, a strip across the top of
-    the screen with the way back to the case and the PDF. It is not printed."""
+    """The document as one self-contained page: no script, no outside resource, print rules for Letter. A strip
+    across the top of the screen leads to each section, and is not printed. `bar` adds to it what the page's
+    host offers: {back, back_label, pdf, name}, the way back to the case and the PDF."""
     d, o = doc, []
     add = o.append
 
@@ -368,166 +504,180 @@ def html(doc, bar=None):
         marks = []
         for n, k in notes:
             letter = chr(97 + k) if k is not None and len(d["notes"][n - 1]["passages"]) > 1 else ""
-            marks.append(f'<a href="#note-{n}">{n}{letter}</a>')
-        marks += [f'<a href="#comp-{n}">C{n}</a>' for n in computations]
-        return f"<sup>{', '.join(marks)}</sup>" if marks else ""
+            marks.append(f'<a class="fn-ref" href="#note-{n}">[{n}{letter}]</a>')
+        marks += [f'<a class="fn-ref q-ref" href="#comp-{n}">[C{n}]</a>' for n in computations]
+        return f'<span class="fn-group">{"".join(marks)}</span>' if marks else ""
 
     def amount(v):
-        return f'<b>{_e(v["value"])}</b>' + (f' <span class="unit">{_e(v["unit"])}</span>' if v.get("unit") else "")
+        return f'{_e(v["value"])}' + (f'<span class="unit">{_e(v["unit"])}</span>' if v.get("unit") else "")
 
-    def value(label, v):
-        read = f'<p class="small">{_e(v["read"])}.</p>' if v.get("read") else ""
-        marks = refs(v["notes"], v["computations"])
-        why = f'<p>{_e(v["reasoning"])}{marks}</p>' if v["reasoning"] else (f'<p class="small">Rests on {marks}</p>' if marks else "")
-        return (f'<div class="val"><div class="line"><span>{_e(label)}: {amount(v)}</span>{_tag(v["kind"])}</div>{read}{why}</div>')
-
-    def figure(f):
-        rows = [value("As things stand", f)] + [value("If " + x["when"], x) for x in f["outcomes"]]
-        return (f'<div class="fig"><div class="head"><span class="name">{_e(f["label"])}</span><code>{_e(f["name"])}</code></div>'
-                f'{"".join(rows)}</div>')
+    def why(v):
+        read = f'<span class="cell-src">{_e(v["read"])}</span>' if v.get("read") else ""
+        return f'{read}{_e(v["reasoning"])}{refs(v["notes"], v["computations"])}'
 
     title = f"{d['company']}: {d['event']}"
+    sections = [("sec-stake", "At stake"), ("sec-reach", "Mechanism"), ("sec-event", "Event"), ("sec-model", "Estimate"),
+                ("sec-notes", "Records")]
+    back = (f'<a class="tb-back" href="{_html.escape(bar["back"], quote=True)}">← {_e(bar["back_label"])}</a>' if bar else "")
+    get = (f'<a href="{_html.escape(bar["pdf"], quote=True)}">Open PDF</a>'
+           f'<a class="get" href="{_html.escape(bar["pdf"], quote=True)}" download="{_html.escape(bar["name"], quote=True)}">Download PDF</a>' if bar else "")
     add(f'<!doctype html><html lang="en"><head><meta charset="utf-8"><title>{_e(title)}</title>'
-        f'<meta name="viewport" content="width=device-width,initial-scale=1"><style>{CSS}</style></head><body><main>')
-    if bar:
-        q = lambda u: _html.escape(u, quote=True)  # noqa: E731
-        o[-1] = o[-1].replace(
-            "<body><main>",
-            f'<body><nav class="bar"><div class="in"><a class="back" href="{q(bar["back"])}">‹ {_e(bar["back_label"])}</a>'
-            f'<span class="what">{_e(d["company"])} · {_e(d["event"])}</span>'
-            f'<a class="open" href="{q(bar["pdf"])}">Open PDF</a>'
-            f'<a class="get" href="{q(bar["pdf"])}" download="{q(bar["name"])}">Download PDF</a></div></nav><main>')
-    add('<p class="kicker">Revenue exposure memo</p>')
-    add(f'<h1>{_e(d["company"])}</h1><p class="event">{_e(d["event"])}</p>')
-    if d["withdrawn"]:
-        add('<p class="withdrawn">This case is withdrawn. It reads as its last revision held it.</p>')
-    add(f'<div class="meta"><span><b>As of</b> {_e(d["as_of"])}</span><span><b>Decided on or by</b> {_e(d["decided"])}</span>'
-        f'<span><b>Period</b> {_e(d["period"])}</span><span><b>Currency</b> {_e(d["currency"])}</span></div>')
+        f'<meta name="viewport" content="width=device-width,initial-scale=1"><style>{CSS}</style></head><body>'
+        f'<div class="toolbar"><div class="tb-left">{back}<span class="tb-brand">Revenue exposure memo</span><nav class="tb-nav">'
+        + "".join(f'<a href="#{k}">{_e(v)}</a>' for k, v in sections) + f'</nav></div><div class="tb-right">{get}</div></div><div class="sheet">')
 
-    # what is at stake
+    # the masthead
     a = d["at_stake"]
-    add('<h2>Revenue at stake</h2>')
-    add(f'<p>{_e(d["stream"])}</p>')
-    add('<div class="key">'
-        f'<div><div class="n">{_e(a["shortfall"])}</div><div class="l">Largest shortfall in the period</div></div>'
-        + (f'<div><div class="n">{_e(a["share"])}</div><div class="l">Share of revenue</div></div>' if a["share"] else "")
-        + (f'<div><div class="n">{_e(a["contribution"])}</div><div class="l">Contribution lost with it</div></div>' if a["contribution"] else "")
-        + f'<div><div class="t">{_outcome(a["outcome"])}</div><div class="l">The outcome it falls in</div></div></div>')
+    add(f'<header class="masthead"><div class="mast-eyebrow"><span>Revenue exposure memo</span><span class="right">As of {_e(d["as_of"])}</span></div>'
+        f'<h1 class="co-name">{_e(d["company"])}</h1><p class="subject-line">{_e(d["event"])}</p><div class="meta-grid">'
+        f'<div class="meta-cell"><div class="ml">Decided on or by</div><div class="mv">{_e(d["decided"])}</div><div class="ms">The event</div></div>'
+        f'<div class="meta-cell"><div class="ml">Period</div><div class="mv">{_e(d["period"])}</div><div class="ms">Revenue is counted over it</div></div>'
+        + (f'<div class="meta-cell"><div class="ml">Share is of</div><div class="mv">{_e(a["of_value"])}</div><div class="ms">{_e(a["of"])}</div></div>' if a["of"] else "")
+        + f'<div class="meta-cell"><div class="ml">Currency</div><div class="mv">{_e(d["currency"])}</div><div class="ms">Each figure is conditional on its outcome</div></div>'
+        '</div></header>')
+    if d["withdrawn"]:
+        add('<div class="withdrawn-banner">This case is withdrawn. It reads as its last revision held it.</div>')
+
+    # the key figures
+    r = d["rests"]
+    n = max(r["figures"], 1)
+    add('<div class="kpi-strip">'
+        f'<div class="kpi kpi-primary"><div class="kpi-label">Largest shortfall</div><div class="kpi-val loss">{_e(a["shortfall"])}</div>'
+        f'<div class="kpi-sub">{_e(a["share"] + " of revenue" if a["share"] else "in the period")}</div></div>'
+        + (f'<div class="kpi"><div class="kpi-label">Contribution lost with it</div><div class="kpi-val">{_e(a["contribution"])}</div>'
+           '<div class="kpi-sub">Revenue less the costs that move with it</div></div>' if a["contribution"] else "")
+        + f'<div class="kpi"><div class="kpi-label">Revenue as things stand</div><div class="kpi-val">{_e(a["baseline"])}</div>'
+          f'<div class="kpi-sub">{_e(d["period"])}</div></div>'
+        f'<div class="kpi"><div class="kpi-label">Basis of the {r["figures"]} figures</div><div class="ep-bar">'
+        f'<span class="ep-seg observed" style="width:{100 * r["read"] / n:.1f}%"></span><span class="ep-seg carried" style="width:{100 * r["carried"] / n:.1f}%"></span>'
+        f'<span class="ep-seg assumed" style="width:{100 * r["assumed"] / n:.1f}%"></span></div>'
+        f'<div class="kpi-sub">{r["read"]} read · {r["carried"]} read and carried over · {r["assumed"]} assumed</div></div></div>')
+    add(f'<div class="timeline-wrap"><div class="timeline-cap">When each is decided, against the period</div>{_dates(d)}</div>')
+
+    # 01 what is at stake
     cols = "".join(f'<th class="num">{_e(t)}</th>' for t in d["extra_columns"])
-    add(f'<table><thead><tr><th>Outcome</th><th class="num">Revenue in the period</th><th class="num">Shortfall</th>'
-        f'<th class="num">Share</th>{cols}</tr></thead><tbody>')
-    dash = "".join('<td class="num">–</td>' for _ in d["extra_columns"])
-    add(f'<tr class="asis"><td>As things stand</td><td class="num">{_e(a["baseline"])}</td><td class="num">–</td>'
-        f'<td class="num">–</td>{dash}</tr>')
+    add('<section id="sec-stake"><h2 class="sec-h"><span class="sec-num">01</span> Revenue at stake in each outcome</h2>'
+        f'<table class="data-table"><thead><tr><th>Outcome</th><th class="num">Revenue in the period</th><th class="num">Shortfall</th>'
+        f'<th class="num">Share</th>{cols}<th class="bar-col">Against the largest</th></tr></thead><tbody>')
+    dash = "".join('<td class="num mute">–</td>' for _ in d["extra_columns"])
+    add(f'<tr class="row-baseline"><td><div class="sc-title-row"><span class="sc-title">As things stand</span></div></td>'
+        f'<td class="num">{_e(a["baseline"])}</td><td class="num mute">–</td><td class="num mute">–</td>{dash}<td class="bar-cell"><div class="mag-track"></div></td></tr>')
     for w in d["outcomes"]:
         more = "".join(f'<td class="num">{_e(x)}</td>' for x in w["extra"])
-        moves = " · ".join(f'{_e(x["label"])}: {_e(x["value"])}' for x in w["changed"])
-        moves = f'<div class="moves">{moves}</div>' if moves else ""
-        add(f'<tr{" class=worst" if w["worst"] else ""}><td>{_outcome(w["outcome"])}{moves}</td><td class="num">{_e(w["revenue"])}</td>'
-            f'<td class="num">{_e(w["shortfall"])}</td><td class="num">{_e(w["share"])}</td>{more}</tr>')
-    add('</tbody></table>')
-    r = d["rests"]
-    plural = lambda n, one, many: f"{n} {one if n == 1 else many}"  # noqa: E731
-    add('<p class="small">Shortfall is revenue as things stand less revenue in the outcome, over the period.'
-        + (f' Share is of {_e(a["of"])}.' if a["of"] else "")
-        + f' Under each outcome are the inputs that take another value there. The estimate states {plural(r["figures"], "figure", "figures")}: '
-          f'{plural(r["read"], "is", "are")} read from records as they stand, {plural(r["carried"], "is", "are")} read from records and '
-          f'carried over by an assumption, and {plural(r["assumed"], "is", "are")} assumed.</p>')
-    add(_dates(d))
+        cls = "row-worst" if w["worst"] and w["moves"] else "" if w["moves"] else "row-neutral"
+        tone = "gain bold" if w["gain"] else "loss bold" if w["moves"] else "mute"
+        add(f'<tr class="{cls}"><td>{_scenario(w["outcome"], w["changed"])}</td><td class="num">{_e(w["revenue"])}</td>'
+            f'<td class="num {tone}">{_e(w["shortfall"])}</td><td class="num{" bold" if w["worst"] and w["moves"] else ""}">{_e(w["share"])}</td>{more}'
+            f'<td class="bar-cell"><div class="mag-track"><div class="mag-fill" style="width:{100 * w["against_worst"]:.1f}%"></div></div></td></tr>')
+    add('</tbody></table><p class="table-note">Each figure is what revenue would be if that outcome happens, and says nothing of how likely it is. '
+        'Shortfall is revenue as things stand less revenue in the outcome, over the period.'
+        + (f' Share is of {_e(a["of"])} ({_e(a["of_value"])}).' if a["of"] else "")
+        + ' Under each outcome are the inputs that take another value there.</p></section>')
 
-    # the event
-    add(f'<h2>{"The events" if len(d["events"]) > 1 else "The event"}</h2>')
-
-    def prop(p, head=True):
-        if head:
-            add(f'<h3>{_e(p["title"])}</h3>')
-        add(f'<p>{_e(p["text"])}</p>')
-        if p["about"]:
-            add(f'<p>{_e(p["about"])}{refs(p["notes"])}</p>')
-        rows = f'<dt>Decided</dt><dd>{_e(p["window"])}</dd>'
-        if p["shown_by"]:
-            rows += f'<dt>Shown by</dt><dd>{_e(p["shown_by"])}</dd>'
-        if p["only_if"]:
-            rows += f'<dt>True only if</dt><dd>{_e("; ".join(p["only_if"]))}</dd>'
-        if p["only_if_not"]:
-            rows += f'<dt>True only if not</dt><dd>{_e("; ".join(p["only_if_not"]))}</dd>'
-        if not p["about"] and p["notes"]:
-            rows += f'<dt>Rests on</dt><dd>{refs(p["notes"])}</dd>'
-        add(f'<dl>{rows}</dl>')
-
-    for p in d["events"]:
-        prop(p, head=len(d["events"]) > 1 or bool(d["others"]))
-    for p in d["others"]:
-        add(f'<h3>{_e(p["title"])}</h3>')
-        if p["within"]:
-            add(f'<p class="small">One of the ways of: {_e(p["within"])}</p>')
-        prop(p, head=False)
-
-    # how it reaches the revenue
-    add('<h2>How the event reaches the revenue</h2>')
-    if d["business"]:
-        add(f'<p>{_e(d["business"])}</p>')
-    if d["relationships"]:
-        add(f'<p>{_e(d["relationships"])}</p>')
-    add(f'<p>{_e(d["dependency"])}</p>')
-    add(f'<h3>When</h3><p>{_e(d["timing"])}</p>')
+    # 02 the company, and how the event reaches its revenue
+    add('<section id="sec-reach"><h2 class="sec-h"><span class="sec-num">02</span> The company, and how the event reaches its revenue</h2>'
+        '<div class="prose-block context-lead"><div class="prose-kicker">The company and the revenue</div>'
+        + (f'<p>{_e(d["business"])}</p>' if d["business"] else "")
+        + f'<p class="stream-def"><strong>The revenue this memo is about:</strong> {_e(d["stream"])}</p>'
+        + (f'<p class="rel-line"><strong>Owners and counterparties:</strong> {_e(d["relationships"])}</p>' if d["relationships"] else "")
+        + '</div><div class="mech-two-col"><div class="prose-block"><div class="prose-kicker">How the event reaches the revenue</div>'
+        f'<p>{_e(d["dependency"])}</p></div><div class="prose-block"><div class="prose-kicker">When</div><p>{_e(d["timing"])}</p></div></div>')
     if d["establishes"]:
-        add('<h3>What establishes this</h3><ul class="claims">'
+        add('<h3 class="sub-h">What establishes this</h3><ul class="claims">'
             + "".join(f'<li>{_e(x["claim"])}{refs([x["note"]])}</li>' for x in d["establishes"]) + '</ul>')
+    add('</section>')
 
-    # how the estimate is built
-    add('<h2>How the estimate is built</h2>')
-    for f in d["formulas"]:
-        add(f'<div class="formula"><b>{_e(f["name"])}</b> = {_e(f["formula"])}</div>')
-    add('<table class="where"><thead><tr><th style="width:17%">In the formula</th><th>What it is</th>'
-        '<th class="num" style="width:17%">As things stand</th><th style="width:22%">Basis</th></tr></thead><tbody>'
-        + "".join(f'<tr><td><code>{_e(f["name"])}</code></td><td>{_e(f["label"])}</td><td class="num"><b>{_e(f["value"])}</b></td>'
-                  f'<td>{_tag(f["kind"], short=True)}</td></tr>' for f in d["figures"]) + '</tbody></table>')
+    # 03 the event
+    def node(p, child=False, shown_above=None):
+        meta = [x for x in (p.get("relation"), f"Decided · {p['window']}") if x]
+        body = (f'<div class="prop-main"><div class="prop-head"><div class="prop-title">{_e(p["title"])}</div><div class="prop-meta">'
+                + " <span class='sep'>·</span> ".join(f"<span>{_e(x)}</span>" for x in meta) + '</div></div>'
+                f'<p class="prop-text">{_e(p["text"])}{"" if p["about"] else refs(p["notes"])}</p>'
+                + (f'<p class="prop-desc">{_e(p["about"])}{refs(p["notes"])}</p>' if p["about"] else "")
+                + (f'<div class="res-source"><span class="res-kicker">Shown by</span><span>{_e(p["shown_by"])}</span></div>'
+                   if p["shown_by"] and p["shown_by"] != shown_above else "") + '</div>')
+        kids = "".join(node(k, True, p["shown_by"]) for k in p["children"])
+        return (f'<div class="prop-node {"child" if child else "root"}">{body}'
+                + (f'<div class="prop-children">{kids}</div>' if kids else "") + '</div>')
+
+    add(f'<section id="sec-event"><h2 class="sec-h"><span class="sec-num">03</span> {"The events" if len(d["events"]) > 1 else "The event"}, and the ways it can turn out</h2>'
+        + "".join(node(p) for p in d["tree"]) + '</section>')
+
+    # 04 how the estimate is built
+    add('<section id="sec-model"><h2 class="sec-h"><span class="sec-num">04</span> How the estimate is built</h2><div class="formula-box">'
+        + "".join(f'<div class="formula-row"><div class="formula-lbl">{_e(f["name"])}</div><div class="formula-readable">{_in_words(f["formula"], d["labels"])}</div>'
+                  f'<div class="formula-code">{_e(f["formula"])}</div></div>' for f in d["formulas"]) + '</div>')
     if d["changing"]:
-        add('<h3>What changes with the outcome</h3>')
-        o.extend(figure(f) for f in d["changing"])
+        add('<h3 class="sub-h">What changes with the outcome</h3><table class="data-table drivers"><thead><tr><th class="c-in">Input</th><th class="c-out">Outcome</th>'
+            '<th class="num c-val">Value</th><th class="c-basis">Basis</th><th>Reasoning</th></tr></thead><tbody>')
+        for f in d["changing"]:
+            rows = [("As things stand", f)] + [(x["when"], x) for x in f["outcomes"]]
+            for i, (when, v) in enumerate(rows):
+                name = (f'<td class="drv-name" rowspan="{len(rows)}"><strong>{_e(f["label"])}</strong><div class="drv-sym">{_e(f["name"])}</div></td>' if i == 0 else "")
+                add(f'<tr class="{"drv-base-row" if i == 0 else "drv-cond-row"}">{name}<td class="drv-cond">{_e(when)}</td>'
+                    f'<td class="num bold">{amount(v)}</td><td>{_pill(v["kind"])}</td><td class="drv-note">{why(v)}</td></tr>')
+        add('</tbody></table>')
     if d["constant"]:
-        add('<h3>What holds in every outcome</h3>')
-        o.extend(figure(f) for f in d["constant"])
+        add('<h3 class="sub-h">What holds in every outcome</h3><table class="data-table drivers"><thead><tr><th class="c-in" style="width:26%">Input</th>'
+            '<th class="num c-val" style="width:13%">Value</th><th class="c-basis">Basis</th><th>Reasoning</th></tr></thead><tbody>')
+        for f in d["constant"]:
+            add(f'<tr><td class="drv-name"><strong>{_e(f["label"])}</strong><div class="drv-sym">{_e(f["name"])}</div></td>'
+                f'<td class="num bold">{amount(f)}</td><td>{_pill(f["kind"])}</td><td class="drv-note">{why(f)}</td></tr>')
+        add('</tbody></table>')
+    add('</section>')
 
-    # appendix
-    add('<section class="appendix">')
+    # the appendix
+    add('<div class="appendix"><div class="appendix-banner">Appendix · what the memo rests on</div>')
+    if d["findings"]:
+        add('<section><h2 class="sec-h"><span class="sec-num">A</span> Findings recorded on the case</h2>'
+            + "".join(f'<div class="finding-card"><div class="finding-kind">{_e(f["kind"])}</div><p>{_e(f["statement"])}{refs(f["notes"], f["computations"])}</p></div>'
+                      for f in d["findings"]) + '</section>')
     if d["notes"]:
-        add('<h2>Notes: the records cited</h2><div class="notes"><ol>')
+        add('<section id="sec-notes"><h2 class="sec-h"><span class="sec-num">B</span> The records cited</h2>')
         for n in d["notes"]:
-            when = "; ".join(x for x in (n["published"] and f"published {n['published']}", n["read"] and f"read {n['read']}") if x)
-            link = f' <a href="{_html.escape(n["url"], quote=True)}">{_e(n["url"])}</a>' if n["url"] else ""
+            when = " · ".join(x for x in (n["published"] and f"Published {n['published']}", n["read"] and f"Read {n['read']}") if x)
+            link = f'<a class="src-url" href="{_html.escape(n["url"], quote=True)}">{_e(n["url"])}</a>' if n["url"] else ""
             many = len(n["passages"]) > 1
             quoted = "".join(
-                f'<span class="q">{f"<b>{chr(97 + k)}.</b> " if many else ""}“{_e(q["text"])}”'
-                f'{"" if q["checked"] else " (not checked against the record)"}</span>' for k, q in enumerate(n["passages"]))
-            add(f'<li id="note-{n["n"]}"><b>{_e(n["title"])}</b>{", " + _e(when) if when else ""}.{link}{quoted}</li>')
-        add('</ol></div>')
+                f'<div class="quote-item">{f"<span class=quote-sup>{n["n"]}{chr(97 + k)}</span>" if many else ""}'
+                f'<blockquote>“{_e(q["text"])}”{"" if q["checked"] else " (not checked against the record)"}</blockquote></div>'
+                for k, q in enumerate(n["passages"]))
+            add(f'<div class="src-entry" id="note-{n["n"]}"><div class="src-num">[{n["n"]}]</div><div><div class="src-title">{_e(n["title"])}</div>'
+                f'<div class="src-meta">{_e(when)}</div>{link}{f"<div class=quote-list>{quoted}</div>" if quoted else ""}</div></div>')
+        add('</section>')
     if d["computations"]:
-        add('<h2>Computations: the queries figures are read from</h2>')
+        add('<section><h2 class="sec-h"><span class="sec-num">C</span> The computations figures are read from</h2>')
         for k in d["computations"]:
-            add(f'<div class="comp" id="comp-{k["n"]}"><h3>C{k["n"]}. {_e(k["name"])}</h3>')
-            if k["note"]:
-                add(f'<p>{_e(k["note"])}</p>')
-            if k["columns"] and k["rows"]:
-                head = "".join(f'<th>{_e(col)}</th>' for col in k["columns"])
-                body = "".join("<tr>" + "".join(f'<td>{_e("" if x is None else x)}</td>' for x in row) + "</tr>" for row in k["rows"])
-                add(f'<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>')
-                if k["row_count"] and k["row_count"] > len(k["rows"]):
-                    add(f'<p class="small">The first {len(k["rows"])} of {k["row_count"]} rows.</p>')
+            add(f'<div class="comp-card" id="comp-{k["n"]}"><div class="comp-head"><span class="comp-id">[C{k["n"]}]</span>'
+                f'<span class="comp-title">{_e(k["name"])}</span></div>' + (f'<p class="comp-note">{_e(k["note"])}</p>' if k["note"] else ""))
+            cols_, rows_ = k["columns"], k["rows"]
+            cell = lambda x: _e("" if x is None else f"{x:,.4g}" if isinstance(x, float) and abs(x) < 1000 else f"{x:,.0f}" if isinstance(x, float) else x)  # noqa: E731
+            if cols_ and len(rows_) == 1 and len(cols_) > 5:                     # one wide row: as pairs, so nothing is cut at the page's edge
+                pairs = list(zip(cols_, rows_[0]))
+                half = (len(pairs) + 1) // 2
+                body = "".join(
+                    "<tr>" + f'<td class="kv-k">{_e(pairs[i][0].replace("_", " "))}</td><td class="num">{cell(pairs[i][1])}</td>'
+                    + (f'<td class="kv-k kv-split">{_e(pairs[i + half][0].replace("_", " "))}</td><td class="num">{cell(pairs[i + half][1])}</td>'
+                       if i + half < len(pairs) else '<td class="kv-split"></td><td></td>') + "</tr>" for i in range(half))
+                add(f'<div class="comp-table-wrap"><table class="data-table compact kv-table"><tbody>{body}</tbody></table></div>')
+            elif cols_ and rows_:
+                numeric = [all(isinstance(row[i], (int, float)) or row[i] is None for row in rows_) for i in range(len(cols_))]
+                head = "".join(f'<th class="wrap-th{" num" if numeric[i] else ""}">{_e(col.replace("_", " "))}</th>' for i, col in enumerate(cols_))
+                body = "".join("<tr>" + "".join(f'<td class="{"num" if numeric[i] else ""}">{cell(x)}</td>' for i, x in enumerate(row)) + "</tr>" for row in rows_)
+                add(f'<div class="comp-table-wrap"><table class="data-table compact"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>'
+                    + (f'<div class="comp-trunc">The first {len(rows_)} of {k["row_count"]} rows.</div>' if k["row_count"] and k["row_count"] > len(rows_) else "")
+                    + '</div>')
             if k["sql"]:
-                add(f'<pre>{_e(k["sql"])}</pre>')
+                add(f'<div class="sql-kicker">The query</div><pre class="sql">{_e(k["sql"])}</pre>')
             add('</div>')
-    if d["findings"]:
-        add('<h2>Findings recorded with the case</h2>')
-        for f in d["findings"]:
-            add(f'<p><span class="tag">{_e(f["kind"])}</span> {_e(f["statement"])}{refs(f["notes"], f["computations"])}</p>')
-    add('<h2>The condition, as the store states it</h2>'
-        '<p class="small">Revenue differs from revenue as things stand in any one of these, each written from its propositions’ texts.</p>'
-        '<ol class="cond">' + "".join(f"<li>{_e(x)}</li>" for x in d["condition"]) + '</ol>')
-    add(f'<p class="end">{_e(d["case_id"])}, revision {_e(d["revision"])}, as of {_e(d["as_of"])}.'
-        f'{" Latest change: " + _e(d["change_note"]) if d["change_note"] else ""}</p>')
-    add('</section></main></body></html>')
+        add('</section>')
+    add('<section><h2 class="sec-h"><span class="sec-num">D</span> The condition, as the store states it</h2>'
+        '<p class="table-note">Revenue differs from revenue as things stand in any one of these, each written from its propositions’ texts.</p>'
+        '<ul class="cond-list">' + "".join(f'<li><span class="clause-tag">Outcome {i}</span><span>{_e(x)}</span></li>' for i, x in enumerate(d["condition"], 1))
+        + '</ul></section></div>')
+    add(f'<div class="doc-foot"><span>{_e(d["case_id"])} · revision {_e(d["revision"])} · as of {_e(d["as_of"])}</span>'
+        f'<span>{_e(d["change_note"][:160])}</span></div>')
+    add('</div></body></html>')
     return "".join(o)
 
 
@@ -545,9 +695,9 @@ def pdf(page, path, running=""):
     except ImportError:
         raise RuntimeError("the PDF is printed in headless Chromium: install requirements.txt, then run "
                            "python -m playwright install chromium --only-shell") from None
-    foot = ('<div style="width:100%;font-family:-apple-system,Helvetica,Arial,sans-serif;font-size:6.5pt;color:#666;'
-            'padding:0 0.95in;display:flex;justify-content:space-between;">'
-            f'<span>{_e(running)}</span><span><span class="pageNumber"></span> of <span class="totalPages"></span></span></div>')
+    foot = ('<div style="width:100%;font-family:-apple-system,Helvetica,Arial,sans-serif;font-size:6.5pt;color:#64748B;'
+            'padding:0 0.56in;display:flex;justify-content:space-between;">'
+            f'<span>{_e(running)}</span><span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span></div>')
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
         try:
@@ -555,7 +705,7 @@ def pdf(page, path, running=""):
             pg.set_content(page, wait_until="load")
             pg.pdf(path=str(path), format="Letter", print_background=True, display_header_footer=True,
                    header_template="<span></span>", footer_template=foot,
-                   margin={"top": "0.9in", "bottom": "0.95in", "left": "0.95in", "right": "0.95in"})
+                   margin={"top": "0.5in", "bottom": "0.62in", "left": "0.56in", "right": "0.56in"})
         finally:
             browser.close()
     return path

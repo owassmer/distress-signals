@@ -28,6 +28,9 @@
   export-guide RUN_ID [--out FOLDER]
                             a visual guide to one run (index.html) and its full research trail (run.html), for
                             sharing, e.g. on GitHub Pages
+  export-site RUN_ID [RUN_ID ...] [--out FOLDER]
+                            a public site for several runs: a home that lists them, and each run's guide in a
+                            folder of its own with its cases' memos
   export-run RUN_ID [--public] [--out FILE]
                             one run as a single self-contained page with a replay button; --public leaves
                             out links into HubSpot
@@ -103,6 +106,7 @@ def main():
     s.add_argument("--from-now", action="store_true", help="don't post what happened before attaching")
     sub.add_parser("watch")
     s = sub.add_parser("export-guide"); s.add_argument("run_id"); s.add_argument("--out")
+    s = sub.add_parser("export-site"); s.add_argument("run_ids", nargs="+"); s.add_argument("--out")
     s = sub.add_parser("export-run"); s.add_argument("run_id"); s.add_argument("--public", action="store_true"); s.add_argument("--out")
     a = ap.parse_args()
 
@@ -181,7 +185,9 @@ def main():
     elif a.cmd == "watch":
         watch.serve()
     elif a.cmd == "export-guide":
-        print(showcase.export_guide(a.run_id, Path(a.out) if a.out else OUT / "guide" / a.run_id))
+        print(showcase.export_guide(a.run_id, Path(a.out) if a.out else OUT / "guide" / a.run_id)[0])
+    elif a.cmd == "export-site":
+        print(showcase.export_site(a.run_ids, Path(a.out) if a.out else OUT / "site"))
     elif a.cmd == "export-run":
         page = watch.export_html(a.run_id, public=a.public)
         out = Path(a.out) if a.out else OUT / "runs" / f"{a.run_id}{'-public' if a.public else ''}.html"

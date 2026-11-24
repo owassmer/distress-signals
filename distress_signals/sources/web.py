@@ -1,6 +1,8 @@
-"""Read any URL into text: HTML (scripts and styles dropped, links kept aside) or PDF."""
+"""Read any URL into text: HTML (scripts and styles dropped, links kept aside) or PDF. The reader records the
+page's structure in the text itself: a line is one block of the page (a paragraph, a list item, a heading, a row
+of a table). In HTML the tags say where a block ends, and a line break inside a block's text is only a space.
+In a PDF the layout says it (layout.py)."""
 
-import io
 import logging
 import os
 import re
@@ -20,11 +22,17 @@ CELL = {"td", "th"}
 PUBLISHED = ("article:published_time", "datepublished", "date", "dc.date", "publishdate", "pubdate")
 
 
+class Blocks(str):
+    """Text in which a line is one block of the page it was read from. `lines` gives the ranges of lines, counted
+    from 0, for which that holds, as [first, last] pairs; None where it holds for every line."""
+    lines = None
+
+
 class _Text(HTMLParser):
     def __init__(self, base):
         super().__init__(convert_charrefs=True)
         self.base, self.out, self.links, self.meta = base, [], [], {}
-        self.skip, self.title, self._title, self._href, self._anchor = 0, "", False, None, []
+        self.skip, self.title, self._title, self._href, self._anchor, self.pre = 0, "", False, None, [], 0
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
@@ -36,6 +44,8 @@ class _Text(HTMLParser):
                 self.meta.setdefault("published", a["content"])
         elif tag in SKIP:
             self.skip += 1
+        elif tag == "pre":
+            self.pre += 1
         elif tag == "a" and a.get("href") and not self.skip:
             self._href, self._anchor = urljoin(self.base, a["href"]), []
         if tag in BLOCK:
@@ -48,6 +58,8 @@ class _Text(HTMLParser):
             self._title = False
         elif tag in SKIP and self.skip:
             self.skip -= 1
+        elif tag == "pre" and self.pre:
+            self.pre -= 1
         elif tag == "a" and self._href:
             words = " ".join("".join(self._anchor).split())
             if words and self._href.startswith("http"):
@@ -61,7 +73,7 @@ class _Text(HTMLParser):
             self.title += data
         if self.skip:
             return
-        self.out.append(data)
+        self.out.append(data if self.pre else re.sub(r"\s+", " ", data))   # a line break in a block's text is a space
         if self._href:
             self._anchor.append(data)
 
@@ -74,10 +86,12 @@ def _tidy(text):
 
 
 def _pdf(content):
-    from pypdf import PdfReader
-    reader = PdfReader(io.BytesIO(content))
-    pages = [f"[page {i}]\n{(p.extract_text() or '').strip()}" for i, p in enumerate(reader.pages[:400], 1)]
-    return _tidy("\n\n".join(pages)), (reader.metadata or {}).get("/Title") or ""
+    """(text, title) of a PDF, read by its layout: the text is Blocks, with the lines of each page that was laid out."""
+    from . import layout
+    text, title, ranges = layout.read(content)
+    text = Blocks("".join(c for c in text if unicodedata.category(c) != "Cf"))
+    text.lines = ranges
+    return text, title
 
 
 def read(url):
@@ -112,7 +126,7 @@ def read(url):
     elif "html" in ctype or content.lstrip()[:200].lower().startswith((b"<!doctype html", b"<html")) or b"<body" in content[:5000].lower():
         p = _Text(r.url)
         p.feed(content.decode(r.encoding or r.apparent_encoding or "utf-8", errors="replace"))
-        text, title, published = _tidy("".join(p.out)), " ".join(p.title.split()), p.meta.get("published")
+        text, title, published = Blocks(_tidy("".join(p.out))), " ".join(p.title.split()), p.meta.get("published")
         seen, links = set(), []
         for link in p.links:
             if link["url"] not in seen:
@@ -127,5 +141,7 @@ def read(url):
     if not pdf and len(text) < 200:  # an HTML shell whose content a script fills in
         raise Unreadable(f"{url} gave no readable text (a script may draw it), and the store has not read it.")
     kind = "filing" if sec and "/Archives/" in url else "page"
+    blocks = (True if text.lines is None else text.lines) if isinstance(text, Blocks) else None
     return {"kind": kind, "source": "sec" if sec else host, "url": url, "published": published, "text": text,
-            "data": {"title": title, "links": links[:300], "final_url": r.url, "content_type": ctype}}
+            "data": {"title": title, "links": links[:300], "final_url": r.url, "content_type": ctype,
+                     **({"blocks": blocks} if blocks else {})}}

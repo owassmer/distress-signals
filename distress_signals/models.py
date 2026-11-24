@@ -29,7 +29,7 @@ class Cite(Strict):
     passage: str = Field(min_length=3, description="Words quoted from the record. The store finds them word for word "
                                                    "in the record it stored ('...' marks an omission), takes a "
                                                    "quotation of three words or more, and keeps the whole sentence "
-                                                   "or row the quotation falls in")
+                                                   "or row the quotation falls in where it read the record's layout")
     checked: SkipJsonSchema[bool | None] = Field(None, exclude=True)  # set by the store; no part of what is stated
 
     @model_validator(mode="after")

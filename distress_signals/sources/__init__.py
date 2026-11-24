@@ -568,11 +568,16 @@ def read(ref):
             head.append(f"url: {record['url']}")
         in_rows = isinstance(record.get("document"), Rows)
         document = (record.get("document") or "").strip()
+        from . import web
+        blocks = None                     # the lines of the document that are blocks of its page, as its reader recorded
+        if isinstance(record.get("document"), web.Blocks) and document:
+            first, given = len(head) + 1, record["document"].lines
+            blocks = [[first, first + document.count("\n")]] if given is None else [[first + a, first + b] for a, b in given]
         return {"kind": "record", "source": series.id, "native_id": str(record["id"]), "url": record.get("url"),
                 "published": record.get("published"), "text": "\n".join(head) + ("\n\n" + document if document else ""),
                 "rows": {series.id: [_row(series, record)]},
                 "data": {"title": f"{_heading(series, record)} ({series.title})", "links": record.get("links") or [],
-                         **({"document_rows": True} if in_rows else {}),
+                         **({"document_rows": True} if in_rows else {}), **({"blocks": blocks} if blocks else {}),
                          "fields": {f.name: record.get(f.name) for f in series.fields if f.type != "full text"}}}
     given = {}
     for k, v in parse_qsl(rest, keep_blank_values=False):

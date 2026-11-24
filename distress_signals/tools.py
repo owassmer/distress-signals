@@ -114,7 +114,7 @@ def _sentences(text, base=0):
         body = s.lstrip()
         first = body.split(None, 1)
         rest = first[1] if len(first) == 2 else ""
-        inner = _sentences(rest, at - len(rest)) if rest and len(list(segment("en", rest))) > 1 else None
+        inner = _sentences(rest, base + at - len(rest)) if rest and len(list(segment("en", rest))) > 1 else None
         if inner:
             out.append((base + start, inner[0][1]))  # the marker stays with the item's first sentence
             out += inner[1:]
@@ -132,20 +132,19 @@ def _rows(text, start, end):
     return out
 
 
-def whole_sentences(passage, text, rows_until=0):
-    """The passage as the whole sentences of the text it falls in, by sentencex (a line broken inside a sentence
-    does not end it), with each sentence's whitespace made single spaces. Where the text is rows, each line is its
-    own: the first `rows_until` characters, which the caller knows to be rows (the fields of a record of a series,
-    the records of a result set), and lines that run without sentence punctuation, as the rows of a table or a
-    form do. Where the passage omits text between them ('...'), the sentences either side are joined by ' \u2026 '.
-    The passage as given where it cannot be placed in the sentences."""
-    spans = _rows(text, 0, rows_until) if rows_until else []
-    for start, at in _sentences(text[rows_until:], rows_until):
-        s = text[start:at]
-        if "\n" in s.strip() and not s.rstrip().rstrip("\"')]\u201d\u2019").endswith((".", "!", "?", ":", ";")):
-            spans += _rows(text, start, at)  # lines that end in no sentence punctuation are rows of a table or a form
-        else:
-            spans.append((start, at))
+def whole_sentences(passage, text, rows_until=0, blocks=None):
+    """The passage as the whole of what it falls in, by the structure the text's reader recorded. The first
+    `rows_until` characters are rows (the fields of a record, the records of a result set, a document its adapter
+    wrote as rows): each line whole. `blocks` says which later lines are one block of their page (a paragraph, a
+    list item, a heading, a row of a table): True for every line, or [first, last] ranges of line numbers; in a
+    block the passage is the whole sentences it falls in, and a sentence does not run past its line. Where the
+    passage omits text between them ('...'), the pieces either side are joined by ' \u2026 '. Where no structure
+    is recorded for the text it falls in, the passage stands as quoted."""
+    spans, start = (_rows(text, 0, rows_until) if rows_until else []), 0
+    for number, line in enumerate(text.split("\n")):
+        if blocks and start >= rows_until and line.strip() and (blocks is True or any(a <= number <= b for a, b in blocks)):
+            spans += _sentences(line, start)
+        start += len(line) + 1
     kept, starts, normed, pos = [], [], [], 0
     for s, e in spans:
         n = _norm(text[s:e])
@@ -155,10 +154,11 @@ def whole_sentences(passage, text, rows_until=0):
             normed.append(n)
             pos += len(n) + 1
     flat, pos, chosen = " ".join(normed), 0, []
+    as_quoted = " ".join(unseen(passage).split())
     for frag in _parts(passage):
         i, n = _find(frag, flat, pos)
         if i < 0:
-            return passage
+            return as_quoted
         first, last = bisect.bisect_right(starts, i) - 1, bisect.bisect_right(starts, i + n - 1) - 1
         chosen += [k for k in range(first, last + 1) if k not in chosen]
         pos = i + n
@@ -168,7 +168,7 @@ def whole_sentences(passage, text, rows_until=0):
             out.append(" " if k == prev + 1 or not text[kept[prev][1]:kept[k][0]].strip() else " \u2026 ")
         out.append(" ".join(unseen(text[kept[k][0]:kept[k][1]]).split()))
         prev = k
-    return "".join(out) or passage
+    return "".join(out) or as_quoted
 
 
 _WORD = re.compile(r"[^\W\d_]{2,}")  # a word: two or more letters
@@ -178,6 +178,12 @@ def has_text(passage):
     """A cited passage is the section of text that states the claim: at least three words, so never a
     number alone."""
     return len(_WORD.findall(passage or "")) >= 3
+
+
+def _structure(obs):
+    """(rows_until, blocks) for whole_sentences: how far an observation's text is rows by construction, and which
+    of its lines its reader recorded as blocks of the page (data.blocks)."""
+    return _rows_until(obs), (obs.get("data") or {}).get("blocks")
 
 
 def _rows_until(obs):
@@ -233,7 +239,7 @@ def _cite(con, cite, where, cited_ids):
             raise ToolError(f"{where}: passage not found word for word in {obs['id']} ({obs.get('url') or obs['source']}): "
                             f"{passage[:160]!r}. Quote it exactly, using '...' for omissions; read_record(id, find=...) "
                             "shows the stored text.")
-        passage = whole_sentences(passage, obs["text"], _rows_until(obs))  # stored and shown: the whole sentence quoted from
+        passage = whole_sentences(passage, obs["text"], *_structure(obs))  # stored and shown: the whole of what it falls in
         checked = True
     else:
         raise ToolError(f"{where}: {obs['id']} has no text to quote. Compute the figure from its rows with "

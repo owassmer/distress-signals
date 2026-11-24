@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from distress_signals import db, sources, tools, watch
-from distress_signals.sources import F, Series, page, web
+from distress_signals.sources import F, Series, layout, page, web
 from distress_signals.util import SourceError
 
 MADE = [{"id": str(n), "url": f"https://example.org/widgets/{n}", "widget_id": str(n), "maker": f"Acme Works {n % 7}",
@@ -302,7 +302,8 @@ class SingleAudits(unittest.TestCase):
 
 
 class Citations(unittest.TestCase):
-    TEXT = ("Item 2. Results of Operations\n\nNearly all our revenue results from sales in the\nUnited States, but we also "
+    # A filing as its reader stores it: each line one block of the page.
+    TEXT = ("Item 2. Results of Operations\n\nNearly all our revenue results from sales in the United States, but we also "
             "have limited sales of replacement batteries in the U.K. to hospitals enrolled in our study. We had 40 implants "
             "at 24 hospitals.\n\n| Average selling price in ending backlog | $ | 143,191 | $ | 137,634 | 4.0 | %\n"
             "| Total backlog | $ | 2,900.0 | $ | 3,100.0 | (6.5) | %\n\nThe petition names the Company. Commerce will "
@@ -313,7 +314,8 @@ class Citations(unittest.TestCase):
                                                                     DISTRESS_RUN_ID="test"):
             with closing(db.connect()) as con:
                 db.put_observation(con, {"id": "obs_q", "kind": "record", "source": "edgar_filing_documents",
-                                         "retrieved_at": "2026-11-21", "url": "https://example.org/10q", "text": self.TEXT})
+                                         "retrieved_at": "2026-11-21", "url": "https://example.org/10q", "text": self.TEXT,
+                                         "data": {"blocks": True}})
             cases = {
                 "Nearly all our revenue results from sales in the":
                     "Nearly all our revenue results from sales in the United States, but we also have limited sales of "
@@ -338,37 +340,91 @@ class Citations(unittest.TestCase):
                     self.assertEqual(got["passage"], stored)
                     self.assertTrue(tools.quoted(got["passage"], self.TEXT))  # a revision that sends it back is checked the same way
 
-    def test_a_passage_from_rows_is_its_lines_and_a_list_item_gives_up_its_sentences(self):
-        # A list item: the segmenter keeps it whole to the end of its paragraph; its sentences are taken apart.
-        item = ("Intro sentence here.\n\u2022 Criterion 2: The contractor must stay solvent. In 2020 the group was\n"
-                "acquired by a larger company. The organization will continue to operate as a\nsubsidiary of it. "
+    def test_a_passage_is_lengthened_by_the_structure_its_reader_recorded(self):
+        # A list item is one block. The segmenter keeps it whole; its sentences are taken apart.
+        item = ("Intro sentence here.\n\u2022 Criterion 2: The contractor must stay solvent. In 2020 the group was "
+                "acquired by a larger company. The organization will continue to operate as a subsidiary of it. "
                 "Key leadership remains.\nAfter the list comes this.")
-        self.assertEqual(tools.whole_sentences("will continue to operate as a", item),
+        self.assertEqual(tools.whole_sentences("will continue to operate as a", item, blocks=True),
                          "The organization will continue to operate as a subsidiary of it.")
-        self.assertEqual(tools.whole_sentences("The contractor must stay solvent", item),
+        self.assertEqual(tools.whole_sentences("The contractor must stay solvent", item, blocks=True),
                          "\u2022 Criterion 2: The contractor must stay solvent.")
+        # A sentence does not run past its block: a bullet with no full stop ends where its line ends.
+        bullets = ("Highlights\n\u2022 Total passenger traffic decreased 1.2% YoY, partially offset by increases of 5.2% in Colombia\n"
+                   "\u2022 Revenue rose 3.1%")
+        self.assertEqual(tools.whole_sentences("traffic decreased 1.2% YoY", bullets, blocks=True),
+                         "\u2022 Total passenger traffic decreased 1.2% YoY, partially offset by increases of 5.2% in Colombia")
+        # A statement's rows are each a block: two rows quoted are those two, whatever sentence ends the page.
+        page = ("Statements of Revenues\nOperating revenues:\nRentals $ 27,295,848 $ 29,698,162\nConcessions 59,344,665 55,962,945\n"
+                "Landing fees 3,744,946 5,634,559\nSee notes to financial statements.")
+        self.assertEqual(tools.whole_sentences("Rentals $ 27,295,848 ... Concessions 59,344,665", page, blocks=True),
+                         "Rentals $ 27,295,848 $ 29,698,162 Concessions 59,344,665 55,962,945")
+        # Only the lines its reader laid out are blocks; a passage elsewhere stands as quoted.
+        mixed = "[page 1]\nThis page was laid out. It has two sentences.\n\n[page 2]\nthis page came in the file's own\norder and no more is known"
+        self.assertEqual(tools.whole_sentences("was laid out", mixed, blocks=[[0, 1]]), "This page was laid out.")
+        self.assertEqual(tools.whole_sentences("in the file's own\norder", mixed, blocks=[[0, 1]]), "in the file's own order")
+        self.assertEqual(tools.whole_sentences("was laid out", mixed), "was laid out")                      # no structure recorded
         # A record whose document its adapter wrote as rows: the line quoted, whatever punctuation its lines carry.
         with patch.dict(sources._all or sources.declared(), {WIDGETS.id: WIDGETS}):
             form = {"kind": "record", "source": "widgets", "data": {"document_rows": True},
                     "text": "the widget register: widgets:7\nmaker: Acme Works 0\n\nofficer: Joseph H.\ndue_date: 02/16/2027\n"
                             "comment_end: 12/18/2026\nreviewer: Jane Q."}
-            self.assertEqual(tools.whole_sentences("due_date: 02/16/2027", form["text"], tools._rows_until(form)), "due_date: 02/16/2027")
-            self.assertEqual(tools.whole_sentences("due_date: 02/16/2027", form["text"]),          # the sentence rule alone
-                             "officer: Joseph H. due_date: 02/16/2027 comment_end: 12/18/2026 reviewer: Jane Q.")
-            # The fields a record's heading is followed by are rows; its document, after the blank line, is prose.
-            prose = {"kind": "record", "source": "widgets", "data": {},
-                     "text": "the widget register: widgets:7\nmaker: Acme Works 0\nkind: gear\n\nThis widget was made in the\nspring. It is a gear."}
-            until = tools._rows_until(prose)
-            self.assertEqual(tools.whole_sentences("kind: gear", prose["text"], until), "kind: gear")
-            self.assertEqual(tools.whole_sentences("was made in the", prose["text"], until), "This widget was made in the spring.")
+            self.assertEqual(tools.whole_sentences("due_date: 02/16/2027", form["text"], *tools._structure(form)), "due_date: 02/16/2027")
+            # The fields a record's heading is followed by are rows; its document is blocks where its reader says so.
+            prose = {"kind": "record", "source": "widgets", "data": {"blocks": [[4, 4]]},
+                     "text": "the widget register: widgets:7\nmaker: Acme Works 0\nkind: gear\n\nThis widget was made in the spring. It is a gear."}
+            self.assertEqual(tools.whole_sentences("kind: gear", prose["text"], *tools._structure(prose)), "kind: gear")
+            self.assertEqual(tools.whole_sentences("was made in the", prose["text"], *tools._structure(prose)), "This widget was made in the spring.")
             self.assertEqual(tools._rows_until({**prose, "kind": "result_set"}), len(prose["text"]))
-        self.assertEqual(tools._rows_until({"kind": "page", "source": "example.org", "data": {}, "text": prose["text"]}), 0)
+        self.assertEqual(tools._structure({"kind": "page", "source": "example.org", "data": {}, "text": prose["text"]}), (0, None))
+
+    def test_html_is_read_a_block_to_a_line(self):
+        source = ("<html><head><title>Results</title></head><body><h1>Third quarter</h1><p>Total\npassenger traffic decreased 1.2% YoY,\n"
+                  "partially offset by increases of\n5.2% in Colombia.</p><ul><li>Revenue rose\n3.1%</li></ul>"
+                  "<table><tr><td>JetBlue\nAirways</td><td>24</td><td>%</td></tr><tr><td>Frontier</td><td>13</td><td>%</td></tr></table>"
+                  "<pre>kept  as\nwritten</pre></body></html>")
+        reader = web._Text("https://example.org/")
+        reader.feed(source)
+        self.assertEqual(web._tidy("".join(reader.out)).split("\n"), [
+            "Third quarter", "", "Total passenger traffic decreased 1.2% YoY, partially offset by increases of 5.2% in Colombia.", "",
+            "Revenue rose 3.1%", "", "| JetBlue Airways | 24 | %", "", "| Frontier | 13 | %", "", "kept as", "written"])
+
+    def test_a_pdf_page_is_read_by_its_layout(self):
+        def glyphs(text, x0, top, size=10.0, wide=5.0):
+            """A line's glyphs: letters side by side, a space the width of a letter."""
+            return [{"text": ch, "x0": x0 + i * wide, "x1": x0 + (i + 1) * wide, "top": top, "bottom": top + size, "size": size}
+                    for i, ch in enumerate(text) if ch != " "]
+
+        full = "aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj"                     # 49 letters wide: the measure
+        page = (glyphs("A heading", 50, 100) + glyphs(full, 50, 130) + glyphs("kkkk llll.", 50, 142)
+                + glyphs(full.upper(), 50, 172) + glyphs("MMMM.", 50, 184)
+                + glyphs("Rentals", 50, 220) + glyphs("27,295", 250, 220) + glyphs("29,698", 400, 220)
+                + glyphs("Landing fees", 50, 232) + glyphs("3,744", 255, 232) + glyphs("5,634", 405, 232)
+                + glyphs("\u2022 " + full[2:], 50, 260) + glyphs("\u2022 nnnn", 50, 272))
+        self.assertEqual(layout.blocks(page, 612), [
+            "A heading", full + " kkkk llll.", full.upper() + " MMMM.", "Rentals 27,295 29,698", "Landing fees 3,744 5,634",
+            "\u2022 " + full[2:], "\u2022 nnnn"])
+        # two columns of prose are read one after the other, and a line across them stands first
+        left = [glyphs("left column line that fills the", 50, 100 + 12 * i) for i in range(13)] + [glyphs("measure.", 50, 256)]
+        right = [glyphs("right column line that fills it", 320, 100 + 12 * i) for i in range(13)] + [glyphs("too.", 320, 256)]
+        title = glyphs("A title set across both of the columns of the page", 60, 60)
+        got = layout.blocks(title + [g for line in left + right for g in line], 612)
+        self.assertEqual(got[0], "A title set across both of the columns of the page")
+        self.assertEqual(got[1], " ".join(["left column line that fills the"] * 13 + ["measure."]))
+        self.assertEqual(got[2], " ".join(["right column line that fills it"] * 13 + ["too."]))
+        self.assertEqual(len(got), 3)
+        # prose that shares its lines with other words is not laid out: the page comes in the file's own order
+        beside = [g for i in range(12) for g in glyphs("label", 50, 100 + 12 * i) + glyphs("a run of prose that goes on across the line", 200, 100 + 12 * i)]
+        with self.assertRaises(layout.Unlaid):
+            layout.blocks(beside, 612)
+        rows = [g for i in range(12) for g in glyphs("Operating income before depreciation and amortization", 50, 100 + 12 * i) + glyphs("25,371", 420, 100 + 12 * i)]
+        self.assertEqual(len(layout.blocks(rows, 612)), 12)                           # a long label beside figures is a row
 
     def test_characters_that_print_nothing_are_no_part_of_a_passage(self):
         text = "The chief executive told Reuters \u200bin \u200cOctober that the airline was not in \u200btalks with creditors \u2060and had no plans to restructure."
         plain = "told Reuters in October that the airline was not in talks with creditors"
         self.assertTrue(tools.quoted(plain, text))
-        kept = tools.whole_sentences(plain, text)
+        kept = tools.whole_sentences(plain, text, blocks=True)
         self.assertEqual(kept, "The chief executive told Reuters in October that the airline was not in talks with creditors and had no plans to restructure.")
         self.assertEqual(web._tidy("talks\u200b with\u2060 creditors"), "talks with creditors")
 

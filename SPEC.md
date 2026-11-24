@@ -54,11 +54,19 @@ flowchart LR
   saved result, and calculates the results from the inputs and the formula.
 - **Basis.** Every figure is observed in words (a passage), observed by query (a cell of a saved result, which
   the store reads), assumed (with the reasoning, and the passages and results it rests on), or calculated.
-  A passage is the relevant section of text, checked word for word against the stored record. The section is the sentence that states the figure, or its line item with the
-  table's heading, never the number alone. Saving refuses any cited passage of fewer than three words. Once a
-  passage is found in the record, what is stored and shown is the whole of the sentences it falls in (sentencex),
-  whatever span the analyst quoted; where lines run without sentence punctuation, as table and form rows do, the
-  whole of its lines.
+  A passage is words quoted from a stored record, checked word for word against it; one of fewer than three
+  words is refused. What is stored and shown is the whole of what the passage falls in, by the structure the
+  record's reader recorded (`tools.whole_sentences`). A row is its line: the fields of a record, the records of a
+  result set, a document an adapter wrote as rows. In a page, a line is one block (a paragraph, a list item, a
+  heading, a row of a table), and the passage is the whole sentences it falls in (sentencex), a sentence never
+  running past its block. Where no structure is recorded for the text, the passage stands as quoted.
+- **The reader records a page's structure.** In HTML the tags say where a block ends, and a line break inside
+  a block's text is a space (`sources/web.py`). A PDF holds glyphs at places, so its structure is read from its
+  layout (`sources/layout.py`): glyphs on a baseline are a line; a line with a gap much wider than a word space
+  is a row; a line of prose continues where the next line's first word would not have fit after it; columns of
+  prose are read one at a time. A page where prose shares its lines with other text (a figure's labels) comes
+  in the file's own order, and none of its lines is taken for a block. The observation keeps which lines are
+  blocks (`data.blocks`).
 - **The assignment is what the operator gives.** The analyst is told what the work is and how the store works
   (`config/system.md`) and what each tool does. A run's prompt is its assignment: an open search, or a
   subject or brief the operator selects, or the case to refresh. Prior research is retrievable by ID or
@@ -645,6 +653,7 @@ python -m distress_signals ledgers [--verify]
 | The researcher's view of HubSpot: a company's deals and their stages, in `lookup` | The operator's dealings with a company are no part of the analyst's work. What a conversation established about a case stays, as evidence |
 | A passage cited by address from a page the store had not read, kept unchecked | A passage is quoted from a record the store read. An unchecked passage let a claim in with nothing compared against it |
 | A finding that concerns no company, proposition or case | Looking up what a finding concerns is how it is found again |
+| Telling a table's rows from prose by whether a run of lines ends in sentence punctuation | The rule took a statement page that ends "See notes to financial statements." for one sentence, and a bullet with no full stop for rows. The reader records the structure, and nothing is guessed from punctuation |
 | Findings of the kinds `question` and `dropped` | A finding is something established. A place for an open question or for a lead set aside let unfinished work stand as recorded work; what a company's revenue does not depend on is a conclusion |
 | A basis of exactly one kind for each figure (`source`, `result` or `assumption`) | A figure read from a record and carried to the case by an assumption has both parts, and the store reads it from its cell |
 
@@ -664,7 +673,7 @@ python -m distress_signals ledgers [--verify]
 | `distress_signals/tools.py` | The eight tools' functions |
 | `distress_signals/mcp_server.py` | The tools over MCP, with their descriptions and the tool-call log |
 | `distress_signals/exposure.py` | The calculation |
-| `distress_signals/sources/` | The registry of series and the adapters that declare them (section 6) |
+| `distress_signals/sources/` | The registry of series and the adapters that declare them (section 6); `web.py` reads a page a block to a line, and `layout.py` reads a PDF page by its layout |
 | `distress_signals/llm.py` | The Claude CLI call and the transcript |
 | `distress_signals/agent.py` | The system prompt and each run's assignment |
 | `distress_signals/pipeline.py` | Runs |

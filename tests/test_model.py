@@ -11,9 +11,10 @@ from unittest.mock import patch
 
 from distress_signals import agent, briefs, db, tools, worlds
 
+# Two pages as the reader stores them: a line is one block of the page (data.blocks).
 REPORT = ("The Company's largest program is the Regional Transit Program.\nIn fiscal 2026 the Company recognized $100 of "
-          "revenue under the\nprogram. The agency's proposed budget would fund the program at 70% of\nits current level. "
-          "The Company's contract fixes its\nfee for the program year beginning July 1, 2027 at $100.")
+          "revenue under the program. The agency's proposed budget would fund the program at 70% of its current level.\n"
+          "The Company's contract fixes its fee for the program year beginning July 1, 2027 at $100.")
 MINUTES = "The board will vote on the program in June.\nIt met twice this year."
 FUNDING = {"metric": "program_funding_share", "unit": "share of this year's funding"}
 
@@ -76,9 +77,13 @@ class Model(unittest.TestCase):
         os.environ.pop("DISTRESS_RUN_PRINCIPAL", None)
         with closing(db.connect()) as con:
             db.put_observation(con, {"id": "obs_report", "kind": "page", "source": "example.org", "retrieved_at": "2026-11-23",
-                                     "url": "https://example.org/annual-report", "text": REPORT})
+                                     "url": "https://example.org/annual-report", "text": REPORT, "data": {"blocks": True}})
             db.put_observation(con, {"id": "obs_minutes", "kind": "page", "source": "example.org", "retrieved_at": "2026-11-23",
-                                     "url": "https://example.org/minutes", "text": MINUTES, "data": {"title": "Board minutes"}})
+                                     "url": "https://example.org/minutes", "text": MINUTES,
+                                     "data": {"title": "Board minutes", "blocks": True}})
+            db.put_observation(con, {"id": "obs_plain", "kind": "page", "source": "example.org", "retrieved_at": "2026-11-23",
+                                     "url": "https://example.org/notice.txt",          # a text whose layout no reader recorded
+                                     "text": "NOTICE. The agency will hold its hearing on the\nprogram on May 4, 2027, at 10 a.m."})
             db.put_result(con, {"id": "wk_rates", "name": "share_kept_after_past_cuts", "sql": "SELECT 1", "columns": ["outcome", "share_kept"],
                                 "row_count": 2, "rows": [["cut under half", 0.65], ["cut half or more", 0.35]]})
             db.put_result(con, {"id": "wk_programs", "name": "program_revenue_by_company", "sql": "SELECT 1",
@@ -677,6 +682,12 @@ class Model(unittest.TestCase):
         out = tools.record_finding({"kind": "fact", "statement": "The board votes in June.", "proposition": "program-renewal",
                                     "evidence": [{"url": "https://example.org/minutes", "passage": "will vote on the program in June"}]})
         self.assertEqual(tools.lookup(out["finding_id"])["evidence"][0]["observation_id"], "obs_minutes")   # found by its address
+
+    def test_a_passage_from_a_text_of_unrecorded_layout_stands_as_quoted(self):
+        self.save()
+        out = tools.record_finding({"kind": "fact", "statement": "The hearing is set for May 4, 2027.", "proposition": "program-renewal",
+                                    "evidence": [{"observation_id": "obs_plain", "passage": "hold its hearing on the\nprogram on May 4, 2027"}]})
+        self.assertEqual(tools.lookup(out["finding_id"])["evidence"][0]["passage"], "hold its hearing on the program on May 4, 2027")
 
     def test_a_finding_can_concern_a_proposition_and_withdraw_a_case(self):
         cid = self.save()["case_id"]

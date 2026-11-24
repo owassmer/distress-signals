@@ -220,9 +220,8 @@ def _cite(con, cite, where, cited_ids):
             if matches:
                 obs = db.get_observation(con, matches[0])
         if obs is None:
-            db.put_observation(con, {"id": oid, "kind": "page", "source": "web", "url": url, "retrieved_at": now_iso(),
-                                     "text": None, "data": {"unchecked": True, "passages": [passage]}})
-            obs = db.get_observation(con, oid)
+            raise ToolError(f"{where}: the store holds no record read from {url}. A passage is quoted from a record "
+                            "that read_record has stored.")
     else:
         obs = db.get_observation(con, cite["observation_id"])
         if obs is None:
@@ -236,11 +235,6 @@ def _cite(con, cite, where, cited_ids):
                             "shows the stored text.")
         passage = whole_sentences(passage, obs["text"], _rows_until(obs))  # stored and shown: the whole sentence quoted from
         checked = True
-    elif obs["data"].get("unchecked"):
-        if passage not in obs["data"].setdefault("passages", []):
-            obs["data"]["passages"].append(passage)
-            db.put_observation(con, obs)
-        checked = False
     else:
         raise ToolError(f"{where}: {obs['id']} has no text to quote. Compute the figure from its rows with "
                         "compute(save_as=...), and give the input the cell of that result.")
@@ -609,18 +603,6 @@ def _deliver(case_id):
         print(f"HubSpot delivery of {case_id} failed: {type(e).__name__}: {str(e)[:300]}", file=sys.stderr)
 
 
-def _crm(con, company_row):
-    """What the operator's HubSpot holds for a company, when HubSpot is set up."""
-    from . import hubspot
-    if not hubspot.configured():
-        return {}
-    try:
-        return {"crm": hubspot.company_view(con, company_row)}
-    except Exception as e:
-        print(f"HubSpot read for {company_row['id']} failed: {type(e).__name__}: {str(e)[:300]}", file=sys.stderr)
-        return {}
-
-
 def _snapshot(company_id, company, case, props, results):
     """A case as it stands: the company, the case, the propositions it reads with what they lie within, and
     the figures."""
@@ -729,10 +711,9 @@ def _save(con, c: Case, given):
         warnings.append(f"{cid} was withdrawn; saving it returns it to the active queue.")
     also = _others(con, props, [*stated, *gone], but=cid)
     warnings += _uncovered(props, stated)
-    unchecked = sum(not x["checked"] for x in _cites(case, [props[k] for k in stated]))
     return {"case_id": cid, "company_id": company_id, "revision": revision, "changed": changed,
             "condition": results["condition"], "results": results, "warnings": warnings,
-            "unchecked_passages": unchecked, "workspace_results_used": sorted(set(results_used)),
+            "workspace_results_used": sorted(set(results_used)),
             "propositions_saved": stated, "also_revised": also}
 
 
@@ -773,7 +754,7 @@ def record_finding(finding: dict, propositions: list | None = None) -> dict:
         _deliver(cid)
     return {"finding_id": fid, "company_id": company_id, "proposition": f.proposition,
             **({"withdrawn": f.case_id} if f.withdraw_case else {}),
-            "unchecked_passages": sum(not e["checked"] for e in evidence), "warnings": warnings,
+            "warnings": warnings,
             "propositions_saved": stated, "also_revised": also}
 
 
@@ -943,8 +924,8 @@ def lookup(id_or_query: str) -> dict:
                     "condition": res["condition"], "results": res,
                     "warnings": current["warnings"], "evidence": evidence,
                     "findings": [_finding_view(con, f) for f in fs], "revision": row["revision"],
-                    **({"crm": {k: v for k, v in (row["progress"] or {}).items() if k in ("stage", "outcome", "outcome_note")}}
-                       if row["progress"] else {}),
+                    **({"conversation_outcome": {k: v for k, v in row["progress"].items() if k in ("outcome", "outcome_note")}}
+                       if (row["progress"] or {}).get("outcome") else {}),
                     "updated": row["updated"], "how_to_update": UPDATE if row["status"] == "active" else WITHDRAWN,
                     "revisions": db.revisions(con, q)[-8:]}
         if q.startswith("co_"):
@@ -953,7 +934,7 @@ def lookup(id_or_query: str) -> dict:
                 raise ToolError(f"no saved company {q!r}")
             return {"company_id": q, "company": c["data"],
                     "cases": [_brief(con, r, props) for r in db.cases(con, "company_id=?", (q,))],
-                    "findings": [_finding_view(con, f) for f in db.findings(con, "company_id=?", (q,))], **_crm(con, c)}
+                    "findings": [_finding_view(con, f) for f in db.findings(con, "company_id=?", (q,))]}
         if q.startswith("fnd_"):
             f = db.get_finding(con, q)
             if not f:
@@ -984,8 +965,7 @@ def lookup(id_or_query: str) -> dict:
                             "company's name, alias or domain.")
         return {"companies": [{"company_id": c["id"], "company": c["data"],
                                "cases": [_brief(con, r, props) for r in db.cases(con, "company_id=?", (c["id"],))],
-                               "findings": [_finding_view(con, f) for f in db.findings(con, "company_id=?", (c["id"],))],
-                               **_crm(con, c)}
+                               "findings": [_finding_view(con, f) for f in db.findings(con, "company_id=?", (c["id"],))]}
                               for c in cos.values()]}
     finally:
         con.close()

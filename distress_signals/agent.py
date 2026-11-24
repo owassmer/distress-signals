@@ -1,5 +1,5 @@
 """What the analyst is told. The system prompt is config/system.md, the same in every session but for the role
-its first sentence names. It holds what the analyst would not otherwise know: the store's forms and what the
+its first sentence names and today's date. It holds what the analyst would not otherwise know: the store's forms and what the
 store and the tools do. What a practitioner in that role already understands is left to the role, because a
 sentence stating it would stand in for that understanding with something narrower. A session's prompt is its assignment: an open search, or a
 company, an event, a source, a brief or a lead the operator selects, or a saved case to refresh."""
@@ -7,15 +7,18 @@ company, an event, a source, a brief or a lead the operator selects, or a saved 
 import json
 import os
 
-from .util import CONFIG
+from .util import CONFIG, today
 
 TOOL_NAMES = ("search_records", "read_record", "compute", "record_finding", "lookup", "calculate_exposure",
               "save_case")
 TOOLS = ["WebSearch", "WebFetch", *(f"mcp__ds__{n}" for n in TOOL_NAMES)]
 
-# The practitioner the system prompt's first sentence names, in the order the work runs: what can happen to the
-# revenue and how the event is defined, then what each outcome would cost. AGENT_ROLE gives another, for a trial.
-ROLE = "an underwriter and a forensic accountant"
+# The practitioners the system prompt's first sentence names, in the order the work runs: how an event reaches a
+# business, then what each outcome costs it. A role brings the whole of its practice, so it is chosen by all of what
+# it brings, set against all of the work. Both of these measure an effect for someone else's decision, whatever its
+# likelihood; a role that decides which risks to take (an underwriter, a lender, an investor) passes over the
+# unlikely ones, and a sentence added to stop that works against the role. AGENT_ROLE gives another, for a trial.
+ROLE = "an economist and a forensic accountant"
 
 RESULT = {"type": "object", "required": ["case_ids", "summary", "follow_on_leads"], "properties": {
     "case_ids": {"type": "array", "items": {"type": "string"}, "description": "The cases saved or revised in this session"},
@@ -35,11 +38,12 @@ RESULT = {"type": "object", "required": ["case_ids", "summary", "follow_on_leads
 
 
 def system(role=None):
-    """The system prompt: config/system.md with the role its first sentence names. It names no company, event or
-    series: whatever the context names, the analyst reaches for. A company the operator excludes is refused
-    where a case or finding is saved. Today's date and the model's knowledge cutoff are in Claude Code's own
-    environment message."""
-    return (CONFIG / "system.md").read_text().strip().replace("{role}", role or os.environ.get("AGENT_ROLE") or ROLE)
+    """The system prompt: config/system.md with the role its first sentence names and today's date. It names no
+    company, event or series: whatever the context names, the analyst reaches for. A company the operator
+    excludes is refused where a case or finding is saved. That its memory of events stops before today is a
+    fact about the model and no part of any role, so the prompt states it."""
+    text = (CONFIG / "system.md").read_text().strip()
+    return text.replace("{role}", role or os.environ.get("AGENT_ROLE") or ROLE).replace("{today}", today().isoformat())
 
 
 ASSIGNMENTS = {

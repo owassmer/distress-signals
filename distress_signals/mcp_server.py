@@ -122,9 +122,8 @@ One given in full takes the place of the saved one with the same key, its ways w
 
 
 @server.tool(description="""Keep something the research established apart from a case's own figures: a fact a record
-states, or an inference or a conclusion with the passages and saved results it rests on. A finding can concern a
-company, a proposition or a case, and looking up any of those returns it; one that concerns none of them is returned
-by its own ID.
+states, or an inference or a conclusion with the passages and saved results it rests on. A finding concerns a
+company, a proposition or a case, and looking up any of those returns it.
 
 With withdraw_case, the call also withdraws that case, and the finding is the record of why the revenue no longer
 depends on the event as the case states.
@@ -144,10 +143,7 @@ def lookup(id_or_query: str) -> dict:
     reads, its worlds and their figures, the passages it cites with their sources, its findings and its revisions.
     A proposition's key, or its exact title, returns it in full with its ways and links, what its level fields say,
     its findings, and each case that reads it: the case's formula, given values and worlds. A company returns
-    with its cases and findings.
-
-    The operator keeps a deal for each case in its CRM and records there what a conversation with the company
-    established. A case shows its deal's stage and that outcome, and a company shows the operator's deals with it."""
+    with its cases and findings."""
     return _call("lookup", tools.lookup, id_or_query)
 
 
@@ -158,8 +154,8 @@ DEFINED = "'A case' in your instructions defines each part."
 figure, as save_case computes them, with the store left as it was. It takes the model part of a case: events, the formulas,
 inputs, given values and denominator.
 
-""" + DEFINED + """ is an expression over input names: numbers, + - * /, parentheses, min() and max(). A figure read
-from a result cell is read by the store. Quotations are checked when the case is saved.
+""" + DEFINED + """ A formula is an expression over input names: numbers, + - * /, parentheses, min() and max(). A
+figure read from a result cell is read by the store. Quotations are checked when the case is saved.
 
 It returns the propositions the draft reads, the baseline, the condition, and each world with the propositions true
 and false in it, the inputs that take another value there, the revenue within the period, the shortfall and its share
@@ -188,18 +184,12 @@ It returns the case as computed: its ID and revision, the propositions it reads,
 world with the propositions true and false in it, the inputs that take another value there, its revenue, its
 shortfall and the other figures calculate_exposure returns, any warnings, and the other cases the call moved.
 
-It refuses, with the reason, and saves nothing:
-- a quotation that is not in its record, or a result cell that picks out no row or several;
-- a given value that names a proposition or an input that is not there, or whose condition holds in no world;
-- a world where several given values set one input and none lies within the rest;
-- ways beside one another whose level fields overlap, a way whose values lie outside those of what it divides, or
-  one way alone;
-- a statement of a proposition that leaves out one an active case reads or another proposition is linked to, or
-  that leaves an active case without its figures;
-- a company the operator has excluded, and, in a session assigned one company, a case for another.
+A call the store refuses says why, and saves nothing. A proposition given in full keeps every proposition an active
+case reads and every one another proposition is linked to. Some companies are excluded, and a session assigned one
+company saves cases for that company.
 
 case_id revises that case. Without it, a case for the same company, events and stream_key revises the saved one,
-and any other combination is a new case. The operator sees a saved case at once.
+and any other combination is a new case.
 
 """ + PROPOSITIONS)
 def save_case(case: Case, propositions: list[Proposition] = []) -> dict:

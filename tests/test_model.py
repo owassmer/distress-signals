@@ -534,7 +534,7 @@ class Model(unittest.TestCase):
 
     def test_what_the_analyst_reads_is_what_the_store_does(self):
         text = agent.system()
-        self.assertTrue(text.startswith("You are an underwriter and a forensic accountant.\n"))
+        self.assertTrue(text.startswith("You are an economist and a forensic accountant.\n"))
         self.assertNotIn("{", text)                                                    # every placeholder is filled
         self.assertTrue(agent.system(role="an underwriter").startswith("You are an underwriter.\n"))
         # its illustration, computed by the store: event E with ways A and B, and R, which implies B
@@ -565,6 +565,19 @@ class Model(unittest.TestCase):
                                 ((0.05, "share"), "0.05 share"), ((82.9, "USD per square foot"), "$83 per square foot")):
             with self.subTest(v=v, unit=unit):
                 self.assertEqual(briefs._shown(v, unit, "USD"), said)
+
+    def test_a_finding_concerns_something_and_a_passage_comes_from_a_stored_record(self):
+        self.save()
+        with self.assertRaises(tools.ToolError) as e:
+            tools.record_finding({"kind": "conclusion", "statement": "Contractors in the region keep about half their work."})
+        self.assertIn("a finding concerns a company, a proposition or a case", str(e.exception))
+        with self.assertRaises(tools.ToolError) as e:                  # a page the store has not read holds no passage
+            tools.record_finding({"kind": "fact", "statement": "The board has set the date of its vote.", "proposition": "program-renewal",
+                                  "evidence": [{"url": "https://example.org/never-read", "passage": "the board will vote in June"}]})
+        self.assertIn("the store holds no record read from https://example.org/never-read", str(e.exception))
+        out = tools.record_finding({"kind": "fact", "statement": "The board votes in June.", "proposition": "program-renewal",
+                                    "evidence": [{"url": "https://example.org/minutes", "passage": "will vote on the program in June"}]})
+        self.assertEqual(tools.lookup(out["finding_id"])["evidence"][0]["observation_id"], "obs_minutes")   # found by its address
 
     def test_a_finding_can_concern_a_proposition_and_withdraw_a_case(self):
         cid = self.save()["case_id"]

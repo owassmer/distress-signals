@@ -13,7 +13,7 @@ note, run the standing mandate, or run the note as a brief; on a case's deal, re
 status and results back here; follow-on leads that name a company become proposed companies.
 pull_outcomes reads each deal's stage, outcome and note back onto its case.
 
-Functions the MCP server calls (sync_case, company_view) never print: its stdout carries the protocol.
+sync_case, which the MCP server calls, never prints: its stdout carries the protocol.
 """
 
 import hashlib
@@ -493,29 +493,6 @@ def _stage_labels():
         _LABELS.update({s["id"]: f"{p['label']}: {s['label']}" for p in _api("GET", "/crm/v3/pipelines/deals")["results"]
                         for s in p["stages"]})
     return _LABELS
-
-
-def company_view(con, company_row):
-    """Whether a saved company is in HubSpot, and its deals there (the operator's own included) with their
-    stages and outcomes."""
-    hs, _ = _hs_company(con, company_row["id"], company_row["name"], company_row.get("domain"), create=False)
-    if not hs:
-        return {"in_hubspot": False}
-    links = _api("GET", f"/crm/v4/objects/companies/{hs}/associations/deals", ok404=True) or {}
-    ids = sorted({str(x["toObjectId"]) for x in links.get("results", [])})[:50]
-    deals = []
-    if ids:
-        labels = _stage_labels()
-        props = ["dealname", "dealstage", "distress_opportunity_id", "distress_outcome", "distress_outcome_note", "createdate",
-                 "hs_lastmodifieddate"]
-        for x in _api("POST", "/crm/v3/objects/deals/batch/read", {"properties": props, "inputs": [{"id": i} for i in ids]})["results"]:
-            p = x["properties"]
-            deals.append({k: v for k, v in (("deal", p.get("dealname")), ("stage", labels.get(p.get("dealstage"), p.get("dealstage"))),
-                                             ("case", p.get("distress_opportunity_id")), ("outcome", p.get("distress_outcome")),
-                                             ("outcome_note", p.get("distress_outcome_note")),
-                                             ("created", (p.get("createdate") or "")[:10]),
-                                             ("updated", (p.get("hs_lastmodifieddate") or "")[:10])) if v})
-    return {"in_hubspot": True, "deals": deals}
 
 
 # ---------- run requests ----------

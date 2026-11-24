@@ -86,9 +86,8 @@ class Registry(unittest.TestCase):
         first = tools.read_record(found["records"][0]["record_id"])
         self.assertIn("made_date: 2026-01-13", first["text"])
         passage = "Widget 12 was made by Acme Works 5."
-        finding = tools.record_finding({"kind": "fact", "statement": passage,
+        finding = tools.record_finding({"kind": "fact", "statement": passage, "company": {"name": "Acme Works"},
                                         "evidence": [{"observation_id": first["observation_id"], "passage": passage}]})
-        self.assertEqual(finding["unchecked_passages"], 0)
         with patch.dict(MADE[12], maker="Acme Works, renamed"):
             again = tools.read_record(first["observation_id"], fresh=True)
         self.assertEqual(again["observation_id"], first["observation_id"])
@@ -332,7 +331,8 @@ class Citations(unittest.TestCase):
             }
             for given, stored in cases.items():
                 with self.subTest(given=given):
-                    tools.record_finding({"kind": "fact", "statement": "The filing states this.", "evidence": [{"observation_id": "obs_q", "passage": given}]})
+                    tools.record_finding({"kind": "fact", "statement": "The filing states this.", "company": {"name": "Acme Works"},
+                                          "evidence": [{"observation_id": "obs_q", "passage": given}]})
                     with closing(db.connect()) as con:
                         got = json.loads(con.execute("SELECT evidence FROM findings ORDER BY rowid DESC LIMIT 1").fetchone()[0])[0]
                     self.assertEqual(got["passage"], stored)
@@ -380,7 +380,8 @@ class Citations(unittest.TestCase):
             def cite(passage):
                 return tools._cite(con, {"url": url, "passage": passage}, "evidence", cites)
 
-            self.assertFalse(cite("An earlier public statement.")["checked"])
+            with self.assertRaisesRegex(tools.ToolError, "the store holds no record read from"):   # nothing read there yet
+                cite("An earlier public statement.")
             for identifier, name in (("obs_a", "First organization."), ("obs_b", "Second organization.")):
                 db.put_observation(con, {"id": identifier, "kind": "record", "source": "medicare_star_ratings",
                                          "retrieved_at": "2026-11-20", "url": url,

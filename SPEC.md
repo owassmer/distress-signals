@@ -232,21 +232,29 @@ parallel.
 ### What the analyst is told
 
 The system prompt is `config/system.md` (`agent.system`), the same in every session but for the role its first
-sentence names (`agent.ROLE`, an underwriter and a forensic accountant, in the order the work runs; `AGENT_ROLE`
-gives another for a trial).
+sentence names and today's date.
 
-**It holds what the analyst would not otherwise know, and leaves the rest to the role.** A practitioner in that
-role already understands what revenue depends on, what is material, what evidence supports, when work is
-finished. A sentence that states one of these does harm: the analyst takes the sentence, with its authority, in
-place of its own understanding, because following a stated rule costs less than reasoning, and the sentence is
-always narrower than the understanding it replaces. An absolute makes it worse, since an absolute is cheaper
-still to follow. So the prompt states the work in a sentence and then the things particular to this system:
+**The role is chosen by the whole of what it brings.** A role brings a practice entire: what its practitioners
+look for, what they deliver, whom they answer to, what they leave out. It is set against all of the work, and
+where a part of that practice runs against the work, the role is changed; a sentence added to hold that part
+back works against the role and loses. `agent.ROLE` is an economist and a forensic accountant, in the order the
+work runs: how an event reaches a business, then what each outcome costs it. Both measure an effect for someone
+else's decision, whatever its likelihood. An underwriter was tried and set aside for this reason: underwriting
+decides which risks to take, by likelihood times severity, and passes over the unlikely ones, which the work
+must keep. `AGENT_ROLE` gives another role for a trial, and `ask` puts one plain question to it.
+
+**The prompt holds what the analyst would not otherwise know, and leaves the rest to the role.** A practitioner
+already understands what revenue depends on, what is material, what evidence supports, when work is finished. A
+sentence that states one of these does harm: the analyst takes the sentence, with its authority, in place of its
+own understanding, because following a stated rule costs less than reasoning, and the sentence is always
+narrower than the understanding it replaces. An absolute makes it worse, since an absolute is cheaper still to
+follow. So the prompt states the work in a sentence and then the things particular to this system:
 
 | Part | Holds |
 |---|---|
-| Opening | The role. The work, in one sentence. That the store keeps cases and computes their figures, and that probabilities are assessed separately |
+| Opening | The role. The work, in one sentence, and that the store keeps cases and computes their figures. Today's date, and that what the analyst remembers of events stops at its training cutoff: a fact about the model that no role carries |
 | A case | Propositions, and that they are shared; ways, and a proposition that implies an outcome; the model; the period, set apart from a proposition's window; worlds and how an input takes its value in each; the figures; an illustration with placeholders, which a test computes; a figure's basis in two parts |
-| The store and the tools | What a save that goes through means, and what it returns; earlier work in the store and `lookup`; what WebSearch and WebFetch return, and that quotations are checked against what `read_record` stored |
+| The store and the tools | What a save that goes through means, and what it returns; what WebSearch and WebFetch return, and that quotations are checked against what `read_record` stored |
 
 Each of these is stated as what it is or what it does. Where a run goes wrong in a way the analyst's own
 understanding would have prevented, the cause is in its environment (what a tool makes cheap, what the store
@@ -254,9 +262,9 @@ accepts or returns), and the repair is made there, not in a sentence.
 
 It names no company, event or series of records: the catalog in the `search_records` description is the whole of
 what the analyst is told about the series ([section 6](#6-sources)), and excluded companies are enforced where a
-case or finding is saved. Nothing from earlier runs enters it, and nothing of how the result is used. A field's
-description in `models.py` is the definition the analyst reads of that field, and a tool's description says what
-the call takes, does, returns and refuses.
+case or finding is saved. Nothing from earlier runs enters it, nothing of how the result is used, and nothing
+of the operator's dealings with a company. A field's description in `models.py` is the definition the analyst
+reads of that field, and a tool's description says what the call takes, does and returns.
 
 Claude Code adds its own parts:
 - an identity line, before the system prompt: "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
@@ -305,9 +313,9 @@ mid-run too. Each revision is stamped with its run.
 | `calculate_exposure(case, propositions)` | Calculates each world's figures from a draft of a case's model without saving: the events, the formula, the inputs and the given values |
 | `save_case(case, propositions)` | Saves a case: saves the propositions given in full with it, checks each basis, computes its worlds and their figures, saves the company and the case, writes a revision when the content changed, and delivers the case to HubSpot at once, with each other case a restated proposition moved; refuses an excluded company, or another company in a company run |
 
-WebSearch searches the web and WebFetch reads a page without storing it. A passage can be cited only
-from a record read with `read_record`; a page that can't be read that way may be cited by address with its
-passage, stored and marked unchecked.
+WebSearch returns links under a summary the search tool writes, and WebFetch a small model's answer about a
+page. A passage is quoted from a record read with `read_record`, by its observation or by the address it was
+read from.
 
 The run's final answer lists the cases saved or revised, a summary of what the session established and what
 that rests on, and follow-on leads: companies or events outside the assignment. The
@@ -477,9 +485,8 @@ what is requested there.
 - A failed delivery never fails the save. The worker delivers changed cases every five minutes when no
   run is going, and `push-hubspot` does the same on demand.
 
-**The researcher reads HubSpot.** `lookup` of a company shows whether it is in HubSpot and its deals
-there, the operator's own included, with their stages and outcomes. `lookup` of a case shows its deal's
-stage and outcome.
+**What comes back from HubSpot.** The operator records on a deal what a conversation with the company
+established. `lookup` of a case shows that conversation outcome, where one is recorded.
 
 **Runs are requested in HubSpot.**
 - **On a company,** "Distress run" asks for one of four runs:
@@ -630,6 +637,9 @@ python -m distress_signals ledgers [--verify]
 | Clay delivery (company, opportunity and update tables, and its email lookup) | Clay was available only on a trial. HubSpot holds companies, deals and contacts; the operator adds the person's email |
 | The operator's offering in the analyst's system prompt | The offering is for writing an opening to the company, which is done after the analysis |
 | The opening, the next action, the priority and the reasons to reach out, as fields of a case the analyst states; the mandate that asked for them | The analyst's work is the exposure. A slot for an opening or a next action let a question a record could settle stand as finished work. An opening is written after the analysis, from the saved case. Cases are ordered by their figures |
+| The researcher's view of HubSpot: a company's deals and their stages, in `lookup` | The operator's dealings with a company are no part of the analyst's work. What a conversation established about a case stays, as evidence |
+| A passage cited by address from a page the store had not read, kept unchecked | A passage is quoted from a record the store read. An unchecked passage let a claim in with nothing compared against it |
+| A finding that concerns no company, proposition or case | Looking up what a finding concerns is how it is found again |
 | Findings of the kinds `question` and `dropped` | A finding is something established. A place for an open question or for a lead set aside let unfinished work stand as recorded work; what a company's revenue does not depend on is a conclusion |
 | A basis of exactly one kind for each figure (`source`, `result` or `assumption`) | A figure read from a record and carried to the case by an assumption has both parts, and the store reads it from its cell |
 

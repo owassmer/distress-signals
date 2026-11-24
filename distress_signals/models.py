@@ -25,8 +25,7 @@ class Strict(BaseModel):
 class Cite(Strict):
     """A passage quoted from a record."""
     observation_id: str | None = Field(None, description="The stored record the passage is quoted from")
-    url: str | None = Field(None, description="In place of observation_id, the address of a page the store could not "
-                                              "read. The passage is then kept unchecked: nothing was compared with it")
+    url: str | None = Field(None, description="In place of observation_id, the address the store read the record from")
     passage: str = Field(min_length=3, description="Words quoted from the record. The store finds them word for word "
                                                    "in the record it stored ('...' marks an omission), takes a "
                                                    "quotation of three words or more, and keeps the whole sentence "
@@ -362,6 +361,8 @@ class Finding(Strict):
             raise ValueError("a fact cites the passage that states it")
         if self.withdraw_case and not self.case_id:
             raise ValueError("withdraw_case needs the case_id of the case to withdraw")
+        if self.company is None and self.proposition is None and self.case_id is None:
+            raise ValueError("a finding concerns a company, a proposition or a case: name the one it concerns")
         return self
 
 

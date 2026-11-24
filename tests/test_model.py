@@ -132,6 +132,42 @@ class Model(unittest.TestCase):
                          ["renewed-in-full", "cut-under-half", "cut-half-or-more"])
         self.assertEqual(out["also_revised"], [])
 
+    def test_a_case_computes_alike_as_stated_and_as_stored(self):
+        """A statement elsewhere computes every saved case again from the store, where an object's names come back
+        in another order than they were stated in. A case nothing reached keeps its revision."""
+        stated = case()
+        stated["inputs"] = dict(reversed(list(stated["inputs"].items())))     # share_kept first: not the stored order
+        first = tools.save_case(stated, [program(), SUBCONTRACT])
+        table = [(r["figure"], round(r["shortfall_moves_by"], 6)) for r in first["results"]["sensitivity"]]
+        self.assertEqual(table[:2], [("inputs.program_revenue", 10), ("inputs.share_kept", 10)])   # two that move it alike
+        own = claim("lakeshore-rebid-won", "Lakeshore wins the rebid", implies_not=["program-renewal"])
+        out = self.save([given({"share_kept": 0}, not_=["program-renewal"]), given({"share_kept": 0.6}, "lakeshore-rebid-won")],
+                        company="Lakeshore Transit", propositions=[own])
+        self.assertEqual(out["also_revised"], [])
+        seen = tools.lookup(first["case_id"])
+        self.assertEqual(seen["revision"], 1)
+        self.assertEqual([(r["figure"], round(r["shortfall_moves_by"], 6)) for r in seen["results"]["sensitivity"]], table)
+
+    def test_a_quotation_is_a_figure_with_what_names_it(self):
+        """A table's row is quoted by its heading and its figures. The three rows the store refused in the runs of
+        2026-11-23 are here as the agent quoted them, and figures alone or a word or two are still refused."""
+        for row in ("| EMEA | 161,356 | 148,355 | 8.8%", "Operating revenue 43 133,895,460 121,298,752",
+                    "JetBlue Airways\n|\n\n|\n24\n|\n%\n|\n23\n|\n%\n|\n26\n|\n%", "recognized $100 of revenue"):
+            self.assertTrue(tools.has_text(row), row)
+        for bare in ("161,356 | 148,355 | 8.8%", "8.8%", "JetBlue Airways", "Europe (3)", "$100"):
+            self.assertFalse(tools.has_text(bare), bare)
+        with closing(db.connect()) as con:
+            db.put_observation(con, {"id": "obs_table", "kind": "page", "source": "example.org", "retrieved_at": "2026-11-23",
+                                     "url": "https://example.org/table", "data": {"blocks": True},
+                                     "text": "Revenue by program\n| Transit | 100 | 96 | 4.2%\n| Paratransit | 20 | 19 | 5.3%"})
+        row = {"observation_id": "obs_table", "passage": "| Transit | 100 | 96 | 4.2%"}
+        out = self.save(inputs=case()["inputs"] | {"program_revenue": {"unit": "USD", "value": 100, "source": row}})
+        self.assertEqual(tools.lookup(out["case_id"])["case"]["inputs"]["program_revenue"]["source"]["passage"],
+                         "| Transit | 100 | 96 | 4.2%")
+        self.refused("inputs.program_revenue.source", "figures with no word",
+                     inputs=case()["inputs"] | {"program_revenue": {"unit": "USD", "value": 100,
+                                                                    "source": row | {"passage": "100 | 96 | 4.2%"}}})
+
     def test_03_and_04_an_outcome_stays_whole_until_this_case_names_a_way_of_it(self):
         whole = [given({"share_kept": 0}, not_=["program-renewal"])]
         out = self.save(whole)
@@ -565,8 +601,8 @@ class Model(unittest.TestCase):
         # the sensitivity of the shortfall, worked by hand on the same case: a tenth of each input's largest value
         moves = [(r["figure"], r["value"], round(r["moved_by"], 2), round(r["shortfall_moves_by"], 2), r["in_world"]) for r in out["sensitivity"]]
         self.assertEqual(moves, [("inputs.regained", 0.5, 0.08, 16, "B; Not: R"), ("given_values[2].values.regained", 0.8, 0.08, 16, "B; R"),
-                                 ("inputs.volume", 100, 10, 10, "B; Not: R"), ("inputs.price", 2, 0.2, 10, "B; Not: R"),
-                                 ("inputs.lost", 0, 0.1, 10, "A"), ("given_values[0].values.lost", 0.2, 0.1, 10, "A"),
+                                 ("inputs.lost", 0, 0.1, 10, "A"), ("inputs.price", 2, 0.2, 10, "B; Not: R"),
+                                 ("inputs.volume", 100, 10, 10, "B; Not: R"), ("given_values[0].values.lost", 0.2, 0.1, 10, "A"),
                                  ("given_values[1].values.lost", 1, 0.1, 10, "B; Not: R")])
 
     def test_each_figure_comes_back_with_its_basis_and_what_it_moves(self):

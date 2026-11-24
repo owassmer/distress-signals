@@ -66,11 +66,13 @@ def sensitivity(case, every, labels, inputs, given, shortfalls):
     """How far the shortfall moves with each stated figure, one figure at a time: each input's own value and each
     given value is moved up and down by a tenth of the largest value its input takes anywhere in the case, the
     worlds' shortfalls are computed again, and the largest change in any world is kept, with that world. The
-    figures come back largest change first: [{figure, value, basis, moved_by, shortfall_moves_by, in_world}]."""
+    figures come back largest change first: [{figure, value, basis, moved_by, shortfall_moves_by, in_world}].
+    Figures that move it alike come in the order of their names, which is the same however the case was written
+    down: a case computes alike as stated and as read back from the store, where names come in another order."""
     largest = {k: max([abs(v)] + [abs(g["values"][k]) for g in given if k in g["values"]]) for k, v in inputs.items()}
-    figures = [(f"inputs.{k}", None, k, case["inputs"][k]) for k in inputs]
+    figures = [(f"inputs.{k}", None, k, case["inputs"][k]) for k in sorted(inputs)]
     figures += [(f"given_values[{i}].values.{k}", i, k, case["given_values"][i]["values"][k])
-                for i, g in enumerate(given) for k in g["values"]]
+                for i, g in enumerate(given) for k in sorted(g["values"])]
     out = []
     for at, i, k, stated in figures:
         step, value = 0.1 * largest[k], inputs[k] if i is None else given[i]["values"][k]
@@ -91,7 +93,7 @@ def sensitivity(case, every, labels, inputs, given, shortfalls):
         out.append({"figure": at, "value": value, "basis": basis_kind(stated), "moved_by": step,
                     "shortfall_moves_by": change, "in_world": labels[where] if where is not None else None})
     top = max((r["shortfall_moves_by"] for r in out), default=0) or 1.0
-    return sorted(out, key=lambda r: -round(r["shortfall_moves_by"] / top, 9))   # figures that move it alike keep their order
+    return sorted(out, key=lambda r: -round(r["shortfall_moves_by"] / top, 9))   # a stable sort: alike, in the order above
 
 
 def compute(case, props):

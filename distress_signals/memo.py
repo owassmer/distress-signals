@@ -297,7 +297,7 @@ def _dates(d):
     lo = min([as_of, p0] + [a for _, a, _ in rows if a] + [b for _, _, b in rows])
     hi = max([p1] + [b for _, _, b in rows])
     lo, hi = lo - dt.timedelta(days=10), hi + dt.timedelta(days=10)
-    width, step = 660, 23
+    width, step = 660, 20
     x = lambda t: round(4 + (width - 8) * (t - lo).days / ((hi - lo).days or 1), 1)  # noqa: E731
     height = 20 + step * (len(rows) + 1) + 16
     o = [f'<svg class="dates" viewBox="0 0 {width} {height}" role="img" aria-label="The dates the estimate turns on">']
@@ -325,7 +325,8 @@ def _dates(d):
             if lo <= t <= hi:
                 o.append(f'<line x1="{x(t)}" x2="{x(t)}" y1="{base}" y2="{base + (5 if month == 1 else 3)}" class="axis"/>')
                 if month == 1 or (hi - lo).days < 500:
-                    o.append(f'<text x="{x(t)}" y="{base + 13}" class="tick" text-anchor="middle">{t:%b} {t.year if month == 1 else ""}</text>')
+                    anchor = "end" if x(t) > width - 30 else "start" if x(t) < 30 else "middle"     # a tick at an edge stays inside
+                    o.append(f'<text x="{x(t)}" y="{base + 13}" class="tick" text-anchor="{anchor}">{t:%b} {t.year if month == 1 else ""}</text>')
         year += 1
     o.append(f'<line x1="{x(as_of)}" x2="{x(as_of)}" y1="10" y2="{base}" class="asof"/>')
     o.append(f'<text x="{x(as_of) + 3}" y="9" class="tick">As of {as_of:%b} {as_of.day}, {as_of.year}</text></svg>')

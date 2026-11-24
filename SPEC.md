@@ -469,13 +469,21 @@ from, with its SQL and rows), findings and revisions. Each run's transcript stay
 page it is printed from beside it (`memo.py`). It is written to be handed to the company's own finance
 officer, who holds the books and can check every figure. Nothing in it is written anew: each sentence is the
 analyst's as the case holds it or fixed wording, and each figure is the store's. In reading order it gives:
-- the revenue at stake: the largest shortfall, its share, and revenue and shortfall in every outcome;
-- the event and the other propositions the case reads, each with when it is decided and the record that shows it;
-- how the event reaches the revenue, when, and the passages that establish it;
+- the revenue at stake: the largest shortfall, its share and the contribution lost with it; revenue and
+  shortfall in every outcome, largest first, each with the inputs that take another value there; how many of
+  the stated figures are read, carried over or assumed; and one strip of dates showing when each proposition is
+  decided against the period revenue is counted over;
+- the event and the other propositions the case reads, each with when it is decided, the record that shows
+  it, and what it is true only with;
+- the company, how the event reaches the revenue, when, and the passages that establish it;
 - how the estimate is built: the formulas, then each input once by its label, with its value as things stand
   and in each outcome that changes it, and for each value its basis and the reasoning;
 - notes, one to a record with its title, dates, address and the passages quoted from it; computations, one to
-  a saved query with its SQL and rows; the sensitivity table; the findings; and the condition.
+  a saved query with its rows and SQL; the findings recorded on the case; and the condition, one outcome to a line.
+
+It leaves out the person the case names and findings about the company apart from the case, which are the
+desk's (lookup, the export and the deal's memo carry them), and the sensitivity table, which moves each figure
+by a tenth and so moves a product of factors alike for every factor.
 
 An input saved before inputs had labels reads by the nearest thing it states (`forms.label`): its unit where
 that says more than the currency, else the column of the result it is read from, else its name.

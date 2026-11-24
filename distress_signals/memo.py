@@ -3,11 +3,14 @@ the reader who holds the books and can check every figure.
 
 Nothing in it is written anew. Every sentence is the analyst's as the case holds it or the fixed wording here,
 and every figure is the store's, computed from the case as it stands now. `document` lays the case out in the
-order a reader takes it: what is at stake in each outcome, the event, how it reaches the revenue, and how the
-estimate is built, each figure with what it rests on. A passage the case quotes becomes a numbered note with its
-record's title, date and address; a saved query a figure is read from becomes a numbered computation with its
-SQL, so the figure can be worked out again. `html` renders the document as one self-contained page, and `pdf`
-prints that page through headless Chromium."""
+order a reader takes it: what is at stake in each outcome and when, the event, how it reaches the revenue, and
+how the estimate is built, each figure with what it rests on. A record the case quotes is one numbered note
+with its title, dates and address and the passages quoted from it; a saved query a figure is read from is one
+numbered computation with its rows and its SQL, so the figure can be worked out again. `html` renders the
+document as one self-contained page, and `pdf` prints that page through headless Chromium.
+
+It leaves out what is the desk's and not the reader's: the person the case names at the company, and findings
+recorded about the company apart from this case. Those stay in lookup, the export and the deal's memo."""
 
 import datetime as dt
 import html as _html
@@ -28,6 +31,21 @@ def _date(s):
 def _span(start, end):
     a, b = dt.date.fromisoformat(str(start)[:10]), dt.date.fromisoformat(str(end)[:10])
     return f"{a:%B} {a.day} – {b:%B} {b.day}, {b.year}" if a.year == b.year else f"{_date(a)} – {_date(b)}"
+
+
+def _share(x):
+    """A share of revenue: to two places under one percent, where one place would show a real shortfall as 0.0%."""
+    return None if x is None else (f"{x:.2%}" if 0 < abs(x) < 0.01 else f"{x:.1%}")
+
+
+def _title(o, oid):
+    """A record's title for a note. A title that is only what the writing program left ('Microsoft Word - ...')
+    loses that; a record with none is named by its publisher and its file."""
+    title = re.sub(r"^Microsoft Word - ", "", ((o.get("data") or {}).get("title") or "").strip())
+    if title:
+        return title
+    name = (o.get("url") or "").rstrip("/").rsplit("/", 1)[-1]
+    return " · ".join(x for x in (o.get("source"), name) if x) or oid
 
 
 class _Numbered:
@@ -55,7 +73,7 @@ def document(c):
         oid, passage = cite["observation_id"], (cite.get("passage") or "").strip()
         o = cited.get(oid) or {}
         n = notes.ref(oid, lambda: {
-            "title": (o.get("data") or {}).get("title") or o.get("url") or oid, "url": o.get("url"),
+            "title": _title(o, oid), "url": o.get("url"),
             "published": _date(o["published"]) if o.get("published") else None,
             "read": _date(o["retrieved_at"]) if o.get("retrieved_at") else None, "passages": []})
         quoted = notes.items[n - 1]["passages"]
@@ -97,22 +115,29 @@ def document(c):
         return {"kind": kind, "read": read, "reasoning": " ".join(x for x in ((a or {}).get("note"), fig.get("note")) if x),
                 "notes": list(dict.fromkeys(refs)), "computations": list(dict.fromkeys(cs))}
 
-    person = case["person"]          # cited first: the heading names them
-    person_note = note({"observation_id": person["observation_id"]}) if person.get("observation_id") else None
-
     # ---- what is at stake
     worst = max(res["worlds"], key=lambda w: w["shortfall"])
     extra = [(k, title) for k, title in (("deferred_past_period", "Deferred past the period"), ("lost", "Not recovered"),
                                         ("contribution_loss", "Contribution lost"), ("cash_delayed", "Cash delayed"))
              if any(w.get(k) is not None for w in res["worlds"])]
+    def changed(w):
+        """The inputs that take another value in an outcome, each by its label."""
+        return [{"label": forms.label(k, case["inputs"][k], cur), "value": " ".join(x for x in shown(v, k) if x)}
+                for k, v in w["values"].items()]
+
+    ranked = sorted(res["worlds"], key=lambda w: -w["shortfall"])                  # the largest shortfall first
     outcomes = [{"outcome": w["label"].split("; "), "revenue": briefs.money(w["revenue"], cur),
-                 "shortfall": briefs.money(w["shortfall"], cur), "share": briefs.pct(w["share"]),
-                 "extra": [briefs.money(w.get(k), cur) for k, _ in extra], "worst": w is worst} for w in res["worlds"]]
+                 "shortfall": briefs.money(w["shortfall"], cur), "share": _share(w["share"]) or "–",
+                 "extra": [briefs.money(w.get(k), cur) for k, _ in extra], "worst": w is worst, "changed": changed(w)}
+                for w in ranked]
 
     # ---- the event, and the other propositions the case reads
     def proposition(p):
         about = " ".join(x for x in (p.get("description"), p.get("timing")) if x)
         return {"title": p["title"], "text": p["text"], "about": about or None,
+                "only_if": [props[k]["title"] for k in p.get("implies") or [] if k in props],
+                "only_if_not": [props[k]["title"] for k in p.get("implies_not") or [] if k in props],
+                "start": str(p.get("window_start") or "")[:10] or None, "end": str(p["window_end"])[:10],
                 "window": _span(p["window_start"], p["window_end"]) if p.get("window_start") else f"On or by {_date(p['window_end'])}",
                 "shown_by": p.get("resolution_source"), "notes": [note(e) for e in p.get("evidence") or []]}
 
@@ -139,37 +164,34 @@ def document(c):
     if case.get("denominator"):
         formulas.append({"name": case["denominator"]["label"], "formula": case["denominator"]["formula"]})
 
-    def moved(r):
-        place, name = r["figure"].rsplit(".", 1)
-        inp = case["inputs"][name]
-        when = None
-        if place.startswith("given_values"):
-            when = briefs.given_condition(c, case["given_values"][int(place[place.index("[") + 1:place.index("]")])])
-        return {"label": forms.label(name, inp, cur), "when": when, "value": shown(r["value"], name)[0],
-                "basis": r["basis"], "moved_by": shown(r["moved_by"], name)[0],
-                "shortfall_moves_by": briefs.money(r["shortfall_moves_by"], cur), "outcome": (r["in_world"] or "").split("; ")}
+    stated = [*case["inputs"].values(), *(v for g in case["given_values"] for v in g["values"].values())]
+    read = [bool(f.get("source") or f.get("result")) for f in stated]
+    carried = [bool(f.get("assumption")) for f in stated]
+    rests = {"figures": len(stated), "read": sum(r and not a for r, a in zip(read, carried)),
+             "carried": sum(r and a for r, a in zip(read, carried)), "assumed": sum(not r for r in read)}
 
     findings = [{"kind": f["kind"], "statement": f["statement"],
                  "notes": [note(e) for e in f.get("evidence") or []], "computations": [comp(r) for r in f.get("results") or []]}
-                for f in c["findings"]]
+                for f in c["findings"] if f.get("case_id") == c["id"]]            # those recorded on this case
     return {
         "company": co["name"], "event": briefs.event_title(c), "withdrawn": c["status"] == "withdrawn",
-        "as_of": _date(c["row"]["updated"]), "period": _span(case["period"]["start"], case["period"]["end"]),
+        "as_of": _date(c["row"]["updated"]), "decided": _date(briefs.event_date(c)),
+        "period": _span(case["period"]["start"], case["period"]["end"]),
+        "dates": {"as_of": str(c["row"]["updated"])[:10], "period": [str(case["period"]["start"]), str(case["period"]["end"])]},
         "currency": cur, "case_id": c["id"], "revision": c["row"]["revision"],
-        "person": {"name": person.get("name"), "title": person.get("title"), "role": person["role"],
-                   "note": person_note},
         "stream": case["stream"],
-        "at_stake": {"shortfall": briefs.money(worst["shortfall"], cur), "share": briefs.pct(worst["share"]) if worst.get("share") is not None else None,
+        "at_stake": {"shortfall": briefs.money(worst["shortfall"], cur), "share": _share(worst.get("share")),
+                     "contribution": briefs.money(worst["contribution_loss"], cur) if worst.get("contribution_loss") is not None else None,
                      "of": (res.get("denominator") or {}).get("label"), "outcome": worst["label"].split("; "),
                      "baseline": briefs.money(res["baseline_revenue"], cur)},
-        "outcomes": outcomes, "extra_columns": [title for _, title in extra],
+        "outcomes": outcomes, "extra_columns": [title for _, title in extra], "rests": rests,
         "events": events, "others": others,
-        "business": co.get("description"), "dependency": case["dependency"], "timing": case["timing"], "establishes": establishes,
+        "business": co.get("description"), "relationships": co.get("relationships"),
+        "dependency": case["dependency"], "timing": case["timing"], "establishes": establishes,
         "formulas": formulas,
         "changing": [f for f in figures if f["outcomes"]], "constant": [f for f in figures if not f["outcomes"]],
         "figures": figures,
-        "sensitivity": [moved(r) for r in res.get("sensitivity") or [] if r["shortfall_moves_by"]],
-        "condition": c["condition"], "findings": findings,
+        "condition": [x.strip() for x in c["condition"].split(" Or: ") if x.strip()], "findings": findings,
         "notes": notes.items, "computations": comps.items,
         "change_note": (c["revisions"][-1].get("change_note") or "").strip() if c["revisions"] else ""}
 
@@ -211,6 +233,13 @@ table.where { table-layout: fixed; } table.where td, table.where th { overflow-w
 table.where td.num, table.where th.num { white-space: normal; }
 table.where td:last-child, table.where th:last-child { padding-left: 12pt; }
 .unit { color: #555; font-weight: 400; }
+.moves { font-size: 7.6pt; color: #555; font-weight: 400; margin-top: 1.5pt; }
+svg.dates { width: 100%; height: auto; margin: 2pt 0 4pt; break-inside: avoid; font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif; }
+svg.dates .lbl { font-size: 9.6px; fill: #1b1b1b; } svg.dates .tick { font-size: 8.6px; fill: #666; }
+svg.dates .win { fill: #9aa3ad; } svg.dates .per { fill: #1f3a5f; }
+svg.dates .axis { stroke: #9a9a9a; stroke-width: .7; } svg.dates .asof { stroke: #8a4b00; stroke-width: .9; stroke-dasharray: 2.5 2; }
+ol.cond { margin: 2pt 0 7pt; padding-left: 15pt; font-size: 9.4pt; } ol.cond li { margin-bottom: 4pt; }
+.key .n { white-space: nowrap; }
 tr { break-inside: avoid; }
 tr.worst td { font-weight: 600; }
 tr.asis td { color: #555; }
@@ -258,6 +287,51 @@ def _outcome(parts):
     return "<br>".join(f'<span class="not">{_e(p)}</span>' if p.startswith("Not: ") else _e(p) for p in parts)
 
 
+def _dates(d):
+    """One strip of dates as an inline drawing: the day the memo is as of, the span in which each proposition is
+    decided, and the period revenue is counted over, on one axis. It shows how much of the period lies after
+    each decision."""
+    day = dt.date.fromisoformat
+    as_of, (p0, p1) = day(d["dates"]["as_of"]), (day(x) for x in d["dates"]["period"])
+    rows = [(p["title"], day(p["start"]) if p["start"] else None, day(p["end"])) for p in [*d["events"], *d["others"]]]
+    lo = min([as_of, p0] + [a for _, a, _ in rows if a] + [b for _, _, b in rows])
+    hi = max([p1] + [b for _, _, b in rows])
+    lo, hi = lo - dt.timedelta(days=10), hi + dt.timedelta(days=10)
+    width, step = 660, 23
+    x = lambda t: round(4 + (width - 8) * (t - lo).days / ((hi - lo).days or 1), 1)  # noqa: E731
+    height = 20 + step * (len(rows) + 1) + 16
+    o = [f'<svg class="dates" viewBox="0 0 {width} {height}" role="img" aria-label="The dates the estimate turns on">']
+
+    def bar(n, a, b, text, cls):
+        y = 22 + step * n
+        left, right = x(a), x(b)
+        far = left > width * 0.55                                   # a bar near the right edge is labelled leftwards
+        o.append(f'<text x="{right if far else left}" y="{y}" class="lbl" text-anchor="{"end" if far else "start"}">{_e(text)}</text>')
+        if right - left < 2:
+            o.append(f'<path d="M{right} {y + 2.5} l4 4 l-4 4 l-4 -4 z" class="{cls}"/>')        # a day, not a span
+        else:
+            o.append(f'<rect x="{left}" y="{y + 4}" width="{round(right - left, 1)}" height="5" rx="1" class="{cls}"/>')
+
+    for n, (title, a, b) in enumerate(rows):
+        when = f"{a:%b} {a.day}, {a.year} – {b:%b} {b.day}, {b.year}" if a else f"{b:%b} {b.day}, {b.year}"
+        bar(n, a or b, b, f"{title[:72] + ('…' if len(title) > 72 else '')}: decided {when}", "win")
+    bar(len(rows), p0, p1, f"Period revenue is counted over: {d['period']}", "per")
+    base = 22 + step * (len(rows) + 1) + 2
+    o.append(f'<line x1="4" x2="{width - 4}" y1="{base}" y2="{base}" class="axis"/>')
+    year = lo.year
+    while dt.date(year, 1, 1) <= hi:                                 # the axis: each January named, each quarter marked
+        for month in (1, 4, 7, 10):
+            t = dt.date(year, month, 1)
+            if lo <= t <= hi:
+                o.append(f'<line x1="{x(t)}" x2="{x(t)}" y1="{base}" y2="{base + (5 if month == 1 else 3)}" class="axis"/>')
+                if month == 1 or (hi - lo).days < 500:
+                    o.append(f'<text x="{x(t)}" y="{base + 13}" class="tick" text-anchor="middle">{t:%b} {t.year if month == 1 else ""}</text>')
+        year += 1
+    o.append(f'<line x1="{x(as_of)}" x2="{x(as_of)}" y1="10" y2="{base}" class="asof"/>')
+    o.append(f'<text x="{x(as_of) + 3}" y="9" class="tick">As of {as_of:%b} {as_of.day}, {as_of.year}</text></svg>')
+    return "".join(o)
+
+
 SHORT = {"Stated in a record": "Stated", "Computed from records": "Computed", "Assumed": "Assumed",
          "Stated in a record, carried over by an assumption": "Stated, carried over",
          "Computed from records, carried over by an assumption": "Computed, carried over"}
@@ -303,13 +377,8 @@ def html(doc):
     add(f'<h1>{_e(d["company"])}</h1><p class="event">{_e(d["event"])}</p>')
     if d["withdrawn"]:
         add('<p class="withdrawn">This case is withdrawn. It reads as its last revision held it.</p>')
-    who = ""
-    if d["person"]["name"]:
-        who = (f'<span><b>Responsible at the company</b> {_e(d["person"]["name"])}'
-               f'{", " + _e(d["person"]["title"]) if d["person"]["title"] else ""}'
-               f'{refs([d["person"]["note"]] if d["person"]["note"] else [])}</span>')
-    add(f'<div class="meta"><span><b>As of</b> {_e(d["as_of"])}</span><span><b>Period</b> {_e(d["period"])}</span>'
-        f'<span><b>Currency</b> {_e(d["currency"])}</span>{who}</div>')
+    add(f'<div class="meta"><span><b>As of</b> {_e(d["as_of"])}</span><span><b>Decided on or by</b> {_e(d["decided"])}</span>'
+        f'<span><b>Period</b> {_e(d["period"])}</span><span><b>Currency</b> {_e(d["currency"])}</span></div>')
 
     # what is at stake
     a = d["at_stake"]
@@ -318,6 +387,7 @@ def html(doc):
     add('<div class="key">'
         f'<div><div class="n">{_e(a["shortfall"])}</div><div class="l">Largest shortfall in the period</div></div>'
         + (f'<div><div class="n">{_e(a["share"])}</div><div class="l">Share of revenue</div></div>' if a["share"] else "")
+        + (f'<div><div class="n">{_e(a["contribution"])}</div><div class="l">Contribution lost with it</div></div>' if a["contribution"] else "")
         + f'<div><div class="t">{_outcome(a["outcome"])}</div><div class="l">The outcome it falls in</div></div></div>')
     cols = "".join(f'<th class="num">{_e(t)}</th>' for t in d["extra_columns"])
     add(f'<table><thead><tr><th>Outcome</th><th class="num">Revenue in the period</th><th class="num">Shortfall</th>'
@@ -327,11 +397,19 @@ def html(doc):
         f'<td class="num">–</td>{dash}</tr>')
     for w in d["outcomes"]:
         more = "".join(f'<td class="num">{_e(x)}</td>' for x in w["extra"])
-        add(f'<tr{" class=worst" if w["worst"] else ""}><td>{_outcome(w["outcome"])}</td><td class="num">{_e(w["revenue"])}</td>'
+        moves = " · ".join(f'{_e(x["label"])}: {_e(x["value"])}' for x in w["changed"])
+        moves = f'<div class="moves">{moves}</div>' if moves else ""
+        add(f'<tr{" class=worst" if w["worst"] else ""}><td>{_outcome(w["outcome"])}{moves}</td><td class="num">{_e(w["revenue"])}</td>'
             f'<td class="num">{_e(w["shortfall"])}</td><td class="num">{_e(w["share"])}</td>{more}</tr>')
     add('</tbody></table>')
+    r = d["rests"]
+    plural = lambda n, one, many: f"{n} {one if n == 1 else many}"  # noqa: E731
     add('<p class="small">Shortfall is revenue as things stand less revenue in the outcome, over the period.'
-        + (f' Share is of {_e(a["of"])}.' if a["of"] else "") + '</p>')
+        + (f' Share is of {_e(a["of"])}.' if a["of"] else "")
+        + f' Under each outcome are the inputs that take another value there. The estimate states {plural(r["figures"], "figure", "figures")}: '
+          f'{plural(r["read"], "is", "are")} read from records as they stand, {plural(r["carried"], "is", "are")} read from records and '
+          f'carried over by an assumption, and {plural(r["assumed"], "is", "are")} assumed.</p>')
+    add(_dates(d))
 
     # the event
     add(f'<h2>{"The events" if len(d["events"]) > 1 else "The event"}</h2>')
@@ -345,6 +423,10 @@ def html(doc):
         rows = f'<dt>Decided</dt><dd>{_e(p["window"])}</dd>'
         if p["shown_by"]:
             rows += f'<dt>Shown by</dt><dd>{_e(p["shown_by"])}</dd>'
+        if p["only_if"]:
+            rows += f'<dt>True only if</dt><dd>{_e("; ".join(p["only_if"]))}</dd>'
+        if p["only_if_not"]:
+            rows += f'<dt>True only if not</dt><dd>{_e("; ".join(p["only_if_not"]))}</dd>'
         if not p["about"] and p["notes"]:
             rows += f'<dt>Rests on</dt><dd>{refs(p["notes"])}</dd>'
         add(f'<dl>{rows}</dl>')
@@ -361,6 +443,8 @@ def html(doc):
     add('<h2>How the event reaches the revenue</h2>')
     if d["business"]:
         add(f'<p>{_e(d["business"])}</p>')
+    if d["relationships"]:
+        add(f'<p>{_e(d["relationships"])}</p>')
     add(f'<p>{_e(d["dependency"])}</p>')
     add(f'<h3>When</h3><p>{_e(d["timing"])}</p>')
     if d["establishes"]:
@@ -401,31 +485,22 @@ def html(doc):
             add(f'<div class="comp" id="comp-{k["n"]}"><h3>C{k["n"]}. {_e(k["name"])}</h3>')
             if k["note"]:
                 add(f'<p>{_e(k["note"])}</p>')
-            if k["sql"]:
-                add(f'<pre>{_e(k["sql"])}</pre>')
             if k["columns"] and k["rows"]:
                 head = "".join(f'<th>{_e(col)}</th>' for col in k["columns"])
                 body = "".join("<tr>" + "".join(f'<td>{_e("" if x is None else x)}</td>' for x in row) + "</tr>" for row in k["rows"])
                 add(f'<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>')
                 if k["row_count"] and k["row_count"] > len(k["rows"]):
                     add(f'<p class="small">The first {len(k["rows"])} of {k["row_count"]} rows.</p>')
+            if k["sql"]:
+                add(f'<pre>{_e(k["sql"])}</pre>')
             add('</div>')
-    if d["sensitivity"]:
-        add('<h2>Sensitivity</h2><p class="small">Each stated figure moved, one at a time, by a tenth of the largest value its input '
-            'takes in the case, with the largest change in any outcome’s shortfall and the outcome it falls in.</p>')
-        add('<table class="where"><thead><tr><th>Figure</th><th class="num" style="width:11%">Value</th><th class="num" style="width:11%">Moved by</th>'
-            '<th class="num" style="width:15%">Shortfall moves by</th><th style="width:33%">In the outcome</th></tr></thead><tbody>')
-        for r in d["sensitivity"]:
-            when = f'<br><span class="not">if {_e(r["when"])}</span>' if r["when"] else ""
-            add(f'<tr><td>{_e(r["label"])}{when}<br><span class="tag">{_e(r["basis"])}</span></td><td class="num">{_e(r["value"])}</td>'
-                f'<td class="num">{_e(r["moved_by"])}</td><td class="num">{_e(r["shortfall_moves_by"])}</td><td>{_outcome(r["outcome"])}</td></tr>')
-        add('</tbody></table>')
     if d["findings"]:
         add('<h2>Findings recorded with the case</h2>')
         for f in d["findings"]:
             add(f'<p><span class="tag">{_e(f["kind"])}</span> {_e(f["statement"])}{refs(f["notes"], f["computations"])}</p>')
     add('<h2>The condition, as the store states it</h2>'
-        f'<p class="small">The outcomes in which revenue differs from revenue as things stand, written from the propositions’ texts.</p><p>{_e(d["condition"])}</p>')
+        '<p class="small">Revenue differs from revenue as things stand in any one of these, each written from its propositions’ texts.</p>'
+        '<ol class="cond">' + "".join(f"<li>{_e(x)}</li>" for x in d["condition"]) + '</ol>')
     add(f'<p class="end">{_e(d["case_id"])}, revision {_e(d["revision"])}, as of {_e(d["as_of"])}.'
         f'{" Latest change: " + _e(d["change_note"]) if d["change_note"] else ""}</p>')
     add('</section></main></body></html>')

@@ -781,6 +781,8 @@ class Model(unittest.TestCase):
                                    "supports": "The program is the company's largest."}])
         tools.record_finding({"kind": "fact", "statement": "The board votes in June.", "case_id": out["case_id"],
                               "evidence": [{"observation_id": "obs_minutes", "passage": "will vote on the program in June"}]})
+        tools.record_finding({"kind": "conclusion", "statement": "The company's paratransit work does not depend on the agency.",
+                              "company": out["company_id"]})                # about the company, apart from this case
         with closing(db.connect()) as con:
             return out, briefs.cases(con, [out["case_id"]])[0]
 
@@ -802,9 +804,19 @@ class Model(unittest.TestCase):
                          ("Northfield Transit Services", "The agency renews the program", "July 1, 2027 – June 30, 2028", 1))
         self.assertEqual((d["at_stake"]["shortfall"], d["at_stake"]["share"], d["at_stake"]["outcome"]),
                          ("$100", "100.0%", ["Not: The agency renews the program"]))
-        self.assertEqual([(w["outcome"], w["revenue"], w["shortfall"]) for w in d["outcomes"]],
-                         [(w["label"].split("; "), briefs.money(w["revenue"]), briefs.money(w["shortfall"])) for w in res["worlds"]])
+        self.assertEqual([(w["outcome"], w["revenue"], w["shortfall"]) for w in d["outcomes"]],               # the largest shortfall first
+                         [(w["label"].split("; "), briefs.money(w["revenue"]), briefs.money(w["shortfall"]))
+                          for w in sorted(res["worlds"], key=lambda w: -w["shortfall"])])
+        self.assertEqual([w["shortfall"] for w in d["outcomes"]], ["$100", "$30", "$0", "$0"])
+        self.assertEqual(d["outcomes"][1]["changed"], [{"label": "Share of that revenue the company keeps", "value": "0.7 share of this year's funding"}])
         self.assertEqual(d["extra_columns"], [])                                      # a column no outcome fills is not drawn
+        self.assertEqual(d["rests"], {"figures": 4, "read": 0, "carried": 1, "assumed": 3})
+        self.assertEqual((d["decided"], d["dates"]), ("June 30, 2027", {"as_of": d["dates"]["as_of"], "period": ["2027-07-01", "2028-06-30"]}))
+        self.assertEqual([f["statement"] for f in d["findings"]], ["The board votes in June."])   # the one recorded on this case
+        self.assertNotIn("person", d)                                                 # the desk's, not the reader's
+        self.assertEqual(len(d["condition"]), 2)                                      # each outcome that moves revenue, on its own
+        self.assertEqual(memo._share(0.0023), "0.23%")                                # a small share is not shown as 0.0%
+        self.assertEqual((memo._share(0.033), memo._share(0)), ("3.3%", "0.0%"))
         # each input once: its label, its value as things stand, then its value in each outcome that changes it
         self.assertEqual([(f["name"], f["label"], f["value"], f["kind"]) for f in d["figures"]],
                          [("program_revenue", "Revenue under the Regional Transit Program", "$100", "Computed from records, carried over by an assumption"),
@@ -825,6 +837,9 @@ class Model(unittest.TestCase):
         self.assertEqual(d["figures"][0]["read"], "Read from computation C1: column revenue, row company Northfield, program transit")
         # the page: self-contained, the case's text escaped, each mark pointing at its note
         page = memo.html(d)
+        self.assertIn('<svg class="dates"', page)
+        self.assertIn("Period revenue is counted over: July 1, 2027 – June 30, 2028", page)
+        self.assertNotIn("Sensitivity", page)
         self.assertNotIn("<script", page)
         self.assertNotIn(' src="', page)
         self.assertIn("Annual report &lt;2026&gt;", page)
@@ -834,6 +849,10 @@ class Model(unittest.TestCase):
         self.assertIn(f'<a href="#note-{report["n"]}">{report["n"]}a</a>', page)      # quoted more than once: lettered
         self.assertIn('<a href="#comp-1">C1</a>', page)
         self.assertEqual(memo.filename(c), "northfield-transit-services--program-renewal")
+        # a record's title: what the writing program left is dropped, and a record with none is named by publisher and file
+        self.assertEqual(memo._title({"data": {"title": "Microsoft Word - 2025 Exhibit E"}}, "obs_x"), "2025 Exhibit E")
+        self.assertEqual(memo._title({"data": {"title": ""}, "source": "www1.hkexnews.hk", "url": "https://www1.hkexnews.hk/a/2026032600626.pdf"}, "obs_x"),
+                         "www1.hkexnews.hk · 2026032600626.pdf")
 
     def test_the_memo_prints_to_a_pdf(self):
         try:
